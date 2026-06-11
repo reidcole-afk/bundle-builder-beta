@@ -158,6 +158,49 @@ const { recommendBundle, normalizeParams, normalizeNetwork } = require("../src/r
     global.fetch = originalFetch;
   }
 
+  global.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/vs2/api/coins")) {
+      return jsonResponse([
+        { symbol: "MORPHO", name: "Morpho Token", address: "0x0000000000000000000000000000000000000001" },
+        { symbol: "AERO", name: "Aerodrome Finance", address: "0x0000000000000000000000000000000000000002" },
+        { symbol: "VIRTUAL", name: "Virtuals Protocol", address: "0x0000000000000000000000000000000000000003" },
+        { symbol: "WETH", name: "Wrapped Ether", address: "0x0000000000000000000000000000000000000005" },
+        { symbol: "USDC", name: "USDC", address: "0x0000000000000000000000000000000000000006" },
+      ]);
+    }
+    if (target.includes("/coins/categories?")) {
+      return jsonResponse([
+        { id: "decentralized-finance-defi", name: "Decentralized Finance (DeFi)", market_cap_change_24h: 6.2, volume_24h: 1800000000, market_cap: 12000000000 },
+        { id: "base-ecosystem", name: "Base Ecosystem", market_cap_change_24h: 4.1, volume_24h: 900000000, market_cap: 6000000000 },
+        { id: "artificial-intelligence", name: "Artificial Intelligence (AI)", market_cap_change_24h: -1.5, volume_24h: 700000000, market_cap: 9000000000 },
+      ]);
+    }
+    if (target.includes("/coins/")) throw new Error("simulated per-token CoinGecko category outage");
+    return jsonResponse({});
+  };
+
+  try {
+    const categoryFallbackResult = await recommendBundle({
+      network: "base",
+      risk: "moderate",
+      focus: "defi",
+      preferredCoins: ["MORPHO"],
+      coinCount: 3,
+      amountUsd: 100,
+      marketData: false,
+    });
+
+    const morpho = categoryFallbackResult.coins.find((coin) => coin.ticker === "MORPHO");
+    assert(morpho);
+    assert.equal(morpho.categorySignals.source, "CoinGecko category market data + static token category map");
+    assert.equal(morpho.categorySignals.primaryCategory, "Decentralized Finance (DeFi)");
+    assert.equal(morpho.categorySignals.categoryChange24h, 6.2);
+    assert.equal(morpho.categorySignals.categoryVolume24hUsd, 1800000000);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
   console.log("bundle-builder-api smoke test ok");
 })();
 

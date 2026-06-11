@@ -34,6 +34,11 @@ async function handleRequest(request, response) {
         strictEligibilityDefault: true,
         tokensEndpointFailsClosed: true,
         friendlyPortErrors: true,
+        homepage: {
+          enabled: true,
+          publicDirExists: fs.existsSync(PUBLIC_DIR),
+          indexExists: fs.existsSync(path.join(PUBLIC_DIR, "index.html")),
+        },
         betaScope: "invite-only Base beta by default",
       });
       return;

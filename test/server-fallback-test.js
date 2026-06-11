@@ -12,10 +12,12 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.4");
+  assert.equal(health.body.version, "0.1.5");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
+  assert.equal(health.body.homepage.enabled, true);
+  assert.equal(health.body.homepage.indexExists, true);
   assert.equal(health.body.betaScope, "invite-only Base beta by default");
 
   const homepage = await getRaw("/");

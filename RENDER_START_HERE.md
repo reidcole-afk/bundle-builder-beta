@@ -41,8 +41,19 @@ https://bundle-builder-beta.onrender.com
 Check:
 
 ```text
+https://YOUR-RENDER-URL/
 https://YOUR-RENDER-URL/health
 https://YOUR-RENDER-URL/api/v1/bundle?network=base&risk=moderate&focus=defi&coinCount=6&amountUsd=100
+```
+
+In `/health`, confirm:
+
+```json
+"version": "0.1.5",
+"homepage": {
+  "enabled": true,
+  "indexExists": true
+}
 ```
 
 Then send Luke:
@@ -57,8 +68,9 @@ Render should give you the DNS target/CNAME when I add the custom domain in Rend
 ## Expected Beta Behavior
 
 - `/` opens Bundle Builder.
-- `/health` returns service status.
+- `/health` returns service status and confirms the homepage file exists.
 - `/api/v1/bundle` returns recommendation JSON.
 - Only Base is enabled in beta.
 - Non-Base networks return `NETWORK_NOT_SUPPORTED_IN_BETA`.
 - If the official ViciSwap eligibility API is unavailable, production recommendations fail closed.
+- Category signals can use live CoinGecko category market rows even when per-token CoinGecko category lookup falls back to the static token-category map.

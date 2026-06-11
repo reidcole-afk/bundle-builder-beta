@@ -1,7 +1,7 @@
 const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://office.viciswap.io/vs2/api/coins";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.4";
+const API_VERSION = "0.1.5";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -259,6 +259,37 @@ const fallbackCategoriesByTicker = {
   WETH: ["Wrapped-Tokens", "Ethereum Ecosystem"],
   ZORA: ["NFT", "Base Ecosystem"],
   ZRO: ["Interoperability", "Infrastructure"],
+};
+
+const coinGeckoCategoryAliases = {
+  "arbitrum-ecosystem": ["arbitrum-ecosystem"],
+  "artificial-intelligence-ai": ["artificial-intelligence", "ai-agents"],
+  "base-ecosystem": ["base-ecosystem"],
+  "bitcoin-ecosystem": ["bitcoin-ecosystem"],
+  "decentralized-exchange-dex": ["decentralized-exchange", "dex"],
+  "decentralized-finance-defi": ["decentralized-finance-defi", "defi"],
+  "ethereum-ecosystem": ["ethereum-ecosystem"],
+  "infrastructure": ["infrastructure"],
+  "interoperability": ["interoperability"],
+  "layer-1-l1": ["layer-1", "smart-contract-platform"],
+  "layer-2-l2": ["layer-2"],
+  "lending-borrowing": ["lending-borrowing"],
+  "liquid-restaking-tokens": ["liquid-restaking-tokens", "restaking"],
+  "liquid-staking-governance-tokens": ["liquid-staking-governance-tokens", "liquid-staking-tokens"],
+  "liquid-staking-tokens": ["liquid-staking-tokens"],
+  "meme": ["meme-token", "meme"],
+  "nft": ["non-fungible-tokens-nft", "nft"],
+  "optimism-ecosystem": ["optimism-ecosystem"],
+  "oracle": ["oracle"],
+  "perpetuals": ["perpetuals"],
+  "polygon-ecosystem": ["polygon-ecosystem"],
+  "real-world-assets-rwa": ["real-world-assets-rwa", "real-world-assets"],
+  "restaking": ["restaking", "liquid-restaking-tokens"],
+  "smart-contract-platform": ["smart-contract-platform", "layer-1"],
+  "stablecoins": ["stablecoins", "stablecoin"],
+  "vici-ecosystem": ["vici-ecosystem"],
+  "wrapped-tokens": ["wrapped-tokens"],
+  "yield-farming": ["yield-farming"],
 };
 
 async function recommendBundle(rawParams = {}, options = {}) {
@@ -627,7 +658,7 @@ async function getCategorySignals(candidates, options = {}) {
   ]);
 
   const categoryMap = categoryRows.status === "fulfilled"
-    ? new Map(categoryRows.value.map((category) => [category.id, category]))
+    ? buildCategoryLookupMap(categoryRows.value)
     : new Map();
   const result = new Map();
 
@@ -706,6 +737,41 @@ function fallbackCoinCategoryData(candidate) {
   };
 }
 
+function buildCategoryLookupMap(categories) {
+  const categoryMap = new Map();
+  (categories || []).forEach((category) => {
+    categoryLookupKeys(category).forEach((key) => categoryMap.set(key, category));
+  });
+  return categoryMap;
+}
+
+function categoryLookupKeys(category) {
+  const keys = [
+    category?.id,
+    category?.name,
+    slugifyCategory(category?.name),
+    slugifyCategory(category?.id),
+  ];
+  const aliasKeys = [
+    category?.id,
+    category?.name,
+    slugifyCategory(category?.name),
+    slugifyCategory(category?.id),
+  ]
+    .flatMap((key) => coinGeckoCategoryAliases[String(key || "").trim()] || []);
+  return [...new Set([...keys, ...aliasKeys]
+    .map((key) => String(key || "").trim())
+    .filter(Boolean))];
+}
+
+function resolveCategoryRow(category, categoryMap) {
+  for (const key of categoryLookupKeys(category)) {
+    const row = categoryMap.get(key);
+    if (row) return row;
+  }
+  return null;
+}
+
 function normalizeCoinGeckoCategory(category) {
   if (!category?.id || !category?.name) return null;
   return {
@@ -721,7 +787,7 @@ function normalizeCoinGeckoCategory(category) {
 function buildCategorySignal(candidate, coinCategoryData, categoryMap) {
   const categories = (coinCategoryData?.categories || [])
     .map((category) => {
-      const row = categoryMap.get(category.id) || categoryMap.get(slugifyCategory(category.name));
+      const row = resolveCategoryRow(category, categoryMap);
       return {
         id: category.id,
         name: category.name,
@@ -746,6 +812,9 @@ function buildCategorySignal(candidate, coinCategoryData, categoryMap) {
   const categoryChange = finiteOrNull(primary.categoryChange24h) || 0;
   const relativeStrength = roundPercent(tokenChange - categoryChange);
   const hasLiveCategoryStats = primary.categoryChange24h !== null || primary.categoryVolume24h !== null;
+  const source = hasLiveCategoryStats && coinCategoryData.source === "Static category map"
+    ? "CoinGecko category market data + static token category map"
+    : coinCategoryData.source || "CoinGecko";
   const score = roundPercent(clamp(
     50
       + clamp(categoryChange, -25, 35) * 0.9
@@ -756,7 +825,7 @@ function buildCategorySignal(candidate, coinCategoryData, categoryMap) {
   ));
 
   return {
-    source: coinCategoryData.source || "CoinGecko",
+    source,
     primaryCategory: primary.name,
     categories: ranked.slice(0, 4).map(({ id, name, categoryChange24h, categoryVolume24h, updatedAt }) => ({
       id,
