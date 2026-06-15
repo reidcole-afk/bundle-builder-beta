@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.5");
+  assert.equal(health.body.version, "0.1.6");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
@@ -24,6 +24,8 @@ global.fetch = async (url) => {
   assert.equal(homepage.statusCode, 200);
   assert(homepage.headers["content-type"].includes("text/html"));
   assert(homepage.body.includes("Bundle Builder beta"));
+  assert(!homepage.body.includes("Download extension"));
+  assert(!homepage.body.includes("Chrome extension"));
 
   const stylesheet = await getRaw("/styles.css");
   assert.equal(stylesheet.statusCode, 200);

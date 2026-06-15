@@ -1,7 +1,7 @@
 const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://office.viciswap.io/vs2/api/coins";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.5";
+const API_VERSION = "0.1.6";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);

@@ -1498,7 +1498,7 @@ function makeNetworkFallbackBundle(preferences) {
     tagline: "The strict network-safe pick",
     thesis: hasAllocation
       ? `Uses only coins from the builder's confirmed ${network} ViciSwap support list.`
-      : `No ${network} Receive tokens are confirmed in the current builder scan. Run Scan token list in the ViciSwap assistant, then rebuild.`,
+      : `No ${network} Receive tokens are confirmed right now. Refresh the builder or try again after ViciSwap token eligibility is available.`,
     action: hasAllocation
       ? "Best when token availability matters more than maximizing narrative variety."
       : "Switch back to a scanned network or run the full ViciSwap token scan before building on this network.",
