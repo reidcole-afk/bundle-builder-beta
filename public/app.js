@@ -2364,6 +2364,13 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
     if (!eligibleCandidates.length) throw new Error("No market candidates for network");
     const nextFavorites = await getLivePulseDeck(eligibleCandidates, network);
     if (refreshId !== marketPulseRefreshSeq) return;
+    if (!render) {
+      currentFavorites = mergePulseDeckByTicker(currentFavorites, nextFavorites);
+      currentFavorite = currentFavorites.find((candidate) => candidate.ticker === currentFavorite?.ticker) || currentFavorite;
+      currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite?.ticker));
+      lastMarketPulseError = "";
+      return;
+    }
     currentFavorites = nextFavorites;
     lastMarketPulseError = "";
     const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
@@ -2388,6 +2395,20 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
   if (render && currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
     buildBundle({ scroll: false });
   }
+}
+
+function mergePulseDeckByTicker(currentDeck = [], nextDeck = []) {
+  if (!Array.isArray(currentDeck) || !currentDeck.length) return nextDeck;
+  const nextByTicker = new Map((nextDeck || []).map((candidate) => [candidate.ticker, candidate]));
+  return currentDeck.map((candidate) => {
+    const updated = nextByTicker.get(candidate.ticker);
+    if (!updated) return candidate;
+    return {
+      ...candidate,
+      ...updated,
+      rank: candidate.rank,
+    };
+  });
 }
 
 async function getLivePulseDeck(eligibleCandidates, network) {
