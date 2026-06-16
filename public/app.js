@@ -2292,7 +2292,7 @@ function hideFitSliceTooltip(slice) {
   tooltip.hidden = true;
 }
 
-async function refreshMarketPulse() {
+async function refreshMarketPulse({ preserveSelection = false } = {}) {
   pulseStatus.textContent = "Refreshing";
   const { network } = getPreferences();
   const selectedTicker = currentFavorite?.ticker;
@@ -2301,7 +2301,9 @@ async function refreshMarketPulse() {
     if (!eligibleCandidates.length) throw new Error("No market candidates for network");
     currentFavorites = await getLivePulseDeck(eligibleCandidates, network);
     lastMarketPulseError = "";
-    currentFavorite = currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0];
+    currentFavorite = preserveSelection
+      ? currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0]
+      : currentFavorites[0];
   } catch (error) {
     lastMarketPulseError = error?.message || String(error);
     window.viciMarketPulseLastError = lastMarketPulseError;
@@ -3486,7 +3488,6 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
         ...candidate,
         pulseScore: (candidate.pulseScore || 0) + adjustment,
         trajectory: chartTrajectoryLabel(candidate.prices),
-        reason: appendTrajectoryNote(candidate.reason, candidate.prices),
       };
     })
     .sort((a, b) => b.pulseScore - a.pulseScore)
