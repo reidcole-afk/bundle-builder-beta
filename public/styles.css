@@ -343,6 +343,12 @@ svg {
   align-items: center;
 }
 
+.pulse-step-controls {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
 .pulse-source-actions span {
   padding: 6px 9px;
   border-radius: 999px;
@@ -386,8 +392,8 @@ svg {
 
 .pulse-body {
   display: grid;
-  grid-template-columns: 36px minmax(160px, 0.65fr) minmax(0, 1fr) 36px;
-  gap: 12px;
+  grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1fr);
+  gap: 14px;
   align-items: stretch;
 }
 
@@ -1575,8 +1581,7 @@ input[type="range"] {
 @media (max-width: 1080px) {
   .builder-shell,
   .result-grid,
-  .primary-result,
-  .pulse-body {
+  .primary-result {
     grid-template-columns: 1fr;
   }
 
@@ -1653,30 +1658,7 @@ input[type="range"] {
   }
 
   .pulse-body {
-    grid-template-columns: 34px minmax(0, 1fr) 34px;
-  }
-
-  .pulse-nav-left {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .pulse-nav-right {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .pulse-chart,
-  .pulse-copy {
-    grid-column: 1 / -1;
-  }
-
-  .pulse-chart {
-    grid-row: 2;
-  }
-
-  .pulse-copy {
-    grid-row: 3;
+    grid-template-columns: 1fr;
   }
 
   .icon-link,

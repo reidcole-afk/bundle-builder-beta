@@ -398,12 +398,14 @@ const MARKET_SIMPLE_TIMEOUT_MS = 9000;
 const MARKET_CHART_TIMEOUT_MS = 12000;
 const MARKET_PULSE_CANDIDATE_LIMIT = 90;
 const MARKET_PULSE_DECK_SIZE = 10;
+const MARKET_PULSE_MIN_MARKET_ROWS = 18;
+const MARKET_PULSE_LOOKUP_BATCH_SIZE = 10;
 const BINANCE_TICKER_CACHE_MS = 1000 * 60 * 2;
 const COINBASE_STATS_CACHE_MS = 1000 * 60 * 2;
 const CRYPTOCOMPARE_STATS_CACHE_MS = 1000 * 60 * 2;
 const DEXSCREENER_STATS_CACHE_MS = 1000 * 60 * 2;
-const DEXSCREENER_TIMEOUT_MS = 11000;
-const DEXSCREENER_ROW_TIMEOUT_MS = 8500;
+const DEXSCREENER_TIMEOUT_MS = 18000;
+const DEXSCREENER_ROW_TIMEOUT_MS = 5200;
 const MARKET_CHART_CANDIDATE_LIMIT = 12;
 const VICI_COINS_API_BASE_URL = "https://office.viciswap.io/vs2/api/coins";
 const VICI_COINS_API_CACHE_MS = 1000 * 60 * 10;
@@ -2796,18 +2798,29 @@ async function fetchCoinGeckoChartRow(meta) {
 async function fetchDexScreenerMarketRows(eligibleCandidates, network) {
   const chainId = dexScreenerChainIds[normalizeNetwork(network)];
   if (!chainId) throw new Error("No DEX Screener chain id for network");
-  const results = await Promise.allSettled(
-    eligibleCandidates.map((meta) => (
-      withTimeout(
-        fetchDexScreenerMarketRow(meta, network, chainId),
-        DEXSCREENER_ROW_TIMEOUT_MS,
-        `${meta.ticker} DEX Screener lookup timed out`,
-      )
-    )),
-  );
-  return results
-    .filter((result) => result.status === "fulfilled" && result.value)
-    .map((result) => result.value);
+  const rows = [];
+  const seen = new Set();
+  for (let start = 0; start < eligibleCandidates.length; start += MARKET_PULSE_LOOKUP_BATCH_SIZE) {
+    const batch = eligibleCandidates.slice(start, start + MARKET_PULSE_LOOKUP_BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map((meta) => (
+        withTimeout(
+          fetchDexScreenerMarketRow(meta, network, chainId),
+          DEXSCREENER_ROW_TIMEOUT_MS,
+          `${meta.ticker} DEX Screener lookup timed out`,
+        )
+      )),
+    );
+    results.forEach((result) => {
+      if (result.status !== "fulfilled" || !result.value) return;
+      const key = `${result.value.chainId || chainId}:${result.value.ticker || result.value.id || result.value.pairUrl}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push(result.value);
+    });
+    if (rows.length >= MARKET_PULSE_MIN_MARKET_ROWS) break;
+  }
+  return rows;
 }
 
 async function fetchDexScreenerMarketRow(meta, network, chainId) {
