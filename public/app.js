@@ -933,7 +933,7 @@ function storeApiTokenUniverse(tokenUniverse) {
   try {
     localStorage.setItem(VICI_API_TOKEN_UNIVERSE_LOCAL_STORAGE_KEY, JSON.stringify(tokenUniverse));
   } catch {
-    // API data is an enhancement; the extension scan and starter list remain available.
+    // The API can still render without cached token metadata.
   }
 }
 
@@ -2378,7 +2378,7 @@ async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
 async function getDexScreenerPulseDeck(eligibleCandidates, network) {
   const markets = await fetchDexScreenerMarketRows(eligibleCandidates, network);
   updateLatestPricesFromDexScreener(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, 3);
+  const favoriteMarkets = selectFavoriteMarkets(markets, 8);
   if (!favoriteMarkets.length) throw new Error("No DEX Screener candidates ranked");
   const favoriteDeck = favoriteMarkets
     .map((market, index) => {
@@ -2387,7 +2387,7 @@ async function getDexScreenerPulseDeck(eligibleCandidates, network) {
       return buildDexScreenerPulseCandidate(meta, market, network, index + 1);
     })
     .filter(Boolean);
-  return Promise.all(favoriteDeck.map(loadPulseChart));
+  return loadPulseChartsAndRerank(favoriteDeck, 3);
 }
 
 async function getViciSwapScanPulseDeck(eligibleCandidates, network) {
@@ -3468,12 +3468,101 @@ function selectFavoriteMarkets(markets, limit = 3) {
       const volume = Math.log10(Math.max(market.total_volume || 1, 1));
       const liquidity = Math.log10(Math.max(market.liquidityUsd || 1, 1));
       const momentum = Math.max(-8, Math.min(change, 18));
-      const score = meta.baseScore + momentum * 2.4 + volume * 2 + liquidity * 1.4;
+      const trajectory = chartTrajectoryScore(market.sparkline_in_7d?.price);
+      const score = meta.baseScore + momentum * 2.4 + volume * 2 + liquidity * 1.4 + trajectory;
       return { ...market, pulseScore: score };
     })
     .filter(Boolean)
     .sort((a, b) => b.pulseScore - a.pulseScore);
   return scored.slice(0, limit);
+}
+
+async function loadPulseChartsAndRerank(deck, limit = 3) {
+  const loaded = await Promise.all(deck.map(loadPulseChart));
+  return loaded
+    .map((candidate) => {
+      const adjustment = chartTrajectoryScore(candidate.prices);
+      return {
+        ...candidate,
+        pulseScore: (candidate.pulseScore || 0) + adjustment,
+        trajectory: chartTrajectoryLabel(candidate.prices),
+        reason: appendTrajectoryNote(candidate.reason, candidate.prices),
+      };
+    })
+    .sort((a, b) => b.pulseScore - a.pulseScore)
+    .slice(0, limit)
+    .map((candidate, index) => {
+      const rank = index + 1;
+      return {
+        ...candidate,
+        rank,
+        reason: appendTrajectoryNote(rewritePulseRankLabel(candidate.reason, rank), candidate.prices),
+      };
+    });
+}
+
+function appendTrajectoryNote(reason, prices) {
+  const label = chartTrajectoryLabel(prices);
+  if (!label || label.tone === "neutral") return reason;
+  return `${reason} Near-term chart read: ${label.text}`;
+}
+
+function rewritePulseRankLabel(reason, rank) {
+  const label = rank === 1 ? "the current favorite" : `the #${rank} market favorite`;
+  return String(reason || "")
+    .replace(/the current favorite/g, label)
+    .replace(/the #\d+ market favorite/g, label);
+}
+
+function chartTrajectoryLabel(prices) {
+  const stats = chartTrajectoryStats(prices);
+  if (!stats) return null;
+  if (stats.recentReturn <= -2.5 && stats.pullbackFromHigh >= 0.06) {
+    return { tone: "bearish", text: "up on 24h, but currently fading from its recent high." };
+  }
+  if (stats.recentReturn <= -1.25) {
+    return { tone: "softening", text: "recent slope is softening, so the entry looks less clean." };
+  }
+  if (stats.recentReturn >= 1.5 && stats.consistency >= 0.52) {
+    return { tone: "constructive", text: "recent slope is still constructive." };
+  }
+  return { tone: "neutral", text: "recent chart is mixed." };
+}
+
+function chartTrajectoryScore(prices) {
+  const stats = chartTrajectoryStats(prices);
+  if (!stats) return 0;
+  const recentSlope = clamp(stats.recentReturn, -8, 8) * 0.45;
+  const pullbackPenalty = clamp(stats.pullbackFromHigh * 100, 0, 18) * 0.32;
+  const consistency = (stats.consistency - 0.5) * 4;
+  return clamp(recentSlope + consistency - pullbackPenalty, -8, 5);
+}
+
+function chartTrajectoryStats(prices) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 8) return null;
+  const recentCount = Math.max(4, Math.round(series.length * 0.22));
+  const recent = series.slice(-recentCount);
+  const recentStart = recent[0];
+  const recentEnd = recent.at(-1);
+  if (!recentStart || !recentEnd) return null;
+  const recentReturn = ((recentEnd - recentStart) / recentStart) * 100;
+  const recentHigh = Math.max(...recent);
+  const fullHigh = Math.max(...series);
+  const pullbackFromHigh = recentEnd && fullHigh ? (fullHigh - recentEnd) / fullHigh : 0;
+  const returns = [];
+  for (let index = 1; index < recent.length; index += 1) {
+    returns.push((recent[index] - recent[index - 1]) / recent[index - 1]);
+  }
+  const consistency = returns.length
+    ? returns.filter((value) => value >= 0).length / returns.length
+    : 0.5;
+  return {
+    recentReturn: Number.isFinite(recentReturn) ? recentReturn : 0,
+    pullbackFromHigh: Number.isFinite(pullbackFromHigh) ? pullbackFromHigh : 0,
+    recentHigh,
+    consistency,
+  };
 }
 
 function normalizePriceSeries(prices) {
@@ -3497,6 +3586,7 @@ function buildPulseCandidate(meta, market, source, rank = 1, network = getPrefer
   return {
     id: meta.id,
     rank,
+    pulseScore: finiteOrNull(market.pulseScore) || 0,
     ticker: meta.ticker,
     name: meta.name,
     theme: meta.theme,
@@ -3519,6 +3609,7 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
   return {
     id: meta.id,
     rank,
+    pulseScore: finiteOrNull(market.pulseScore) || 0,
     ticker: meta.ticker,
     name: meta.name,
     theme: meta.theme,

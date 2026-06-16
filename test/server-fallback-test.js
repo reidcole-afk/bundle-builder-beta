@@ -12,8 +12,9 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.6");
+  assert.equal(health.body.version, "0.1.7");
   assert.equal(health.body.strictEligibilityDefault, true);
+  assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
   assert.equal(health.body.homepage.enabled, true);
@@ -55,6 +56,26 @@ global.fetch = async (url) => {
   assert.equal(strictBundle.body.ok, false);
   assert.equal(strictBundle.body.dataSources.eligibility, "vici-api-unavailable");
   assert.equal(strictBundle.body.dataSources.fallbackEligibilityUsed, false);
+
+  global.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/vs2/api/coins")) {
+      return { ok: true, json: async () => [{ symbol: "MORPHO", name: "Morpho Token", address: "0x0000000000000000000000000000000000000001" }] };
+    }
+    if (target.includes("/api/coin_data")) throw new Error("simulated ViciSwap liquidity API outage");
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const strictLiquidityBundle = await getJson("/api/v1/bundle?network=base&risk=moderate&focus=defi&coinCount=3&amountUsd=100&marketData=false&categoryIntelligence=false");
+  assert.equal(strictLiquidityBundle.statusCode, 503);
+  assert.equal(strictLiquidityBundle.body.ok, false);
+  assert.equal(strictLiquidityBundle.body.code, "LIQUIDITY_SOURCE_UNAVAILABLE");
+  assert.equal(strictLiquidityBundle.body.dataSources.liquiditySource, "vici-coin-data-unavailable");
+
+  const demoLiquidityBundle = await getJson("/api/v1/bundle?network=base&risk=moderate&focus=defi&coinCount=3&amountUsd=100&marketData=false&categoryIntelligence=false&allowFallbackLiquidity=true");
+  assert.equal(demoLiquidityBundle.statusCode, 200);
+  assert.equal(demoLiquidityBundle.body.ok, true);
+  assert.equal(demoLiquidityBundle.body.dataSources.liquiditySource, "fallback-liquidity-list");
 
   const nonBaseBundle = await getJson("/api/v1/bundle?network=polygon&risk=moderate&focus=defi&coinCount=6&amountUsd=100&marketData=false&categoryIntelligence=false");
   assert.equal(nonBaseBundle.statusCode, 400);

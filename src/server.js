@@ -32,6 +32,7 @@ async function handleRequest(request, response) {
         service: "bundle-builder-api",
         version: API_VERSION,
         strictEligibilityDefault: true,
+        liquidityEndpointFailsClosed: true,
         tokensEndpointFailsClosed: true,
         friendlyPortErrors: true,
         homepage: {
@@ -228,6 +229,8 @@ function statusForBundleResult(result) {
   if (result?.ok !== false) return 200;
   if (result.code === "NETWORK_NOT_SUPPORTED_IN_BETA") return 400;
   if (result.code === "ELIGIBILITY_SOURCE_UNAVAILABLE") return 503;
+  if (result.code === "LIQUIDITY_SOURCE_UNAVAILABLE") return 503;
+  if (result.code === "INSUFFICIENT_LIQUIDITY_FOR_RISK") return 422;
   return 500;
 }
 

@@ -21,12 +21,13 @@ That means a managed host can run one Node service and expose both the browser p
   - Polygon: `chainid=137`
   - Arbitrum: `chainid=42161`
   - Optimism: `chainid=10`
-- Uses DEX Screener best-effort market data for price, 24h change, volume, and liquidity.
-- Adds a beta liquidity/volume check to each returned coin. Current default targets are `$250,000` liquidity and `$100,000` 24h volume.
+- Uses ViciSwap's simulated liquidity-depth API as the primary risk gate. The check simulates a `$1,000` USDC -> token -> USDC round trip and reads `diff_thousand` as the expected dollar loss.
+- Excludes any token that is not returned by the ViciSwap liquidity-depth list. Low risk defaults to Austin's conservative `$20` max round-trip loss cutoff.
+- Uses DEX Screener best-effort market data for price, 24h change, volume, and general market context. DEX Screener is not the primary liquidity authority.
 - Uses CoinGecko best-effort category intelligence to understand whether a token fits a hot/cooling sector, such as Meme, Smart Contract Platform, DeFi, AI, RWA, or L2.
 - Returns a JSON recommendation with a same-network coin array, target percentages, estimated dollar amounts, estimated quantities, rationale, and risk notes.
-- Fails closed by default if the official ViciSwap coins API is temporarily unavailable, so production recommendations are not built from stale fallback eligibility.
-- Supports `allowFallbackEligibility=true` only for local demos and engineering tests that intentionally need starter-list fallback behavior.
+- Fails closed by default if the official ViciSwap coins API or simulated liquidity-depth API is temporarily unavailable, so production recommendations are not built from stale fallback data.
+- Supports `allowFallbackEligibility=true` and `allowFallbackLiquidity=true` only for local demos and engineering tests that intentionally need fallback behavior.
 
 ## Run Locally
 
@@ -124,12 +125,21 @@ Bundle Builder uses a scored recommendation pipeline. It does not predict return
 
 1. **Eligibility gate:** The selected network is checked against the beta scope. The invite-only beta defaults to Base. Then the official ViciSwap coins API is used as the same-network Receive-token source. If that source is unavailable, production recommendations fail closed.
 2. **User preference mapping:** `risk` maps to a target risk band, `focus` maps to a theme such as DeFi/Base/AI/core, `coinCount` controls diversification, and `preferredCoins`/`excludedCoins` boost or remove specific tickers.
-3. **Candidate enrichment:** Eligible ViciSwap tokens are enriched with local token metadata, DEX Screener token-level market data, and CoinGecko category context.
-4. **Liquidity screen:** If DEX Screener data is available, each candidate receives a `liquidityCheck` with liquidity, 24h volume, thresholds, and pass/thin/unverified status. Thin liquidity reduces ranking score; ViciSwap still performs the final route and depth check.
-5. **Scoring:** Each candidate receives a recommendation score from base quality, user focus match, preferred coin boost, 24h momentum adjusted by risk tolerance, volume, liquidity, CoinGecko category strength, and relative strength versus its category.
+3. **Liquidity gate:** The selected network is checked against ViciSwap's `coin_data` endpoint. Any coin not returned by that endpoint is excluded immediately. Remaining candidates must pass a risk-adjusted `diff_thousand` cutoff.
+4. **Candidate enrichment:** Eligible ViciSwap tokens are enriched with local token metadata, DEX Screener token-level market context, and CoinGecko category context.
+5. **Scoring:** Each candidate receives a recommendation score from base quality, user focus match, preferred coin boost, 24h momentum adjusted by risk tolerance, ViciSwap simulated liquidity depth, DEX Screener volume context, CoinGecko category strength, and relative strength versus its category.
 6. **Model fit:** The system compares candidate bundles against strategy models with different risk indices and themes. It favors models that match the user's risk, focus, and the selected network's eligible token set.
 7. **Allocation:** Seed weights come from the chosen model and preferred coins. Weights are adjusted modestly for market momentum and category strength, then normalized to 100%.
-8. **Response:** The API returns the final same-network coin list, allocation percentage, estimated dollar/coin amount, rationale, market data, category signals, and liquidity check.
+8. **Response:** The API returns the final same-network coin list, allocation percentage, estimated dollar/coin amount, rationale, market data, category signals, and the ViciSwap simulated liquidity check.
+
+Default `diff_thousand` thresholds:
+
+| Risk | Max simulated loss on $1k round trip |
+| --- | ---: |
+| `low` | `$20` |
+| `moderate` | `$35` |
+| `high` | `$60` |
+| `very_high` | `$100` |
 
 The simplified scoring formula is:
 
@@ -188,11 +198,10 @@ Important limits: this is an educational beta tool, not financial advice, not a 
         "liquidityCheck": {
           "status": "passed",
           "passed": true,
-          "source": "DEX Screener",
-          "liquidityUsd": 900000,
-          "volume24hUsd": 1200000,
-          "minLiquidityUsd": 250000,
-          "minVolume24hUsd": 100000
+          "source": "ViciSwap simulated $1k round-trip",
+          "diffThousandUsd": 8,
+          "maxDiffThousandUsd": 35,
+          "conservativeMaxDiffThousandUsd": 20
         },
         "categorySignals": {
           "source": "CoinGecko",
@@ -231,8 +240,8 @@ This is intentional. It keeps the production REST API from recommending tokens f
 - This API does not sign transactions, touch wallets, or execute swaps.
 - This API is not a rug-pull detector or contract auditor.
 - Invite-only beta scope should stay Base-first unless engineering deliberately expands `BUNDLE_BUILDER_ALLOWED_NETWORKS`.
-- The liquidity screen is a ranking and warning signal. ViciSwap must still verify live route depth, slippage, fees, and quote quality.
-- Keep strict eligibility enabled in production. Do not use `allowFallbackEligibility=true` for live ViciSwap execution.
+- The ViciSwap simulated liquidity screen is a hard recommendation gate. ViciSwap must still verify live route depth, slippage, fees, and quote quality before execution.
+- Keep strict eligibility and strict liquidity enabled in production. Do not use `allowFallbackEligibility=true` or `allowFallbackLiquidity=true` for live ViciSwap execution.
 - If the configured port is already in use, the server now prints a short recovery message instead of a raw Node stack trace. Use `PORT=8790 npm start` or stop the existing server.
 - ViciSwap should still verify token route, liquidity, slippage, fees, allowances, and final quote before execution.
 - Add an API key or server-side allowlist before public launch if the endpoint is hosted publicly.

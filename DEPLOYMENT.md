@@ -29,8 +29,12 @@ NODE_ENV=production
 HOST=0.0.0.0
 CORS_ORIGIN=https://bundle.vicicoin.io
 BUNDLE_BUILDER_ALLOWED_NETWORKS=base
-BUNDLE_BUILDER_MIN_LIQUIDITY_USD=250000
-BUNDLE_BUILDER_MIN_VOLUME_24H_USD=100000
+VICI_COIN_DATA_API_BASE_URL=https://app.viciswap.io/api/coin_data
+BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD=20
+BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD=20
+BUNDLE_BUILDER_MODERATE_MAX_DIFF_THOUSAND_USD=35
+BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD=60
+BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
 ```
 
 The host usually provides `PORT` automatically. Set `PORT` only if the host asks for it.
@@ -64,6 +68,7 @@ If the managed host asks for a CNAME, Luke should create a CNAME record. If the 
 The server must be able to reach:
 
 - `https://office.viciswap.io/vs2/api/coins`
+- `https://app.viciswap.io/api/coin_data`
 - `https://api.dexscreener.com`
 - `https://api.coingecko.com`
 
@@ -87,3 +92,5 @@ Expected beta behavior:
 - Base requests work when the ViciSwap eligibility API is reachable.
 - Non-Base requests return `NETWORK_NOT_SUPPORTED_IN_BETA`.
 - If ViciSwap eligibility is unavailable, production recommendations fail closed instead of using fallback tokens.
+- If ViciSwap simulated liquidity data is unavailable, production recommendations fail closed instead of using fallback liquidity.
+- Low-risk bundles exclude any token above Austin's conservative `$20` `diff_thousand` cutoff by default.

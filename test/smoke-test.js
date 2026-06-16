@@ -70,6 +70,7 @@ const { recommendBundle, normalizeParams, normalizeNetwork } = require("../src/r
       marketData: false,
       categoryIntelligence: false,
       allowFallbackEligibility: true,
+      allowFallbackLiquidity: true,
     });
 
     assert.equal(fallbackResult.ok, true);
@@ -89,6 +90,16 @@ const { recommendBundle, normalizeParams, normalizeNetwork } = require("../src/r
         { symbol: "DEGEN", name: "Degen", address: "0x0000000000000000000000000000000000000004" },
         { symbol: "WETH", name: "Wrapped Ether", address: "0x0000000000000000000000000000000000000005" },
         { symbol: "USDC", name: "USDC", address: "0x0000000000000000000000000000000000000006" },
+      ]);
+    }
+    if (target.includes("/api/coin_data")) {
+      return jsonResponse([
+        { symbol: "MORPHO", diff_thousand: 8 },
+        { symbol: "AERO", diff_thousand: 14 },
+        { symbol: "VIRTUAL", diff_thousand: 28 },
+        { symbol: "DEGEN", diff_thousand: 55 },
+        { symbol: "WETH", diff_thousand: 1 },
+        { symbol: "USDC", diff_thousand: 0.2 },
       ]);
     }
     if (target.includes("/token-pairs/v1/base/")) {
@@ -151,9 +162,24 @@ const { recommendBundle, normalizeParams, normalizeNetwork } = require("../src/r
     assert.equal(morpho.categorySignals.categoryChange24h, 6.2);
     assert.equal(morpho.liquidityCheck.status, "passed");
     assert.equal(morpho.liquidityCheck.passed, true);
+    assert.equal(morpho.liquidityCheck.source, "ViciSwap simulated $1k round-trip");
+    assert.equal(morpho.liquidityCheck.diffThousandUsd, 8);
 
     const virtual = liveLikeResult.coins.find((coin) => coin.ticker === "VIRTUAL");
-    if (virtual) assert.equal(virtual.liquidityCheck.status, "thin");
+    if (virtual) assert.equal(virtual.liquidityCheck.status, "risk_adjusted_pass");
+
+    const lowRiskResult = await recommendBundle({
+      network: "base",
+      risk: "low",
+      focus: "base",
+      coinCount: 5,
+      amountUsd: 100,
+      marketData: false,
+      categoryIntelligence: false,
+    });
+    assert.equal(lowRiskResult.ok, true);
+    assert(lowRiskResult.coins.every((coin) => coin.liquidityCheck.diffThousandUsd <= 20));
+    assert(!lowRiskResult.coins.some((coin) => ["VIRTUAL", "DEGEN"].includes(coin.ticker)));
   } finally {
     global.fetch = originalFetch;
   }
@@ -167,6 +193,15 @@ const { recommendBundle, normalizeParams, normalizeNetwork } = require("../src/r
         { symbol: "VIRTUAL", name: "Virtuals Protocol", address: "0x0000000000000000000000000000000000000003" },
         { symbol: "WETH", name: "Wrapped Ether", address: "0x0000000000000000000000000000000000000005" },
         { symbol: "USDC", name: "USDC", address: "0x0000000000000000000000000000000000000006" },
+      ]);
+    }
+    if (target.includes("/api/coin_data")) {
+      return jsonResponse([
+        { symbol: "MORPHO", diff_thousand: 8 },
+        { symbol: "AERO", diff_thousand: 14 },
+        { symbol: "VIRTUAL", diff_thousand: 28 },
+        { symbol: "WETH", diff_thousand: 1 },
+        { symbol: "USDC", diff_thousand: 0.2 },
       ]);
     }
     if (target.includes("/coins/categories?")) {

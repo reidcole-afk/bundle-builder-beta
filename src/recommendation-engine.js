@@ -1,12 +1,14 @@
 const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://office.viciswap.io/vs2/api/coins";
+const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.6";
+const API_VERSION = "0.1.7";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
 const MIN_LIQUIDITY_USD = Number(process.env.BUNDLE_BUILDER_MIN_LIQUIDITY_USD || 250_000);
 const MIN_VOLUME_24H_USD = Number(process.env.BUNDLE_BUILDER_MIN_VOLUME_24H_USD || 100_000);
+const VICI_MAX_DIFF_THOUSAND_USD = Number(process.env.BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD || 20);
 
 const networks = {
   base: { key: "base", name: "Base", chainId: 8453, dexChainId: "base" },
@@ -304,8 +306,16 @@ async function recommendBundle(rawParams = {}, options = {}) {
   }
   const supportedTickers = new Set(support.tokens.map((token) => token.ticker));
   const candidateRows = buildCandidateRows(support.tokens, params);
+  const liquiditySource = await getViciLiquiditySignals(network, options);
+  if (liquiditySource.source !== "vici-coin-data" && !params.allowFallbackLiquidity && !options.skipExternalFetch) {
+    return buildLiquidityUnavailableResponse(params, network, liquiditySource);
+  }
+  const liquidityQualifiedRows = applyLiquidityGate(candidateRows, liquiditySource, params);
+  if (!liquidityQualifiedRows.length) {
+    return buildInsufficientLiquidityResponse(params, network, liquiditySource, candidateRows.length);
+  }
 
-  const initialCandidates = candidateRows
+  const initialCandidates = liquidityQualifiedRows
     .filter((candidate) => supportedTickers.has(candidate.ticker))
     .sort((a, b) => scoreCandidate(b, params) - scoreCandidate(a, params))
     .slice(0, MARKET_LOOKUP_LIMIT);
@@ -317,7 +327,7 @@ async function recommendBundle(rawParams = {}, options = {}) {
     ? new Map()
     : await getCategorySignals(initialCandidates, options);
 
-  const scoredCandidates = candidateRows
+  const scoredCandidates = liquidityQualifiedRows
     .map((candidate) => ({
       ...candidate,
       market: marketSignals.get(candidate.ticker) || null,
@@ -353,10 +363,19 @@ async function recommendBundle(rawParams = {}, options = {}) {
       eligibilityError: support.error || null,
       marketData: params.includeMarketData === false ? "disabled" : "DEX Screener best-effort",
       categoryIntelligence: params.includeCategoryIntelligence === false ? "disabled" : "CoinGecko category market data best-effort",
-      liquidityScreen: params.includeMarketData === false
-        ? "disabled with marketData=false"
-        : `DEX Screener best-effort; target minimum $${MIN_LIQUIDITY_USD.toLocaleString()} liquidity and $${MIN_VOLUME_24H_USD.toLocaleString()} 24h volume`,
-      note: "ViciSwap token eligibility is separated from token and category market ranking data.",
+      liquidityScreen: liquiditySource.source === "vici-coin-data"
+        ? `ViciSwap simulated $1k round-trip liquidity; max loss for ${params.risk} risk is $${maxDiffForRisk(params.risk).toLocaleString()}`
+        : "fallback liquidity data for local/demo mode",
+      liquiditySource: liquiditySource.source,
+      liquidityUrl: liquiditySource.url || null,
+      liquidityError: liquiditySource.error || null,
+      liquidityThresholds: {
+        conservativeMaxDiffThousandUsd: VICI_MAX_DIFF_THOUSAND_USD,
+        selectedRiskMaxDiffThousandUsd: maxDiffForRisk(params.risk),
+      },
+      liquidityTokenCount: liquiditySource.tokenCount,
+      liquidityQualifiedTokenCount: liquidityQualifiedRows.length,
+      note: "ViciSwap token eligibility is separated from token and category market ranking data. ViciSwap simulated-swap liquidity is the primary risk gate.",
     },
     bundle: {
       id: model.id,
@@ -376,6 +395,87 @@ async function recommendBundle(rawParams = {}, options = {}) {
       allowedNetworks: allowedNetworkKeys().map((key) => networks[key]?.name || key),
       note: "Public beta is scoped to Base unless BUNDLE_BUILDER_ALLOWED_NETWORKS is changed by engineering.",
     },
+    disclaimers: [
+      "Educational beta output only; not financial advice.",
+      "The API does not detect rug pulls or audit contracts.",
+      "ViciSwap should still verify route, liquidity, slippage, fees, and wallet approval before execution.",
+    ],
+  };
+}
+
+function buildLiquidityUnavailableResponse(params, network, liquiditySource) {
+  return {
+    ok: false,
+    version: API_VERSION,
+    beta: true,
+    code: "LIQUIDITY_SOURCE_UNAVAILABLE",
+    error: "The ViciSwap simulated-swap liquidity source was unavailable, so Bundle Builder did not create a recommendation.",
+    generatedAt: new Date().toISOString(),
+    input: {
+      network: network.name,
+      chainId: network.chainId,
+      risk: params.risk,
+      focus: params.focus,
+      coinCount: params.coinCount,
+      amountUsd: params.amountUsd,
+      preferredCoins: params.preferredCoins,
+      excludedCoins: params.excludedCoins,
+      timeframe: params.timeframe,
+      strictEligibility: true,
+    },
+    dataSources: {
+      eligibility: "vici-api",
+      liquiditySource: "vici-coin-data-unavailable",
+      liquidityUrl: liquiditySource.url || null,
+      liquidityError: liquiditySource.error || null,
+      fallbackLiquidityUsed: false,
+      marketData: "not requested",
+      categoryIntelligence: "not requested",
+      note: "Production recommendations fail closed unless ViciSwap liquidity depth data is available.",
+    },
+    bundle: null,
+    coins: [],
+    howToProceed: "Retry after the ViciSwap coin_data API is available. For local demos only, pass allowFallbackLiquidity=true.",
+    disclaimers: [
+      "Educational beta output only; not financial advice.",
+      "The API does not detect rug pulls or audit contracts.",
+      "ViciSwap should still verify route, liquidity, slippage, fees, and wallet approval before execution.",
+    ],
+  };
+}
+
+function buildInsufficientLiquidityResponse(params, network, liquiditySource, candidateCount) {
+  return {
+    ok: false,
+    version: API_VERSION,
+    beta: true,
+    code: "INSUFFICIENT_LIQUIDITY_FOR_RISK",
+    error: `No ${network.name} tokens passed the ${params.risk} risk simulated-swap liquidity screen.`,
+    generatedAt: new Date().toISOString(),
+    input: {
+      network: network.name,
+      chainId: network.chainId,
+      risk: params.risk,
+      focus: params.focus,
+      coinCount: params.coinCount,
+      amountUsd: params.amountUsd,
+      preferredCoins: params.preferredCoins,
+      excludedCoins: params.excludedCoins,
+      timeframe: params.timeframe,
+      strictEligibility: true,
+    },
+    dataSources: {
+      eligibility: "vici-api",
+      liquiditySource: liquiditySource.source,
+      liquidityUrl: liquiditySource.url || null,
+      liquidityTokenCount: liquiditySource.tokenCount,
+      candidateCount,
+      maxDiffThousandUsd: maxDiffForRisk(params.risk),
+      note: "Every recommendation must be present in ViciSwap coin_data and pass the selected risk threshold.",
+    },
+    bundle: null,
+    coins: [],
+    howToProceed: "Use a higher risk setting, reduce exclusions, or wait for more Base tokens to pass ViciSwap's simulated-swap liquidity screen.",
     disclaimers: [
       "Educational beta output only; not financial advice.",
       "The API does not detect rug pulls or audit contracts.",
@@ -478,6 +578,90 @@ async function getSupportedTokens(network, options = {}) {
     fallback.url = url;
     return fallback;
   }
+}
+
+async function getViciLiquiditySignals(network, options = {}) {
+  if (options.skipExternalFetch) return fallbackLiquiditySupport(network, "fallback-liquidity-list");
+  const url = `${VICI_COIN_DATA_API_BASE_URL}?chain_id=${encodeURIComponent(network.chainId)}`;
+  try {
+    const payload = await fetchJson(url, REQUEST_TIMEOUT_MS);
+    const rows = normalizeViciLiquidityRows(payload);
+    if (!rows.length) throw new Error("No usable ViciSwap liquidity rows returned");
+    return buildLiquidityResult(network, rows, "vici-coin-data", url);
+  } catch (error) {
+    const fallback = fallbackLiquiditySupport(network, "fallback-liquidity-list");
+    fallback.error = error.message;
+    fallback.url = url;
+    return fallback;
+  }
+}
+
+function fallbackLiquiditySupport(network, source) {
+  const rows = (confirmedViciNetworkTokens[network.name] || []).map((ticker) => ({
+    ticker,
+    diffThousandUsd: ticker.includes("USD") || ["WETH", "ETH", "WBTC", "CBBTC"].includes(ticker) ? 2 : 18,
+    raw: { ticker, diff_thousand: 18 },
+  }));
+  return buildLiquidityResult(network, rows, source, null);
+}
+
+function buildLiquidityResult(network, rows, source, url) {
+  const deduped = [...new Map(rows.map((row) => [row.ticker, row])).values()]
+    .filter((row) => isLikelyTicker(row.ticker))
+    .sort((a, b) => a.ticker.localeCompare(b.ticker));
+  return {
+    network: network.name,
+    chainId: network.chainId,
+    source,
+    url,
+    tokenCount: deduped.length,
+    rows: deduped,
+    tokenMap: new Map(deduped.map((row) => [row.ticker, row])),
+  };
+}
+
+function normalizeViciLiquidityRows(payload) {
+  return extractRows(payload)
+    .map(normalizeViciLiquidityRow)
+    .filter(Boolean)
+    .sort((a, b) => a.ticker.localeCompare(b.ticker));
+}
+
+function normalizeViciLiquidityRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const symbol = readField(row, ["ticker", "symbol", "coin", "coin_symbol", "coinSymbol", "token", "token_symbol", "tokenSymbol", "asset", "asset_symbol"]);
+  const ticker = normalizeTicker(symbol);
+  if (!isLikelyTicker(ticker)) return null;
+  const diffThousandUsd = finiteOrNull(readField(row, [
+    "diff_thousand",
+    "diffThousand",
+    "diff_1000",
+    "diff1000",
+    "loss_thousand",
+    "lossThousand",
+    "roundtrip_loss",
+    "roundTripLoss",
+    "loss",
+  ]));
+  if (diffThousandUsd === null) return null;
+  return {
+    ticker,
+    diffThousandUsd: Math.abs(diffThousandUsd),
+    raw: row,
+  };
+}
+
+function applyLiquidityGate(candidates, liquiditySource, params) {
+  const maxDiff = maxDiffForRisk(params.risk);
+  return candidates
+    .map((candidate) => ({
+      ...candidate,
+      viciLiquidity: liquiditySource.tokenMap.get(candidate.ticker) || null,
+    }))
+    .filter((candidate) => {
+      if (!candidate.viciLiquidity) return false;
+      return candidate.viciLiquidity.diffThousandUsd <= maxDiff;
+    });
 }
 
 function fallbackSupport(network, source) {
@@ -587,6 +771,7 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
         receiveToken: true,
       },
       liquidityCheck: liquidityCheckForCandidate(candidate, params),
+      riskBreakdown: riskBreakdownForCandidate(candidate, params),
       market: candidate.market ? {
         source: "DEX Screener",
         change24h: candidate.market.change24h,
@@ -855,12 +1040,17 @@ function scoreCandidate(candidate, params) {
   const category = candidate.categorySignal || {};
   const momentum = clamp(finiteOrNull(market.change24h) || 0, -25, 40);
   const volumeScore = logScore(market.volume24h, 1_000_000);
-  const liquidityScore = logScore(market.liquidityUsd, 1_000_000);
+  const liquidityScore = viciLiquidityScore(candidate.viciLiquidity);
   const liquidityPenalty = liquidityPenaltyForCandidate(candidate, params);
   const categoryScore = category.score ? (category.score - 50) * 0.2 : 0;
   const relativeStrengthScore = category.relativeStrength24h ? clamp(category.relativeStrength24h, -20, 25) * 0.2 : 0;
   const riskWeight = riskMomentumMultiplier(params.risk);
   return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore - liquidityPenalty;
+}
+
+function viciLiquidityScore(liquidity) {
+  if (!liquidity) return -1000;
+  return clamp(28 - liquidity.diffThousandUsd, -30, 28);
 }
 
 function fitScore(model, allocation, params) {
@@ -891,6 +1081,10 @@ function normalizeParams(rawParams) {
       || params.demoFallback === "true"
       || params.strictEligibility === false
       || params.strictEligibility === "false",
+    allowFallbackLiquidity: params.allowFallbackLiquidity === true
+      || params.allowFallbackLiquidity === "true"
+      || params.demoFallback === true
+      || params.demoFallback === "true",
     allowNonBaseBetaNetworks: params.allowNonBaseBetaNetworks === true
       || params.allowNonBaseBetaNetworks === "true",
   };
@@ -1009,6 +1203,15 @@ function coingeckoHeaders() {
 function rationaleForCandidate(candidate) {
   const market = candidate.market;
   const category = candidate.categorySignal;
+  const liquidity = candidate.viciLiquidity;
+  if (liquidity && liquidity.diffThousandUsd <= VICI_MAX_DIFF_THOUSAND_USD) {
+    const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
+    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip, which passes the conservative beta screen.${categoryNote}`;
+  }
+  if (liquidity) {
+    const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
+    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip; size should match the user's risk setting.${categoryNote}`;
+  }
   if (market && market.volume24h >= 500_000 && market.liquidityUsd >= 250_000) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
     return `${candidate.rationale} DEX Screener currently shows solid volume and liquidity for this network.${categoryNote}`;
@@ -1022,50 +1225,63 @@ function rationaleForCandidate(candidate) {
 }
 
 function liquidityCheckForCandidate(candidate, params = {}) {
-  if (params.includeMarketData === false) {
-    return {
-      status: "not_checked",
-      passed: null,
-      source: "disabled",
-      minLiquidityUsd: MIN_LIQUIDITY_USD,
-      minVolume24hUsd: MIN_VOLUME_24H_USD,
-      note: "Market-data checks were disabled for this request.",
-    };
-  }
-  if (!candidate.market) {
+  const liquidity = candidate.viciLiquidity;
+  const maxDiff = maxDiffForRisk(params.risk);
+  if (!liquidity) {
     return {
       status: "unverified",
-      passed: null,
-      source: "DEX Screener",
-      minLiquidityUsd: MIN_LIQUIDITY_USD,
-      minVolume24hUsd: MIN_VOLUME_24H_USD,
-      note: "No DEX Screener pair was available during this request. ViciSwap must verify route depth before execution.",
+      passed: false,
+      source: "ViciSwap simulated $1k round-trip",
+      diffThousandUsd: null,
+      maxDiffThousandUsd: maxDiff,
+      conservativeMaxDiffThousandUsd: VICI_MAX_DIFF_THOUSAND_USD,
+      note: "Token was not found in the ViciSwap liquidity-depth list and should not be recommended.",
     };
   }
-  const liquidityUsd = finiteOrNull(candidate.market.liquidityUsd) || 0;
-  const volume24hUsd = finiteOrNull(candidate.market.volume24h) || 0;
-  const passed = liquidityUsd >= MIN_LIQUIDITY_USD && volume24hUsd >= MIN_VOLUME_24H_USD;
+  const passed = liquidity.diffThousandUsd <= maxDiff;
+  const conservative = liquidity.diffThousandUsd <= VICI_MAX_DIFF_THOUSAND_USD;
   return {
-    status: passed ? "passed" : "thin",
+    status: passed ? conservative ? "passed" : "risk_adjusted_pass" : "thin",
     passed,
-    source: "DEX Screener",
-    liquidityUsd,
-    volume24hUsd,
-    minLiquidityUsd: MIN_LIQUIDITY_USD,
-    minVolume24hUsd: MIN_VOLUME_24H_USD,
+    source: "ViciSwap simulated $1k round-trip",
+    diffThousandUsd: roundMoney(liquidity.diffThousandUsd),
+    maxDiffThousandUsd: maxDiff,
+    conservativeMaxDiffThousandUsd: VICI_MAX_DIFF_THOUSAND_USD,
+    dexScreener: candidate.market ? {
+      volume24hUsd: candidate.market.volume24h,
+      liquidityUsd: candidate.market.liquidityUsd,
+      pairUrl: candidate.market.pairUrl,
+    } : null,
     note: passed
-      ? "Meets the beta liquidity and volume screen; ViciSwap should still verify live route depth."
-      : "Below the beta liquidity or volume target. Keep size small or exclude unless the user explicitly wants higher risk.",
+      ? "Passes the selected risk setting's simulated-swap liquidity screen; ViciSwap should still verify live route and quote."
+      : "Fails the selected risk setting's simulated-swap liquidity screen and should be excluded.",
   };
 }
 
 function liquidityPenaltyForCandidate(candidate, params = {}) {
-  if (params.includeMarketData === false || !candidate.market) return 0;
-  const liquidityUsd = finiteOrNull(candidate.market.liquidityUsd) || 0;
-  const volume24hUsd = finiteOrNull(candidate.market.volume24h) || 0;
-  if (liquidityUsd >= MIN_LIQUIDITY_USD && volume24hUsd >= MIN_VOLUME_24H_USD) return 0;
-  const riskOffset = params.risk === "very_high" ? 8 : params.risk === "high" ? 4 : 0;
-  return Math.max(8, 22 - riskOffset);
+  if (!candidate.viciLiquidity) return 1000;
+  const overConservative = Math.max(0, candidate.viciLiquidity.diffThousandUsd - VICI_MAX_DIFF_THOUSAND_USD);
+  if (overConservative <= 0) return 0;
+  const riskOffset = params.risk === "very_high" ? 14 : params.risk === "high" ? 9 : params.risk === "moderate" ? 4 : 0;
+  return Math.max(0, overConservative * 0.8 - riskOffset);
+}
+
+function riskBreakdownForCandidate(candidate, params = {}) {
+  const liquidity = liquidityCheckForCandidate(candidate, params);
+  const category = candidate.categorySignal;
+  const market = candidate.market;
+  return {
+    riskSetting: params.risk,
+    primaryRiskDriver: "ViciSwap simulated liquidity depth",
+    liquidity,
+    marketDataConfidence: market ? "dex-screener-available" : "dex-screener-unavailable",
+    categoryRisk: category ? {
+      primaryCategory: category.primaryCategory,
+      categoryChange24h: category.categoryChange24h,
+      relativeStrength24h: category.relativeStrength24h,
+    } : null,
+    tokenRiskNote: candidate.riskNote,
+  };
 }
 
 function categoryInterpretation(ticker, categoryName, tokenChange, categoryChange, relativeStrength) {
@@ -1105,6 +1321,18 @@ function riskTarget(risk) {
 
 function riskMomentumMultiplier(risk) {
   return { low: 0.12, moderate: 0.28, high: 0.45, very_high: 0.65 }[risk] || 0.28;
+}
+
+function maxDiffForRisk(risk) {
+  const configured = {
+    low: process.env.BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD,
+    moderate: process.env.BUNDLE_BUILDER_MODERATE_MAX_DIFF_THOUSAND_USD,
+    high: process.env.BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD,
+    very_high: process.env.BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD,
+  };
+  const override = finiteOrNull(configured[risk]);
+  if (override !== null) return override;
+  return { low: 20, moderate: 35, high: 60, very_high: 100 }[risk] || 35;
 }
 
 function normalizeWeights(rows) {
@@ -1152,7 +1380,8 @@ function normalizeChainId(value) {
 }
 
 function finiteOrNull(value) {
-  const number = Number(value);
+  const cleaned = typeof value === "string" ? value.replace(/[$,%\s,]/g, "") : value;
+  const number = Number(cleaned);
   return Number.isFinite(number) ? number : null;
 }
 

@@ -22,8 +22,12 @@ NODE_ENV=production
 HOST=0.0.0.0
 CORS_ORIGIN=https://bundlebuilder.vicicoin.io
 BUNDLE_BUILDER_ALLOWED_NETWORKS=base
-BUNDLE_BUILDER_MIN_LIQUIDITY_USD=250000
-BUNDLE_BUILDER_MIN_VOLUME_24H_USD=100000
+VICI_COIN_DATA_API_BASE_URL=https://app.viciswap.io/api/coin_data
+BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD=20
+BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD=20
+BUNDLE_BUILDER_MODERATE_MAX_DIFF_THOUSAND_USD=35
+BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD=60
+BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
 ```
 
 Do not set `PORT` unless Render specifically asks for it. Render usually provides it automatically.
@@ -41,7 +45,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-"version": "0.1.6",
+"version": "0.1.7",
 "homepage": {
   "enabled": true,
   "indexExists": true
@@ -53,7 +57,9 @@ In `/health`, confirm:
 - `/` opens Bundle Builder.
 - The public page no longer includes a Chrome extension download.
 - `/health` returns service status and confirms the homepage file exists.
-- `/api/v1/bundle` returns recommendation JSON.
+- `/api/v1/bundle` returns recommendation JSON when both ViciSwap eligibility and ViciSwap simulated liquidity are reachable.
 - Only Base is enabled in beta.
 - Non-Base networks return `NETWORK_NOT_SUPPORTED_IN_BETA`.
 - If the official ViciSwap eligibility API is unavailable, production recommendations fail closed.
+- If the ViciSwap `coin_data` liquidity-depth API is unavailable, production recommendations fail closed.
+- Low-risk recommendations exclude any token above Austin's conservative `$20` `diff_thousand` cutoff by default.
