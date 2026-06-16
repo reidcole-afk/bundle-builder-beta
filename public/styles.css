@@ -274,60 +274,23 @@ svg {
 .pulse-card-front {
   position: relative;
   z-index: 3;
-}
-
-.pulse-carousel {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  margin: -18px 14px 0;
-  padding-top: 30px;
-}
-
-.pulse-card-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  width: 100%;
-}
-
-.pulse-card-back {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  min-height: 82px;
-  padding: 12px;
-  color: var(--ink-soft);
-  box-shadow: 0 10px 24px rgba(23, 32, 51, 0.08);
-  cursor: pointer;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
-}
-
-.pulse-card-back:hover,
-.pulse-card-back:focus-visible {
-  border-color: rgba(13, 107, 115, 0.35);
-  box-shadow: 0 14px 30px rgba(23, 32, 51, 0.12);
-  transform: translateY(-2px);
-}
-
-.pulse-card-back.is-active {
-  border-color: rgba(13, 107, 115, 0.45);
-  background: var(--teal-soft);
+  overflow: hidden;
 }
 
 .pulse-nav {
   display: grid;
   place-items: center;
-  align-self: stretch;
-  width: 38px;
-  flex: 0 0 38px;
+  align-self: center;
+  width: 36px;
+  height: 44px;
+  min-width: 36px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.94);
   color: var(--teal);
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(23, 32, 51, 0.08);
+  box-shadow: 0 10px 22px rgba(23, 32, 51, 0.1);
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
 .pulse-nav:hover,
@@ -341,6 +304,11 @@ svg {
   cursor: default;
 }
 
+.pulse-nav:not(:disabled):hover,
+.pulse-nav:not(:disabled):focus-visible {
+  transform: translateY(-1px);
+}
+
 .pulse-nav svg {
   width: 18px;
   height: 18px;
@@ -351,56 +319,9 @@ svg {
   stroke-linejoin: round;
 }
 
-.pulse-back-rank {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--teal-soft);
-  color: var(--teal);
-  font-size: 0.78rem;
-  font-weight: 950;
-}
-
-.pulse-back-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.pulse-back-copy strong {
-  display: block;
-  color: var(--ink);
-  font-size: 0.95rem;
-}
-
-.pulse-back-copy span,
-.pulse-back-copy p {
-  display: block;
-  margin-top: 3px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.76rem;
-  font-weight: 800;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pulse-back-source {
-  flex: 0 0 auto;
-  padding: 6px 8px;
-  border-radius: 999px;
-  background: #ffffff;
-  color: var(--ink-soft);
-  font-size: 0.72rem;
-  font-weight: 900;
-}
-
 .pulse-edge-chip {
-  background: #eef6f0;
-  color: #1f6f4e;
+  background: #eef6f0 !important;
+  color: #1f6f4e !important;
 }
 
 .pulse-header {
@@ -465,9 +386,25 @@ svg {
 
 .pulse-body {
   display: grid;
-  grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 36px minmax(160px, 0.65fr) minmax(0, 1fr) 36px;
+  gap: 12px;
   align-items: stretch;
+}
+
+.pulse-card-front.is-sliding .pulse-chart,
+.pulse-card-front.is-sliding .pulse-copy {
+  animation: pulseSlide 260ms ease both;
+}
+
+@keyframes pulseSlide {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .pulse-chart {
@@ -1715,23 +1652,31 @@ input[type="range"] {
     text-align: left;
   }
 
-  .pulse-carousel {
-    margin-right: 0;
-    margin-left: 0;
+  .pulse-body {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
   }
 
-  .pulse-card-strip {
-    grid-template-columns: 1fr;
+  .pulse-nav-left {
+    grid-column: 1;
+    grid-row: 1;
   }
 
-  .pulse-card-back {
-    align-items: flex-start;
-    flex-direction: column;
+  .pulse-nav-right {
+    grid-column: 3;
+    grid-row: 1;
   }
 
-  .pulse-back-copy span,
-  .pulse-back-copy p {
-    white-space: normal;
+  .pulse-chart,
+  .pulse-copy {
+    grid-column: 1 / -1;
+  }
+
+  .pulse-chart {
+    grid-row: 2;
+  }
+
+  .pulse-copy {
+    grid-row: 3;
   }
 
   .icon-link,

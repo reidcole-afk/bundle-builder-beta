@@ -716,6 +716,7 @@ const favoriteCoinName = document.getElementById("favoriteCoinName");
 const favoriteCoinTicker = document.getElementById("favoriteCoinTicker");
 const favoriteCoinChange = document.getElementById("favoriteCoinChange");
 const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
+const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
 const favoriteCoinReason = document.getElementById("favoriteCoinReason");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
@@ -723,7 +724,6 @@ const pulseChart = document.getElementById("pulseChart");
 const useFavoriteCoin = document.getElementById("useFavoriteCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
-const pulseCardStrip = document.getElementById("pulseCardStrip");
 const coinPreferenceGrid = document.querySelector(".coin-chip-grid");
 
 let latestMatches = [];
@@ -2268,10 +2268,6 @@ pulseRefresh?.addEventListener("click", () => {
 
 pulsePrev?.addEventListener("click", () => movePulseCandidate(-1));
 pulseNext?.addEventListener("click", () => movePulseCandidate(1));
-pulseCardStrip?.addEventListener("click", (event) => {
-  const card = event.target.closest("[data-pulse-ticker]");
-  if (card) selectPulseCandidate(card.dataset.pulseTicker);
-});
 
 document.body.addEventListener("click", (event) => {
   const copyButton = event.target.closest("[data-copy]");
@@ -3998,6 +3994,7 @@ async function selectPulseCandidate(ticker) {
   const selected = currentFavorites.find((candidate) => candidate.ticker === ticker);
   if (!selected || selected.ticker === currentFavorite?.ticker) return;
 
+  animatePulseSlide();
   currentFavorite = selected;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
@@ -4013,6 +4010,15 @@ function movePulseCandidate(direction) {
   const nextIndex = (currentFavoriteIndex + direction + currentFavorites.length) % currentFavorites.length;
   const next = currentFavorites[nextIndex];
   if (next?.ticker) selectPulseCandidate(next.ticker);
+}
+
+function animatePulseSlide() {
+  const card = document.querySelector(".pulse-card-front");
+  if (!card) return;
+  card.classList.remove("is-sliding");
+  void card.offsetWidth;
+  card.classList.add("is-sliding");
+  window.setTimeout(() => card.classList.remove("is-sliding"), 280);
 }
 
 function buildFavoriteReason(meta, market, rank = 1, source = "CoinGecko") {
@@ -4075,6 +4081,13 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   favoriteCoinTicker.textContent = favorite.ticker;
   favoriteCoinChange.textContent = `24h ${formatPercent(favorite.change24h)}`;
   favoriteCoinUpdated.textContent = marketTimestampLabel(favorite);
+  if (favoriteCoinEdge) {
+    const edgeLabel = favorite.marketEdge?.label || "";
+    favoriteCoinEdge.hidden = !edgeLabel;
+    favoriteCoinEdge.textContent = edgeLabel;
+    favoriteCoinEdge.className = "pulse-edge-chip";
+    favoriteCoinEdge.title = favorite.marketEdge?.details?.join(" • ") || "";
+  }
   favoriteCoinUpdated.title = lastMarketPulseError || "";
   favoriteCoinReason.textContent = favorite.reason;
   pulseStatus.textContent = `#${favorite.rank} ${favorite.source}`;
@@ -4085,46 +4098,10 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       : "Refresh market pulse";
   }
   pulseChart.innerHTML = makeSparkline(favorite.prices, favorite.change24h);
-  renderPulseCardStrip(favorites);
+  currentFavoriteIndex = Math.max(0, (favorites || []).findIndex((candidate) => candidate.ticker === favorite.ticker));
+  if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
+  if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
   updateFavoriteToggle();
-}
-
-function renderPulseCardStrip(favorites) {
-  if (!pulseCardStrip) return;
-  const deck = (favorites || []).filter(Boolean);
-  if (!deck.length) {
-    pulseCardStrip.innerHTML = "";
-    return;
-  }
-  const activeIndex = Math.max(0, deck.findIndex((favorite) => favorite.ticker === currentFavorite?.ticker));
-  const visible = visiblePulseCards(deck, activeIndex, 3);
-  pulseCardStrip.innerHTML = visible.map(makePulseBackCard).join("");
-  currentFavoriteIndex = activeIndex;
-  if (pulsePrev) pulsePrev.disabled = deck.length <= 1;
-  if (pulseNext) pulseNext.disabled = deck.length <= 1;
-}
-
-function visiblePulseCards(deck, activeIndex, count = 3) {
-  if (deck.length <= count) return deck;
-  return Array.from({ length: count }, (_, offset) => deck[(activeIndex + offset) % deck.length]);
-}
-
-function makePulseBackCard(favorite) {
-  if (!favorite) return "";
-  const activeClass = favorite.ticker === currentFavorite?.ticker ? " is-active" : "";
-  const edge = favorite.marketEdge ? `<span class="pulse-edge-chip">${escapeHtml(favorite.marketEdge.label)}</span>` : "";
-  return `
-    <button class="pulse-card pulse-card-back${activeClass}" type="button" data-pulse-ticker="${escapeHtml(favorite.ticker)}" aria-label="Show ${escapeHtml(favorite.name)} market pulse">
-      <span class="pulse-back-rank">#${favorite.rank}</span>
-      <div class="pulse-back-copy">
-        <strong>${escapeHtml(favorite.name)}</strong>
-        <span>${escapeHtml(favorite.ticker)} - 24h ${formatPercent(favorite.change24h)}</span>
-        <p>${escapeHtml(String(favorite.theme || "market").toUpperCase())} lane</p>
-      </div>
-      <span class="pulse-back-source">${escapeHtml(favorite.source || "Market")}</span>
-      ${edge}
-    </button>
-  `;
 }
 
 function updateFavoriteToggle() {

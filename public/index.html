@@ -54,12 +54,16 @@
                     </div>
                   </div>
                   <div class="pulse-body">
+                    <button class="pulse-nav pulse-nav-left" id="pulsePrev" type="button" aria-label="Previous market pulse coin">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                    </button>
                     <div class="pulse-chart" id="pulseChart" aria-label="24 hour price sparkline"></div>
                     <div class="pulse-copy">
                       <div class="pulse-stats">
                         <span id="favoriteCoinTicker">--</span>
                         <span id="favoriteCoinChange">24h --</span>
                         <span id="favoriteCoinUpdated">Updated --</span>
+                        <span id="favoriteCoinEdge" hidden>Edge --</span>
                       </div>
                       <p id="favoriteCoinReason">The builder is checking ViciSwap-supported candidate coins and looking for a current market signal.</p>
                       <button class="action-button pulse-button" type="button" id="useFavoriteCoin">
@@ -67,16 +71,10 @@
                         Use this coin
                       </button>
                     </div>
+                    <button class="pulse-nav pulse-nav-right" id="pulseNext" type="button" aria-label="Next market pulse coin">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                    </button>
                   </div>
-                </div>
-                <div class="pulse-carousel" aria-label="Top market pulse coins">
-                  <button class="pulse-nav" id="pulsePrev" type="button" aria-label="Previous market pulse coin">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
-                  </button>
-                  <div class="pulse-card-strip" id="pulseCardStrip"></div>
-                  <button class="pulse-nav" id="pulseNext" type="button" aria-label="Next market pulse coin">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
-                  </button>
                 </div>
               </div>
             </aside>
