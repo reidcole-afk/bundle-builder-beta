@@ -3066,6 +3066,7 @@ async function fetchDexScreenerJson(url) {
 function marketProxyUrls(url) {
   const encodedUrl = encodeURIComponent(url);
   return [
+    `/api/v1/market-proxy?url=${encodedUrl}`,
     `https://api.allorigins.win/raw?url=${encodedUrl}`,
     `https://corsproxy.io/?${encodedUrl}`,
   ];

@@ -32,6 +32,29 @@ global.fetch = async (url) => {
   assert.equal(stylesheet.statusCode, 200);
   assert(stylesheet.headers["content-type"].includes("text/css"));
 
+  const blockedProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fexample.com%2Fbad.json");
+  assert.equal(blockedProxy.statusCode, 400);
+  assert.equal(blockedProxy.body.ok, false);
+
+  global.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/api/v3/coins/aerodrome-finance/market_chart")) {
+      return { ok: true, json: async () => ({ prices: [[1, 1], [2, 1.1]] }) };
+    }
+    if (target.includes("/vs2/api/coins")) throw new Error("simulated ViciSwap API outage");
+    return { ok: true, json: async () => ({}) };
+  };
+
+  const allowedProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fapi.coingecko.com%2Fapi%2Fv3%2Fcoins%2Faerodrome-finance%2Fmarket_chart%3Fvs_currency%3Dusd%26days%3D1");
+  assert.equal(allowedProxy.statusCode, 200);
+  assert.deepEqual(allowedProxy.body.prices, [[1, 1], [2, 1.1]]);
+
+  global.fetch = async (url) => {
+    const target = String(url);
+    if (target.includes("/vs2/api/coins")) throw new Error("simulated ViciSwap API outage");
+    return { ok: true, json: async () => ({}) };
+  };
+
   const strictTokens = await getJson("/api/v1/tokens?network=base");
   assert.equal(strictTokens.statusCode, 503);
   assert.equal(strictTokens.body.ok, false);

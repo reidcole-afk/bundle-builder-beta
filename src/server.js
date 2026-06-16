@@ -95,6 +95,27 @@ async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/v1/market-proxy") {
+      const target = url.searchParams.get("url") || "";
+      if (!isAllowedMarketProxyUrl(target)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: "Unsupported market data URL",
+        });
+        return;
+      }
+      try {
+        const payload = await fetchMarketProxyJson(target);
+        sendJson(response, 200, payload);
+      } catch (error) {
+        sendJson(response, 502, {
+          ok: false,
+          error: `Market proxy unavailable: ${error.message || "upstream request failed"}`,
+        });
+      }
+      return;
+    }
+
     if (url.pathname === "/api/v1/bundle" || url.pathname === "/api/v1/recommendations") {
       if (!["GET", "POST"].includes(request.method)) {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
@@ -217,6 +238,45 @@ function contentTypeForPath(filePath) {
     ".zip": "application/zip",
   };
   return types[extension] || "application/octet-stream";
+}
+
+async function fetchMarketProxyJson(targetUrl) {
+  if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Number(process.env.BUNDLE_BUILDER_MARKET_PROXY_TIMEOUT_MS || 9000));
+  try {
+    const response = await fetch(targetUrl, {
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+        "user-agent": "Vici-Bundle-Builder-Beta/0.1",
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isAllowedMarketProxyUrl(targetUrl) {
+  try {
+    const parsed = new URL(targetUrl);
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.origin === "https://api.coingecko.com") return parsed.pathname.startsWith("/api/v3/");
+    if (parsed.origin === "https://api.dexscreener.com") {
+      return parsed.pathname.startsWith("/latest/dex/")
+        || parsed.pathname.startsWith("/token-pairs/v1/")
+        || parsed.pathname.startsWith("/tokens/v1/");
+    }
+    if (parsed.origin === "https://office.viciswap.io") return parsed.pathname.startsWith("/vs2/api/coins");
+    if (parsed.origin === "https://api.binance.com") return parsed.pathname.startsWith("/api/v3/");
+    if (parsed.origin === "https://api.exchange.coinbase.com") return parsed.pathname.startsWith("/products/");
+    if (parsed.origin === "https://min-api.cryptocompare.com") return parsed.pathname.startsWith("/data/");
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 function cacheControlForPath(filePath) {
