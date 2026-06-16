@@ -452,6 +452,35 @@ svg {
   line-height: 1.45;
 }
 
+.pulse-insights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pulse-insight {
+  min-height: 78px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.pulse-insight span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--teal);
+  font-size: 0.69rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.pulse-insight p {
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  line-height: 1.32;
+}
+
 .pulse-button {
   width: fit-content;
 }
@@ -1595,6 +1624,10 @@ input[type="range"] {
 
   .network-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pulse-insights {
+    grid-template-columns: 1fr;
   }
 
   .fit-meter,

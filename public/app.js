@@ -723,6 +723,7 @@ const favoriteCoinChange = document.getElementById("favoriteCoinChange");
 const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
 const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
 const favoriteCoinReason = document.getElementById("favoriteCoinReason");
+const favoriteCoinInsights = document.getElementById("favoriteCoinInsights");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
@@ -4274,6 +4275,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   }
   favoriteCoinUpdated.title = lastMarketPulseError || "";
   favoriteCoinReason.textContent = favorite.reason;
+  renderPulseInsights(favorite);
   pulseStatus.textContent = `#${favorite.rank} ${favorite.source}`;
   pulseStatus.title = lastMarketPulseError || `Showing ${favorite.source} market data`;
   if (pulseRefresh) {
@@ -4286,6 +4288,81 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
   updateFavoriteToggle();
+}
+
+function renderPulseInsights(favorite) {
+  if (!favoriteCoinInsights) return;
+  const insights = buildPulseInsights(favorite).slice(0, 3);
+  favoriteCoinInsights.innerHTML = insights.map((insight) => `
+    <div class="pulse-insight">
+      <span>${escapeHtml(insight.label)}</span>
+      <p>${escapeHtml(insight.text)}</p>
+    </div>
+  `).join("");
+}
+
+function buildPulseInsights(favorite = {}) {
+  if (!favorite || favorite.source === "Market data unavailable" || favorite.ticker === "--") {
+    return [{
+      label: "Status",
+      text: "Market sources are refreshing. The builder will keep using confirmed ViciSwap-supported fallback candidates until fresh data returns.",
+    }];
+  }
+
+  const insights = [];
+  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume);
+  const liquidity = finiteOrNull(favorite.liquidityUsd);
+  const change = finiteOrNull(favorite.change24h);
+  const edge = favorite.marketEdge;
+  const trajectory = chartTrajectoryLabel(favorite.prices);
+
+  insights.push({
+    label: "Market read",
+    text: [
+      Number.isFinite(change) ? `${formatPercent(change)} over 24h` : "",
+      volume ? `${formatCompactUsd(volume)} volume` : "",
+      liquidity ? `${formatCompactUsd(liquidity)} liquidity` : "",
+    ].filter(Boolean).join(", ") || `${favorite.ticker} is being ranked from the latest available market signal.`,
+  });
+
+  insights.push({
+    label: "Why it fits",
+    text: coinInsightForTheme(favorite.theme, favorite.ticker),
+  });
+
+  if (favorite.newsCatalyst?.summary) {
+    insights.push({
+      label: "News pulse",
+      text: favorite.newsCatalyst.summary.replace(/^Recent news includes risk words; /, "Risk headline scan: "),
+    });
+  } else if (edge?.details?.length) {
+    insights.push({
+      label: edge.label || "Edge read",
+      text: edge.details.slice(0, 2).join("; "),
+    });
+  } else if (trajectory?.text) {
+    insights.push({
+      label: "Chart note",
+      text: trajectory.text,
+    });
+  } else {
+    insights.push({
+      label: "Beta note",
+      text: "No fresh catalyst headline yet; the coin is being judged by support, liquidity, momentum, and fit.",
+    });
+  }
+
+  return insights;
+}
+
+function coinInsightForTheme(theme = "", ticker = "This coin") {
+  const normalizedTheme = String(theme || "").toLowerCase();
+  if (normalizedTheme.includes("base")) return `${ticker} adds Base ecosystem exposure, which can matter when Base activity and liquidity are leading the market.`;
+  if (normalizedTheme.includes("defi")) return `${ticker} gives the bundle DeFi exposure, where usage, fees, and liquidity depth tend to matter more than hype alone.`;
+  if (normalizedTheme.includes("ai")) return `${ticker} adds AI narrative exposure, which can move quickly but needs stronger risk controls.`;
+  if (normalizedTheme.includes("meme")) return `${ticker} is a community momentum asset; the upside can be fast, but sizing should be careful.`;
+  if (normalizedTheme.includes("rwa")) return `${ticker} connects the bundle to the RWA/infrastructure lane, where adoption stories can build more gradually.`;
+  return `${ticker} is included because it is ViciSwap-supported on this network and fits the current bundle signal mix.`;
 }
 
 function updateFavoriteToggle() {
