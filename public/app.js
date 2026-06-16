@@ -737,6 +737,8 @@ let currentFavorites = fallbackPulseDeck;
 let currentFavoriteIndex = 0;
 let currentBundle = null;
 let pulseChartCache = new Map();
+let marketPulseRefreshSeq = 0;
+let pulseSelectionSeq = 0;
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -1044,7 +1046,7 @@ function applyTokenUniverse(tokenUniverse, { announce = false } = {}) {
   renderCoinRows();
   updateFavoriteToggle();
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
-  refreshMarketPulse();
+  refreshMarketPulse({ preserveSelection: true, silent: true, render: false });
   if (announce) {
     const networkSummary = normalized.networks.map(({ network, tokens }) => `${network}: ${tokens.length}`).join(" / ");
     showToast(`Imported ViciSwap scan: ${networkSummary}`);
@@ -1090,7 +1092,7 @@ async function refreshViciCoinsFromApi({ announce = false, force = false } = {})
     renderCoinRows();
     updateFavoriteToggle();
     if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
-    refreshMarketPulse();
+    refreshMarketPulse({ preserveSelection: true, silent: true, render: false });
 
     if (announce) {
       const networkSummary = normalized.networks.map(({ network, tokens }) => `${network}: ${tokens.length}`).join(" / ");
@@ -2267,7 +2269,7 @@ useFavoriteCoin.addEventListener("click", () => {
 
 pulseRefresh?.addEventListener("click", () => {
   pulseRefresh.disabled = true;
-  refreshMarketPulse().finally(() => {
+  refreshMarketPulse({ preserveSelection: true }).finally(() => {
     pulseRefresh.disabled = false;
   });
 });
@@ -2326,11 +2328,11 @@ renderCoinPreferenceChips();
 updateCoinPreferenceAvailability();
 renderCoinRows();
 showTermsGate();
-refreshMarketPulse();
+refreshMarketPulse({ preserveSelection: false });
 refreshViciCoinsFromApi({ announce: false }).catch(() => {
   // If the office API is temporarily offline, the builder keeps using scan/starter support data.
 });
-setInterval(refreshMarketPulse, 1000 * 60 * 5);
+setInterval(() => refreshMarketPulse({ preserveSelection: true, silent: true, render: false }), 1000 * 60 * 5);
 
 function showFitSliceTooltip(slice) {
   const wrap = slice.closest(".fit-donut-wrap");
@@ -2352,31 +2354,37 @@ function hideFitSliceTooltip(slice) {
   tooltip.hidden = true;
 }
 
-async function refreshMarketPulse({ preserveSelection = false } = {}) {
-  pulseStatus.textContent = "Refreshing";
+async function refreshMarketPulse({ preserveSelection = false, silent = false, render = true } = {}) {
+  const refreshId = ++marketPulseRefreshSeq;
+  if (!silent) pulseStatus.textContent = "Refreshing";
   const { network } = getPreferences();
-  const selectedTicker = currentFavorite?.ticker;
   const eligibleCandidates = getViciMarketCandidates(network);
   try {
     if (!eligibleCandidates.length) throw new Error("No market candidates for network");
-    currentFavorites = await getLivePulseDeck(eligibleCandidates, network);
+    const nextFavorites = await getLivePulseDeck(eligibleCandidates, network);
+    if (refreshId !== marketPulseRefreshSeq) return;
+    currentFavorites = nextFavorites;
     lastMarketPulseError = "";
+    const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
     currentFavorite = preserveSelection
       ? currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0]
       : currentFavorites[0];
     currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
   } catch (error) {
+    if (refreshId !== marketPulseRefreshSeq) return;
     lastMarketPulseError = error?.message || String(error);
     window.viciMarketPulseLastError = lastMarketPulseError;
     console.warn("Live market pulse unavailable.", error);
+    if (!render) return;
     currentFavorites = getFallbackPulseDeckForNetwork(network);
     if (!currentFavorites.length) currentFavorites = getMarketDataUnavailableDeck(network, lastMarketPulseError);
-    currentFavorite = currentFavorites[0];
-    currentFavoriteIndex = 0;
+    const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
+    currentFavorite = currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0];
+    currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
   }
-  renderMarketPulse(currentFavorite, currentFavorites);
-  renderCoinRows();
-  if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
+  if (render) renderMarketPulse(currentFavorite, currentFavorites);
+  if (render) renderCoinRows();
+  if (render && currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
     buildBundle({ scroll: false });
   }
 }
@@ -4167,13 +4175,16 @@ async function selectPulseCandidate(ticker) {
   const selected = currentFavorites.find((candidate) => candidate.ticker === ticker);
   if (!selected || selected.ticker === currentFavorite?.ticker) return;
 
+  const selectionId = ++pulseSelectionSeq;
   animatePulseSlide();
   currentFavorite = selected;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
   pulseStatus.textContent = `#${selected.rank} Loading`;
-  currentFavorite = await loadPulseChart(selected);
-  currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === currentFavorite.ticker ? currentFavorite : candidate));
+  const loadedFavorite = await loadPulseChart(selected);
+  currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === loadedFavorite.ticker ? loadedFavorite : candidate));
+  if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
+  currentFavorite = loadedFavorite;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
 }
