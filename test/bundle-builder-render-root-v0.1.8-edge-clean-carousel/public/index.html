@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bundle Builder Beta</title>
+    <link rel="stylesheet" href="./styles.css?v=41" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">
+          <img src="./assets/vici-logo.svg" alt="" />
+        </div>
+        <div>
+          <p class="eyebrow">ViciSwap bundle advisor</p>
+          <h1>Bundle Builder beta</h1>
+        </div>
+      </div>
+      <div class="header-actions" aria-label="Reference links">
+        <a class="icon-link" href="https://viciswap.io/" target="_blank" rel="noreferrer" aria-label="Open ViciSwap">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10" /><path d="M7 17 17 7" /><path d="M7 7h10v10" /></svg>
+          <span>ViciSwap</span>
+        </a>
+      </div>
+    </header>
+
+    <main>
+      <section class="builder-band" aria-labelledby="builder-title">
+        <div class="builder-shell">
+          <div class="builder-copy">
+            <p class="eyebrow" id="contextRefreshed">Market context refreshing</p>
+            <h2 id="builder-title">Find a ViciSwap bundle that fits how you want to invest.</h2>
+            <p>
+              Choose your risk style, focus, conviction, and preferred coin count. The builder picks from Vici-focused candidate strategies and gives you one clean same-network allocation.
+            </p>
+            <div class="notice">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5" /><path d="M12 17h.01" /></svg>
+              <span>Educational tool only, not financial advice. The safety screen is not a rug-pull detector or contract audit. Users must verify routes, liquidity, slippage, fees, and risk before swapping.</span>
+            </div>
+            <aside class="market-pulse" id="marketPulse" aria-live="polite">
+              <div class="pulse-deck">
+                <div class="pulse-card pulse-card-front">
+                  <div class="pulse-header">
+                    <div>
+                      <p class="eyebrow">Live market pulse</p>
+                      <h3 id="favoriteCoinName">Refreshing market context</h3>
+                    </div>
+                    <div class="pulse-source-actions">
+                      <span id="pulseStatus">Connecting</span>
+                      <button class="pulse-refresh" type="button" id="pulseRefresh" aria-label="Refresh market pulse">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="pulse-body">
+                    <button class="pulse-nav pulse-nav-left" id="pulsePrev" type="button" aria-label="Previous market pulse coin">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                    </button>
+                    <div class="pulse-chart" id="pulseChart" aria-label="24 hour price sparkline"></div>
+                    <div class="pulse-copy">
+                      <div class="pulse-stats">
+                        <span id="favoriteCoinTicker">--</span>
+                        <span id="favoriteCoinChange">24h --</span>
+                        <span id="favoriteCoinUpdated">Updated --</span>
+                        <span id="favoriteCoinEdge" hidden>Edge --</span>
+                      </div>
+                      <p id="favoriteCoinReason">The builder is checking ViciSwap-supported candidate coins and looking for a current market signal.</p>
+                      <button class="action-button pulse-button" type="button" id="useFavoriteCoin">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                        Use this coin
+                      </button>
+                    </div>
+                    <button class="pulse-nav pulse-nav-right" id="pulseNext" type="button" aria-label="Next market pulse coin">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          <form class="matcher" id="matcher" aria-label="Bundle matcher">
+            <div class="form-title">
+              <p class="eyebrow">Bundle Builder</p>
+              <h2>Build My Bundle</h2>
+            </div>
+            <div class="form-row">
+              <label for="targetNetwork">ViciSwap network</label>
+              <select id="targetNetwork" name="targetNetwork">
+                <option value="Base" selected>Base</option>
+                <option value="Polygon" disabled>Polygon - after beta</option>
+                <option value="Arbitrum" disabled>Arbitrum - after beta</option>
+                <option value="Optimism" disabled>Optimism - after beta</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="risk">Risk comfort</label>
+              <select id="risk" name="risk">
+                <option value="lower">Lower risk</option>
+                <option value="moderate" selected>Moderate risk</option>
+                <option value="high">High risk</option>
+                <option value="very-high">Very high risk</option>
+              </select>
+            </div>
+
+            <fieldset>
+              <legend>Investment focus</legend>
+              <div class="chip-grid" role="group" aria-label="Investment focus">
+                <input type="radio" id="theme-core" name="theme" value="core" checked />
+                <label for="theme-core">Core</label>
+                <input type="radio" id="theme-defi" name="theme" value="defi" />
+                <label for="theme-defi">DeFi</label>
+                <input type="radio" id="theme-ai" name="theme" value="ai" />
+                <label for="theme-ai">AI</label>
+                <input type="radio" id="theme-rwa" name="theme" value="rwa" />
+                <label for="theme-rwa">RWA</label>
+                <input type="radio" id="theme-base" name="theme" value="base" />
+                <label for="theme-base">Base</label>
+                <input type="radio" id="theme-l2" name="theme" value="l2" />
+                <label for="theme-l2">L2</label>
+                <input type="radio" id="theme-vici" name="theme" value="vici" />
+                <label for="theme-vici">Vici</label>
+              </div>
+            </fieldset>
+
+            <div class="form-row">
+              <label for="confidence">Conviction level</label>
+              <input id="confidence" name="confidence" type="range" min="1" max="5" value="3" />
+              <div class="range-labels" aria-hidden="true">
+                <span>Careful</span>
+                <span>Bold</span>
+              </div>
+            </div>
+
+            <fieldset class="coin-preferences">
+              <legend>Coin preferences</legend>
+              <div class="coin-chip-grid" role="group" aria-label="Coin preferences">
+                <input type="checkbox" id="coin-usdc" name="coinPrefs" value="USDC" />
+                <label for="coin-usdc">USDC</label>
+                <input type="checkbox" id="coin-wbtc" name="coinPrefs" value="WBTC" />
+                <label for="coin-wbtc">WBTC</label>
+                <input type="checkbox" id="coin-weth" name="coinPrefs" value="WETH" />
+                <label for="coin-weth">WETH</label>
+                <input type="checkbox" id="coin-link" name="coinPrefs" value="LINK" />
+                <label for="coin-link">LINK</label>
+                <input type="checkbox" id="coin-aave" name="coinPrefs" value="AAVE" />
+                <label for="coin-aave">AAVE</label>
+                <input type="checkbox" id="coin-morpho" name="coinPrefs" value="MORPHO" />
+                <label for="coin-morpho">MORPHO</label>
+                <input type="checkbox" id="coin-ondo" name="coinPrefs" value="ONDO" />
+                <label for="coin-ondo">ONDO</label>
+                <input type="checkbox" id="coin-uni" name="coinPrefs" value="UNI" />
+                <label for="coin-uni">UNI</label>
+                <input type="checkbox" id="coin-aero" name="coinPrefs" value="AERO" />
+                <label for="coin-aero">AERO</label>
+                <input type="checkbox" id="coin-virtual" name="coinPrefs" value="VIRTUAL" />
+                <label for="coin-virtual">VIRTUAL</label>
+                <input type="checkbox" id="coin-arb" name="coinPrefs" value="ARB" />
+                <label for="coin-arb">ARB</label>
+                <input type="checkbox" id="coin-pol" name="coinPrefs" value="POL" />
+                <label for="coin-pol">POL</label>
+                <input type="checkbox" id="coin-pendle" name="coinPrefs" value="PENDLE" />
+                <label for="coin-pendle">PENDLE</label>
+                <input type="checkbox" id="coin-comp" name="coinPrefs" value="COMP" />
+                <label for="coin-comp">COMP</label>
+                <input type="checkbox" id="coin-ethfi" name="coinPrefs" value="ETHFI" />
+                <label for="coin-ethfi">ETHFI</label>
+                <input type="checkbox" id="coin-vcnt" name="coinPrefs" value="VCNT" />
+                <label for="coin-vcnt">VCNT</label>
+              </div>
+            </fieldset>
+
+            <div class="diversity-control">
+              <div class="toggle-row">
+                <div>
+                  <label for="diversityToggle">Allocation diversity</label>
+                  <p>Turn on to choose how many coins should appear in the suggested bundle.</p>
+                </div>
+                <label class="switch" aria-label="Toggle custom coin count">
+                  <input id="diversityToggle" name="diversityToggle" type="checkbox" />
+                  <span></span>
+                </label>
+              </div>
+
+              <div class="diversity-slider" id="diversitySliderWrap" aria-disabled="true">
+                <div class="slider-title">
+                  <label for="coinCount">Coin count</label>
+                  <output id="coinCountValue" for="coinCount">6 coins</output>
+                </div>
+                <input id="coinCount" name="coinCount" type="range" min="3" max="8" value="6" disabled />
+                <div class="range-labels" aria-hidden="true">
+                  <span>Focused</span>
+                  <span>Diversified</span>
+                </div>
+              </div>
+            </div>
+
+            <button class="action-button primary build-submit" type="submit" formnovalidate>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 17 6-6 4 4 8-8" /><path d="M14 7h7v7" /></svg>
+              Build my bundle
+            </button>
+          </form>
+
+          <dialog class="amount-dialog" id="amountDialog" aria-label="Total bundle value">
+            <div class="amount-dialog-card">
+              <div class="form-row">
+                <label for="bundleAmount">Total bundle value</label>
+                <div class="money-input">
+                  <span aria-hidden="true">$</span>
+                  <input id="bundleAmount" name="bundleAmount" form="matcher" type="number" min="0.01" step="0.01" placeholder="Enter amount" inputmode="decimal" required />
+                </div>
+              </div>
+              <div class="amount-actions">
+                <button class="action-button" type="button" id="amountCancel">Back</button>
+                <button class="action-button primary" type="button" id="amountConfirm">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 17 6-6 4 4 8-8" /><path d="M14 7h7v7" /></svg>
+                  Build bundle
+                </button>
+              </div>
+            </div>
+          </dialog>
+
+          <dialog class="review-dialog" id="reviewDialog" aria-labelledby="reviewDialogTitle">
+            <div class="review-dialog-card">
+              <div class="review-head">
+                <p class="eyebrow">Review before ViciSwap</p>
+                <h2 id="reviewDialogTitle">Confirm bundle handoff</h2>
+                <p id="reviewBundleTitle">Review this bundle before opening ViciSwap.</p>
+              </div>
+              <div class="review-grid">
+                <div>
+                  <h3>Preflight checks</h3>
+                  <ul class="review-list" id="reviewChecklist"></ul>
+                </div>
+                <div>
+                  <h3>Token safety screen</h3>
+                  <div class="review-token-list" id="reviewTokenList"></div>
+                </div>
+              </div>
+              <label class="review-ack">
+                <input type="checkbox" id="reviewAcknowledge" />
+                <span>I understand this is educational only, not financial advice, and I will review route, liquidity, slippage, fees, and token risk before swapping.</span>
+              </label>
+              <div class="review-actions">
+                <button class="action-button" type="button" id="reviewCancel">Back</button>
+                <button class="action-button primary" type="button" id="reviewConfirm" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10" /><path d="M7 17 17 7" /></svg>
+                  Open ViciSwap
+                </button>
+              </div>
+            </div>
+          </dialog>
+
+          <dialog class="terms-dialog" id="termsDialog" aria-labelledby="termsDialogTitle">
+            <div class="terms-dialog-card">
+              <div class="review-head">
+                <p class="eyebrow">Bundle Builder beta</p>
+                <h2 id="termsDialogTitle">Terms of Service</h2>
+                <p>Review and accept these beta terms before using Bundle Builder.</p>
+              </div>
+              <ul class="review-list terms-list">
+                <li>Bundle Builder is an educational research tool, not financial, investment, legal, tax, or trading advice.</li>
+                <li>Market data, scores, charts, and bundle suggestions may be delayed, incomplete, unavailable, or inaccurate.</li>
+                <li>The safety screen is not a rug-pull detector, contract audit, or guarantee that a token, route, or transaction is safe.</li>
+                <li>You are responsible for reviewing token details, route quality, liquidity, slippage, fees, approvals, and transaction risk before swapping.</li>
+                <li>Bundle Builder does not approve, sign, or execute transactions. Users must review and complete any swap in ViciSwap.</li>
+              </ul>
+              <label class="review-ack">
+                <input type="checkbox" id="termsAcknowledge" />
+                <span>I agree to use Bundle Builder beta under these terms.</span>
+              </label>
+              <div class="review-actions">
+                <button class="action-button primary" type="button" id="termsAccept" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                  Enter beta
+                </button>
+              </div>
+            </div>
+          </dialog>
+        </div>
+      </section>
+
+      <section class="recommendation-band" id="recommendation" aria-live="polite" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Build My Bundle</p>
+            <h2 id="topBundleName">Signal Stack</h2>
+          </div>
+          <div class="score-pill" id="topFit">Fit 92</div>
+        </div>
+
+        <div class="result-grid">
+          <article class="primary-result" id="primaryResult"></article>
+          <aside class="allocation-panel" aria-labelledby="allocation-title">
+            <div class="panel-title">
+              <div>
+                <h3 id="allocation-title">Allocation</h3>
+                <p id="allocationTotal">$0.00 total</p>
+              </div>
+              <span id="allocationRisk">Moderate</span>
+            </div>
+            <div id="allocationBars" class="allocation-bars"></div>
+            <div class="source-strip">
+              <span id="allocationMode">Default allocation</span>
+              <span id="strategyUniverse">Strict same-network support screen</span>
+              <span>Same-network Receive coins only</span>
+              <span>Route and liquidity check required</span>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="insights-band" aria-labelledby="insights-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Coin theses</p>
+            <h2 id="insights-title">Why the machine likes each token</h2>
+          </div>
+          <label class="search-box">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+            <input id="coinSearch" type="search" placeholder="Search ticker, theme, or network" />
+          </label>
+        </div>
+        <div class="network-groups" id="networkGroups" aria-label="ViciSwap token groups by network"></div>
+        <div class="coin-table-wrap">
+          <table class="coin-table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Theme</th>
+                <th>Network</th>
+                <th>Score</th>
+                <th>Bullish case</th>
+                <th>Watchout</th>
+              </tr>
+            </thead>
+            <tbody id="coinRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="./app.js?v=41"></script>
+  </body>
+</html>

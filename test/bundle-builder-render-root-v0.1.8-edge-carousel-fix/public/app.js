@@ -396,19 +396,16 @@ const MARKET_PULSE_TIMEOUT_MS = 18000;
 const MARKET_STATS_TIMEOUT_MS = 9000;
 const MARKET_SIMPLE_TIMEOUT_MS = 9000;
 const MARKET_CHART_TIMEOUT_MS = 12000;
-const MARKET_PULSE_CANDIDATE_LIMIT = 45;
+const MARKET_PULSE_CANDIDATE_LIMIT = 90;
 const MARKET_PULSE_DECK_SIZE = 10;
-const MARKET_PULSE_MIN_MARKET_ROWS = 10;
-const MARKET_PULSE_LOOKUP_BATCH_SIZE = 15;
-const NEWS_CATALYST_TIMEOUT_MS = 3000;
-const NEWS_CATALYST_LOOKUP_LIMIT = 5;
-const NEWS_CATALYST_CACHE_MS = 1000 * 60 * 10;
+const MARKET_PULSE_MIN_MARKET_ROWS = 18;
+const MARKET_PULSE_LOOKUP_BATCH_SIZE = 10;
 const BINANCE_TICKER_CACHE_MS = 1000 * 60 * 2;
 const COINBASE_STATS_CACHE_MS = 1000 * 60 * 2;
 const CRYPTOCOMPARE_STATS_CACHE_MS = 1000 * 60 * 2;
 const DEXSCREENER_STATS_CACHE_MS = 1000 * 60 * 2;
-const DEXSCREENER_TIMEOUT_MS = 14000;
-const DEXSCREENER_ROW_TIMEOUT_MS = 4200;
+const DEXSCREENER_TIMEOUT_MS = 18000;
+const DEXSCREENER_ROW_TIMEOUT_MS = 5200;
 const MARKET_CHART_CANDIDATE_LIMIT = 12;
 const VICI_COINS_API_BASE_URL = "https://office.viciswap.io/vs2/api/coins";
 const VICI_COINS_API_CACHE_MS = 1000 * 60 * 10;
@@ -741,7 +738,6 @@ let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
 let dexScreenerStatsCache = new Map();
-let newsCatalystCache = new Map();
 let latestMarketSignals = new Map();
 let latestPrices = new Map(
   Object.entries(fallbackPrices).map(([ticker, price]) => [ticker, { price, source: "Cached estimate" }]),
@@ -2369,8 +2365,7 @@ async function refreshMarketPulse({ preserveSelection = false } = {}) {
     lastMarketPulseError = error?.message || String(error);
     window.viciMarketPulseLastError = lastMarketPulseError;
     console.warn("Live market pulse unavailable.", error);
-    currentFavorites = getFallbackPulseDeckForNetwork(network);
-    if (!currentFavorites.length) currentFavorites = getMarketDataUnavailableDeck(network, lastMarketPulseError);
+    currentFavorites = getMarketDataUnavailableDeck(network, lastMarketPulseError);
     currentFavorite = currentFavorites[0];
     currentFavoriteIndex = 0;
   }
@@ -2390,161 +2385,17 @@ async function getLivePulseDeck(eligibleCandidates, network) {
       name: "DEX Screener",
       run: () => withTimeout(getDexScreenerPulseDeck(pulseCandidates, network), DEXSCREENER_TIMEOUT_MS, "DEX Screener pulse timed out"),
     },
-    {
-      name: "CoinGecko stats",
-      run: () => withTimeout(getCoinGeckoPulseDeck(pulseCandidates, network), MARKET_PULSE_TIMEOUT_MS, "CoinGecko stats pulse timed out"),
-    },
-    {
-      name: "CoinGecko chart",
-      run: () => withTimeout(getCoinGeckoChartPulseDeck(pulseCandidates, network), MARKET_PULSE_TIMEOUT_MS, "CoinGecko chart pulse timed out"),
-    },
-    {
-      name: "ViciSwap scan",
-      run: () => getLocalViciPulseDeckWithCharts(pulseCandidates, network),
-    },
-    {
-      name: "Confirmed fallback",
-      run: () => getFallbackPulseDeckForNetwork(network),
-    },
   ];
 
   for (const loader of loaders) {
     try {
-      const deck = await loader.run();
-      if (Array.isArray(deck) && deck.length) {
-        const normalizedDeck = normalizePulseDeck(deck, loader.name);
-        return enrichPulseDeckWithCatalysts(normalizedDeck, network).catch(() => normalizedDeck);
-      }
-      throw new Error(`${loader.name} returned no candidates`);
+      return await loader.run();
     } catch (error) {
       errors.push(`${loader.name}: ${error?.message || String(error)}`);
     }
   }
 
   throw new Error(errors.join(" | "));
-}
-
-function normalizePulseDeck(deck, sourceName = "") {
-  return (deck || [])
-    .filter(Boolean)
-    .slice(0, MARKET_PULSE_DECK_SIZE)
-    .map((candidate, index) => ({
-      ...candidate,
-      rank: index + 1,
-      source: candidate.source || sourceName,
-    }));
-}
-
-async function enrichPulseDeckWithCatalysts(deck, network) {
-  const baseDeck = normalizePulseDeck(deck);
-  const candidates = baseDeck
-    .filter((candidate) => candidate?.ticker && candidate.ticker !== "--")
-    .slice(0, NEWS_CATALYST_LOOKUP_LIMIT);
-  if (!candidates.length) return baseDeck;
-
-  const catalystRows = await Promise.allSettled(candidates.map((candidate) => (
-    withTimeout(fetchNewsCatalystSignal(candidate, network), NEWS_CATALYST_TIMEOUT_MS, `${candidate.ticker} news timed out`)
-  )));
-  const catalystByTicker = new Map();
-  catalystRows.forEach((row, index) => {
-    if (row.status === "fulfilled" && row.value) catalystByTicker.set(candidates[index].ticker, row.value);
-  });
-  if (!catalystByTicker.size) return baseDeck;
-
-  return baseDeck
-    .map((candidate) => {
-      const catalyst = catalystByTicker.get(candidate.ticker);
-      if (!catalyst) return candidate;
-      const currentEdge = candidate.marketEdge || marketEdgeSignal(candidate, candidate, candidate.prices);
-      const nextEdge = {
-        ...currentEdge,
-        label: catalyst.score >= 5 && currentEdge.label === "Neutral edge" ? "Positive edge" : currentEdge.label,
-        score: roundTo((currentEdge.score || 0) + catalyst.score, 1),
-        details: [...(currentEdge.details || []), catalyst.summary].slice(0, 4),
-      };
-      return {
-        ...candidate,
-        marketEdge: nextEdge,
-        newsCatalyst: catalyst,
-        pulseScore: (candidate.pulseScore || 0) + catalyst.score * 0.25,
-        reason: appendCatalystNote(candidate.reason, catalyst),
-      };
-    })
-    .sort((a, b) => (b.pulseScore || 0) - (a.pulseScore || 0))
-    .slice(0, MARKET_PULSE_DECK_SIZE)
-    .map((candidate, index) => ({
-      ...candidate,
-      rank: index + 1,
-      reason: rewritePulseRankLabel(candidate.reason, index + 1),
-    }));
-}
-
-async function fetchNewsCatalystSignal(candidate, network) {
-  const cacheKey = `${normalizeNetwork(network)}:${candidate.ticker}`;
-  const cached = newsCatalystCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < NEWS_CATALYST_CACHE_MS) return cached.value;
-
-  const payload = await fetchMarketJson(makeGdeltNewsUrl(candidate, network));
-  const articles = Array.isArray(payload?.articles) ? payload.articles : [];
-  const relevant = articles
-    .filter((article) => article?.title || article?.seendate)
-    .slice(0, 8);
-  if (!relevant.length) return null;
-
-  const recentCount = relevant.filter((article) => isRecentNewsDate(article.seendate)).length;
-  const trustedCount = relevant.filter((article) => isKnownCryptoNewsDomain(article.domain || article.url)).length;
-  const titleText = relevant.map((article) => article.title || "").join(" ").toLowerCase();
-  const catalystWords = ["launch", "upgrade", "partnership", "integration", "mainnet", "airdrop", "listing", "funding", "proposal", "growth", "record", "surge"];
-  const riskWords = ["hack", "exploit", "lawsuit", "probe", "outage", "depeg", "delist", "warning", "SEC".toLowerCase()];
-  const positiveHits = catalystWords.filter((word) => titleText.includes(word)).length;
-  const riskHits = riskWords.filter((word) => titleText.includes(word)).length;
-  const score = clamp(recentCount * 0.8 + trustedCount * 0.6 + positiveHits * 1.2 - riskHits * 1.8, -5, 8);
-  if (score <= 0 && !recentCount) return null;
-  const topTitle = relevant[0]?.title || `${candidate.ticker} has recent market coverage`;
-  const value = {
-    source: "GDELT news scan",
-    score: roundTo(score, 1),
-    articleCount: relevant.length,
-    summary: riskHits > 0
-      ? `Recent news includes risk words; verify catalyst quality before using it.`
-      : `${candidate.ticker} has recent catalyst coverage: ${topTitle.slice(0, 90)}${topTitle.length > 90 ? "..." : ""}`,
-    updatedAt: new Date().toISOString(),
-  };
-  newsCatalystCache.set(cacheKey, { value, cachedAt: Date.now() });
-  return value;
-}
-
-function makeGdeltNewsUrl(candidate, network) {
-  const query = `"${candidate.ticker}" crypto OR "${candidate.name}"`;
-  const params = new URLSearchParams({
-    query,
-    mode: "artlist",
-    format: "json",
-    maxrecords: "10",
-    timespan: "1d",
-    sort: "hybridrel",
-  });
-  return `https://api.gdeltproject.org/api/v2/doc/doc?${params.toString()}`;
-}
-
-function isRecentNewsDate(value) {
-  const text = String(value || "");
-  if (!text) return false;
-  const compact = text.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})?(\d{2})?/);
-  const parsed = compact
-    ? new Date(Date.UTC(Number(compact[1]), Number(compact[2]) - 1, Number(compact[3]), Number(compact[4] || 0), Number(compact[5] || 0)))
-    : new Date(text);
-  return Number.isFinite(parsed.getTime()) && Date.now() - parsed.getTime() < 1000 * 60 * 60 * 36;
-}
-
-function isKnownCryptoNewsDomain(domainOrUrl) {
-  const text = String(domainOrUrl || "").toLowerCase();
-  return ["coindesk", "cointelegraph", "decrypt", "theblock", "blockworks", "coinmarketcap", "beincrypto", "cryptoslate"].some((domain) => text.includes(domain));
-}
-
-function appendCatalystNote(reason, catalyst) {
-  if (!catalyst?.summary) return reason;
-  return `${reason} Catalyst read: ${catalyst.summary}`;
 }
 
 function marketPulseCandidates(eligibleCandidates, network = getPreferences().network) {
@@ -2618,7 +2469,7 @@ function getLocalViciPulseDeck(eligibleCandidates, network, { updateSignals = tr
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score)
-    .slice(0, MARKET_PULSE_DECK_SIZE);
+    .slice(0, 3);
 
   if (!scored.length) throw new Error("No ViciSwap scan candidates ranked");
   if (updateSignals) updateLatestSignalsFromViciSwapScan(scored);
@@ -3298,7 +3149,6 @@ function isAllowedMarketUrl(url) {
       (parsed.origin === "https://api.coingecko.com" && parsed.pathname.startsWith("/api/v3/"))
       || isAllowedDexScreenerUrl(url)
       || isAllowedViciCoinsApiUrl(url)
-      || isAllowedGdeltNewsUrl(url)
     );
   } catch {
     return false;
@@ -3309,15 +3159,6 @@ function isAllowedViciCoinsApiUrl(url) {
   try {
     const parsed = new URL(url);
     return parsed.origin === "https://office.viciswap.io" && parsed.pathname.startsWith("/vs2/api/coins");
-  } catch {
-    return false;
-  }
-}
-
-function isAllowedGdeltNewsUrl(url) {
-  try {
-    const parsed = new URL(url);
-    return parsed.origin === "https://api.gdeltproject.org" && parsed.pathname.startsWith("/api/v2/doc/doc");
   } catch {
     return false;
   }
@@ -3622,11 +3463,10 @@ function finiteOrNull(value) {
 }
 
 function getFallbackPulseDeckForNetwork(network) {
-  const targetSize = MARKET_PULSE_DECK_SIZE;
   const baseDeck = fallbackPulseDeck.filter((candidate) => isTickerOnNetwork(candidate.ticker, network));
   const fillDeck = getViciMarketCandidates(network)
     .filter((candidate) => !baseDeck.some((fallback) => fallback.ticker === candidate.ticker))
-    .slice(0, Math.max(0, targetSize - baseDeck.length))
+    .slice(0, Math.max(0, 3 - baseDeck.length))
     .map((candidate) => ({
       id: candidate.id,
       rank: 1,
@@ -3643,7 +3483,7 @@ function getFallbackPulseDeckForNetwork(network) {
 
   const genericDeck = getSupportedTickersForNetwork(network)
     .filter((ticker) => !baseDeck.some((fallback) => fallback.ticker === ticker) && !fillDeck.some((fallback) => fallback.ticker === ticker))
-    .slice(0, Math.max(0, targetSize - baseDeck.length - fillDeck.length))
+    .slice(0, Math.max(0, 3 - baseDeck.length - fillDeck.length))
     .map((ticker) => {
       const meta = coinMetaForTicker(ticker);
       return {
@@ -3661,7 +3501,7 @@ function getFallbackPulseDeckForNetwork(network) {
       };
     });
 
-  return [...baseDeck, ...fillDeck, ...genericDeck].slice(0, targetSize).map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+  return [...baseDeck, ...fillDeck, ...genericDeck].slice(0, 3).map((candidate, index) => ({ ...candidate, rank: index + 1 }));
 }
 
 function getMarketDataUnavailableDeck(network, errorMessage = "") {
@@ -3679,7 +3519,7 @@ function getMarketDataUnavailableDeck(network, errorMessage = "") {
     network: normalizedNetwork,
     change24h: null,
     prices: [],
-    reason: `Live market sources did not return a usable signal for the ${normalizedNetwork} ViciSwap-supported token set. The builder should normally fall back through DEX Screener, CoinGecko, the ViciSwap scan, and confirmed cached candidates before this card appears.`,
+    reason: `DEX Screener did not return fresh market stats for the ${normalizedNetwork} ViciSwap-supported token set. CoinGecko is only used for the 24h chart after DEX Screener has ranked the coins. ViciSwap is still only being used to verify eligible Receive coins on the selected network.`,
     source: "Market data unavailable",
     chartSource,
     updatedAt: null,

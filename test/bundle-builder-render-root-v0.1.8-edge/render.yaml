@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: bundle-builder-beta
+    runtime: node
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: BUNDLE_BUILDER_ALLOWED_NETWORKS
+        value: base
+      - key: BUNDLE_BUILDER_MIN_LIQUIDITY_USD
+        value: "250000"
+      - key: BUNDLE_BUILDER_MIN_VOLUME_24H_USD
+        value: "100000"
+      - key: CORS_ORIGIN
+        value: https://bundle.vicicoin.io

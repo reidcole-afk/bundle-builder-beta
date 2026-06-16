@@ -2,7 +2,7 @@ const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://
 const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.9";
+const API_VERSION = "0.1.7";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -333,7 +333,6 @@ async function recommendBundle(rawParams = {}, options = {}) {
       market: marketSignals.get(candidate.ticker) || null,
       categorySignal: categorySignals.get(candidate.ticker) || null,
     }))
-    .map((candidate) => ({ ...candidate, marketEdge: marketEdgeSignal(candidate) }))
     .map((candidate) => ({ ...candidate, recommendationScore: scoreCandidate(candidate, params) }))
     .sort((a, b) => b.recommendationScore - a.recommendationScore);
 
@@ -376,7 +375,6 @@ async function recommendBundle(rawParams = {}, options = {}) {
       },
       liquidityTokenCount: liquiditySource.tokenCount,
       liquidityQualifiedTokenCount: liquidityQualifiedRows.length,
-      marketEdge: "deterministic signal from ViciSwap simulated liquidity, DEX Screener market data, category strength, and token relative strength",
       note: "ViciSwap token eligibility is separated from token and category market ranking data. ViciSwap simulated-swap liquidity is the primary risk gate.",
     },
     bundle: {
@@ -797,12 +795,6 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
         source: "not available",
         note: "No fresh category signal was available during this request.",
       },
-      marketEdge: candidate.marketEdge || {
-        label: "No edge signal",
-        score: 0,
-        components: {},
-        interpretation: "Not enough live market and liquidity data was available to calculate a market-edge signal.",
-      },
     };
   });
 }
@@ -1052,46 +1044,8 @@ function scoreCandidate(candidate, params) {
   const liquidityPenalty = liquidityPenaltyForCandidate(candidate, params);
   const categoryScore = category.score ? (category.score - 50) * 0.2 : 0;
   const relativeStrengthScore = category.relativeStrength24h ? clamp(category.relativeStrength24h, -20, 25) * 0.2 : 0;
-  const edgeScore = candidate.marketEdge ? candidate.marketEdge.score * 0.55 : 0;
   const riskWeight = riskMomentumMultiplier(params.risk);
-  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore - liquidityPenalty;
-}
-
-function marketEdgeSignal(candidate) {
-  const market = candidate.market || {};
-  const category = candidate.categorySignal || {};
-  const liquidity = candidate.viciLiquidity || null;
-  const change24h = finiteOrNull(market.change24h) || 0;
-  const volume24h = finiteOrNull(market.volume24h) || 0;
-  const liquidityDepthScore = liquidity ? clamp(22 - liquidity.diffThousandUsd, -20, 22) : -18;
-  const volumeScore = logScore(volume24h, 750_000) * 0.7;
-  const momentumScore = clamp(change24h, -12, 18) * 0.45;
-  const categoryScore = category.score ? (category.score - 50) * 0.16 : 0;
-  const relativeStrengthScore = category.relativeStrength24h ? clamp(category.relativeStrength24h, -20, 25) * 0.18 : 0;
-  const score = roundPercent(clamp(
-    liquidityDepthScore * 0.5 + volumeScore + momentumScore + categoryScore + relativeStrengthScore,
-    -25,
-    35,
-  ));
-  const label = score >= 18 ? "Strong edge" : score >= 8 ? "Positive edge" : score <= -8 ? "Weak edge" : "Neutral edge";
-  const reasons = [];
-  if (liquidity) reasons.push(`ViciSwap simulated $1k round-trip loss is about $${roundMoney(liquidity.diffThousandUsd)}`);
-  if (volume24h >= 1_000_000) reasons.push(`DEX Screener shows solid 24h volume`);
-  if (category.interpretation) reasons.push(category.interpretation);
-  if (change24h > 0) reasons.push(`24h price action is positive`);
-  if (!reasons.length) reasons.push("Market edge is limited because live supporting data is thin.");
-  return {
-    label,
-    score,
-    components: {
-      viciLiquidityDepth: roundPercent(liquidityDepthScore),
-      dexVolume: roundPercent(volumeScore),
-      momentum24h: roundPercent(momentumScore),
-      categoryStrength: roundPercent(categoryScore),
-      relativeStrength: roundPercent(relativeStrengthScore),
-    },
-    interpretation: `${label}: ${reasons.slice(0, 2).join("; ")}.`,
-  };
+  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore - liquidityPenalty;
 }
 
 function viciLiquidityScore(liquidity) {
@@ -1250,24 +1204,23 @@ function rationaleForCandidate(candidate) {
   const market = candidate.market;
   const category = candidate.categorySignal;
   const liquidity = candidate.viciLiquidity;
-  const edgeNote = candidate.marketEdge?.interpretation ? ` Edge read: ${candidate.marketEdge.interpretation}` : "";
   if (liquidity && liquidity.diffThousandUsd <= VICI_MAX_DIFF_THOUSAND_USD) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip, which passes the conservative beta screen.${categoryNote}${edgeNote}`;
+    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip, which passes the conservative beta screen.${categoryNote}`;
   }
   if (liquidity) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip; size should match the user's risk setting.${categoryNote}${edgeNote}`;
+    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip; size should match the user's risk setting.${categoryNote}`;
   }
   if (market && market.volume24h >= 500_000 && market.liquidityUsd >= 250_000) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} DEX Screener currently shows solid volume and liquidity for this network.${categoryNote}${edgeNote}`;
+    return `${candidate.rationale} DEX Screener currently shows solid volume and liquidity for this network.${categoryNote}`;
   }
   if (market && market.volume24h > 0) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} Market data is available, but route and depth still need review.${categoryNote}${edgeNote}`;
+    return `${candidate.rationale} Market data is available, but route and depth still need review.${categoryNote}`;
   }
-  if (category) return `${candidate.rationale} Category read: ${category.interpretation}${edgeNote}`;
+  if (category) return `${candidate.rationale} Category read: ${category.interpretation}`;
   return candidate.rationale;
 }
 

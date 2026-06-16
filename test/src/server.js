@@ -273,7 +273,6 @@ function isAllowedMarketProxyUrl(targetUrl) {
     if (parsed.origin === "https://api.binance.com") return parsed.pathname.startsWith("/api/v3/");
     if (parsed.origin === "https://api.exchange.coinbase.com") return parsed.pathname.startsWith("/products/");
     if (parsed.origin === "https://min-api.cryptocompare.com") return parsed.pathname.startsWith("/data/");
-    if (parsed.origin === "https://api.gdeltproject.org") return parsed.pathname.startsWith("/api/v2/doc/doc");
     return false;
   } catch {
     return false;
