@@ -276,49 +276,79 @@ svg {
   z-index: 3;
 }
 
-.pulse-card-back {
-  position: relative;
+.pulse-carousel {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 14px;
-  min-height: 92px;
-  padding: 52px 16px 12px;
+  align-items: stretch;
+  gap: 10px;
+  margin: -18px 14px 0;
+  padding-top: 30px;
+}
+
+.pulse-card-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.pulse-card-back {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 82px;
+  padding: 12px;
   color: var(--ink-soft);
   box-shadow: 0 10px 24px rgba(23, 32, 51, 0.08);
   cursor: pointer;
-  transform-origin: top center;
-  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
 }
 
 .pulse-card-back:hover,
 .pulse-card-back:focus-visible {
   border-color: rgba(13, 107, 115, 0.35);
   box-shadow: 0 14px 30px rgba(23, 32, 51, 0.12);
+  transform: translateY(-2px);
 }
 
-.pulse-card-second {
-  z-index: 2;
-  margin: -44px 18px 0;
-  background: rgba(248, 250, 252, 0.96);
-  transform: scale(0.985);
+.pulse-card-back.is-active {
+  border-color: rgba(13, 107, 115, 0.45);
+  background: var(--teal-soft);
 }
 
-.pulse-card-second:hover,
-.pulse-card-second:focus-visible {
-  transform: scale(0.99) translateY(-2px);
+.pulse-nav {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  width: 38px;
+  flex: 0 0 38px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.94);
+  color: var(--teal);
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(23, 32, 51, 0.08);
 }
 
-.pulse-card-third {
-  z-index: 1;
-  margin: -44px 34px 0;
-  background: rgba(241, 245, 249, 0.96);
-  transform: scale(0.965);
+.pulse-nav:hover,
+.pulse-nav:focus-visible {
+  border-color: var(--teal);
+  background: var(--teal-soft);
 }
 
-.pulse-card-third:hover,
-.pulse-card-third:focus-visible {
-  transform: scale(0.97) translateY(-2px);
+.pulse-nav:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pulse-nav svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .pulse-back-rank {
@@ -366,6 +396,11 @@ svg {
   color: var(--ink-soft);
   font-size: 0.72rem;
   font-weight: 900;
+}
+
+.pulse-edge-chip {
+  background: #eef6f0;
+  color: #1f6f4e;
 }
 
 .pulse-header {
@@ -1680,20 +1715,18 @@ input[type="range"] {
     text-align: left;
   }
 
+  .pulse-carousel {
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .pulse-card-strip {
+    grid-template-columns: 1fr;
+  }
+
   .pulse-card-back {
     align-items: flex-start;
     flex-direction: column;
-    padding-top: 54px;
-  }
-
-  .pulse-card-second {
-    margin-right: 10px;
-    margin-left: 10px;
-  }
-
-  .pulse-card-third {
-    margin-right: 20px;
-    margin-left: 20px;
   }
 
   .pulse-back-copy span,

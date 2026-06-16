@@ -397,6 +397,7 @@ const MARKET_STATS_TIMEOUT_MS = 9000;
 const MARKET_SIMPLE_TIMEOUT_MS = 9000;
 const MARKET_CHART_TIMEOUT_MS = 12000;
 const MARKET_PULSE_CANDIDATE_LIMIT = 90;
+const MARKET_PULSE_DECK_SIZE = 10;
 const BINANCE_TICKER_CACHE_MS = 1000 * 60 * 2;
 const COINBASE_STATS_CACHE_MS = 1000 * 60 * 2;
 const CRYPTOCOMPARE_STATS_CACHE_MS = 1000 * 60 * 2;
@@ -720,13 +721,15 @@ const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
 const useFavoriteCoin = document.getElementById("useFavoriteCoin");
-const pulseSecondCard = document.getElementById("pulseSecondCard");
-const pulseThirdCard = document.getElementById("pulseThirdCard");
+const pulsePrev = document.getElementById("pulsePrev");
+const pulseNext = document.getElementById("pulseNext");
+const pulseCardStrip = document.getElementById("pulseCardStrip");
 const coinPreferenceGrid = document.querySelector(".coin-chip-grid");
 
 let latestMatches = [];
 let currentFavorite = fallbackPulse;
 let currentFavorites = fallbackPulseDeck;
+let currentFavoriteIndex = 0;
 let currentBundle = null;
 let pulseChartCache = new Map();
 let binanceTickerCache = null;
@@ -1310,6 +1313,13 @@ function clamp(value, min, max) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(min, Math.min(max, numeric));
+}
+
+function roundTo(value, decimals = 2) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  const factor = 10 ** decimals;
+  return Math.round(numeric * factor) / factor;
 }
 
 function isStableOrCashTicker(ticker) {
@@ -2256,8 +2266,11 @@ pulseRefresh?.addEventListener("click", () => {
   });
 });
 
-[pulseSecondCard, pulseThirdCard].forEach((card) => {
-  card.addEventListener("click", () => selectPulseCandidate(card.dataset.pulseTicker));
+pulsePrev?.addEventListener("click", () => movePulseCandidate(-1));
+pulseNext?.addEventListener("click", () => movePulseCandidate(1));
+pulseCardStrip?.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-pulse-ticker]");
+  if (card) selectPulseCandidate(card.dataset.pulseTicker);
 });
 
 document.body.addEventListener("click", (event) => {
@@ -2349,12 +2362,14 @@ async function refreshMarketPulse({ preserveSelection = false } = {}) {
     currentFavorite = preserveSelection
       ? currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0]
       : currentFavorites[0];
+    currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
   } catch (error) {
     lastMarketPulseError = error?.message || String(error);
     window.viciMarketPulseLastError = lastMarketPulseError;
     console.warn("Live market pulse unavailable.", error);
     currentFavorites = getMarketDataUnavailableDeck(network, lastMarketPulseError);
     currentFavorite = currentFavorites[0];
+    currentFavoriteIndex = 0;
   }
   renderMarketPulse(currentFavorite, currentFavorites);
   renderCoinRows();
@@ -2395,7 +2410,7 @@ function marketPulseCandidates(eligibleCandidates, network = getPreferences().ne
 async function getCoinGeckoPulseDeck(eligibleCandidates, network) {
   const markets = await fetchCoinGeckoMarketRows(eligibleCandidates);
   updateLatestPrices(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, 3);
+  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE);
   if (!favoriteMarkets.length) throw new Error("No CoinGecko candidates ranked");
   const favoriteDeck = favoriteMarkets
     .map((market, index) => {
@@ -2411,7 +2426,7 @@ async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
   const candidates = uniqueCoinGeckoCandidates(eligibleCandidates).slice(0, MARKET_CHART_CANDIDATE_LIMIT);
   const markets = await fetchCoinGeckoChartRows(candidates);
   updateLatestPrices(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, 3);
+  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE);
   if (!favoriteMarkets.length) throw new Error("No CoinGecko chart candidates ranked");
   return favoriteMarkets
     .map((market, index) => {
@@ -2425,7 +2440,7 @@ async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
 async function getDexScreenerPulseDeck(eligibleCandidates, network) {
   const markets = await fetchDexScreenerMarketRows(eligibleCandidates, network);
   updateLatestPricesFromDexScreener(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, 8);
+  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE * 2);
   if (!favoriteMarkets.length) throw new Error("No DEX Screener candidates ranked");
   const favoriteDeck = favoriteMarkets
     .map((market, index) => {
@@ -2434,7 +2449,7 @@ async function getDexScreenerPulseDeck(eligibleCandidates, network) {
       return buildDexScreenerPulseCandidate(meta, market, network, index + 1);
     })
     .filter(Boolean);
-  return loadPulseChartsAndRerank(favoriteDeck, 3);
+  return loadPulseChartsAndRerank(favoriteDeck, MARKET_PULSE_DECK_SIZE);
 }
 
 async function getViciSwapScanPulseDeck(eligibleCandidates, network) {
@@ -3518,8 +3533,9 @@ function selectFavoriteMarkets(markets, limit = 3) {
       const liquidity = Math.log10(Math.max(market.liquidityUsd || 1, 1));
       const momentum = Math.max(-8, Math.min(change, 18));
       const trajectory = chartTrajectoryScore(market.sparkline_in_7d?.price);
-      const score = meta.baseScore + momentum * 2.4 + volume * 2 + liquidity * 1.4 + trajectory;
-      return { ...market, pulseScore: score };
+      const edge = marketEdgeSignal(meta, market, market.sparkline_in_7d?.price);
+      const score = meta.baseScore + momentum * 2.4 + volume * 2 + liquidity * 1.4 + trajectory + edge.score * 0.35;
+      return { ...market, pulseScore: score, marketEdge: edge };
     })
     .filter(Boolean)
     .sort((a, b) => b.pulseScore - a.pulseScore);
@@ -3530,11 +3546,13 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
   const loaded = await Promise.all(deck.map(loadPulseChart));
   return loaded
     .map((candidate) => {
-      const adjustment = chartTrajectoryScore(candidate.prices);
+      const edge = marketEdgeSignal(candidate, candidate, candidate.prices);
+      const adjustment = chartTrajectoryScore(candidate.prices) + edge.score * 0.35;
       return {
         ...candidate,
         pulseScore: (candidate.pulseScore || 0) + adjustment,
         trajectory: chartTrajectoryLabel(candidate.prices),
+        marketEdge: edge,
       };
     })
     .sort((a, b) => b.pulseScore - a.pulseScore)
@@ -3544,9 +3562,59 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
       return {
         ...candidate,
         rank,
-        reason: appendTrajectoryNote(rewritePulseRankLabel(candidate.reason, rank), candidate.prices),
+        reason: appendMarketEdgeNote(appendTrajectoryNote(rewritePulseRankLabel(candidate.reason, rank), candidate.prices), candidate.marketEdge),
       };
     });
+}
+
+function marketEdgeSignal(meta, market = {}, prices = []) {
+  const change24h = finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h ?? market.change24h) ?? 0;
+  const volume24h = finiteOrNull(market.total_volume ?? market.volume24h) || 0;
+  const liquidityUsd = finiteOrNull(market.liquidityUsd) || 0;
+  const trajectory = chartTrajectoryStats(prices);
+  const themeScore = themeMomentumScore(meta.theme, change24h);
+  const liquidityQuality = clamp(Math.log10(Math.max(liquidityUsd, 1)) - 5.2, -2, 4);
+  const volumeQuality = clamp(Math.log10(Math.max(volume24h, 1)) - 5.6, -2, 4);
+  const trajectoryScore = chartTrajectoryScore(prices);
+  const exhaustionPenalty = trajectory?.pullbackFromHigh >= 0.08 && trajectory?.recentReturn < 0
+    ? clamp(trajectory.pullbackFromHigh * 55, 0, 8)
+    : 0;
+  const score = clamp(
+    themeScore + liquidityQuality * 1.4 + volumeQuality * 1.2 + trajectoryScore * 0.75 - exhaustionPenalty,
+    -12,
+    16,
+  );
+  const label = score >= 8 ? "Strong edge" : score >= 3 ? "Positive edge" : score <= -5 ? "Weak edge" : "Neutral edge";
+  const details = [];
+  if (volume24h >= 1_000_000) details.push(`${formatCompactUsd(volume24h)} volume`);
+  if (liquidityUsd >= 1_000_000) details.push(`${formatCompactUsd(liquidityUsd)} liquidity`);
+  if (trajectory) {
+    const trajectoryLabel = chartTrajectoryLabel(prices);
+    if (trajectoryLabel?.tone !== "neutral") details.push(trajectoryLabel.text);
+  }
+  if (themeScore > 1) details.push(`${String(meta.theme || "market").toUpperCase()} narrative has momentum`);
+  if (!details.length) details.push("market signal is mixed");
+  return {
+    label,
+    score: roundTo(score, 1),
+    details,
+  };
+}
+
+function themeMomentumScore(theme, change24h) {
+  const normalized = String(theme || "").toLowerCase();
+  const riskOnThemes = ["base", "ai", "defi", "rwa", "l2"];
+  if (riskOnThemes.includes(normalized) && change24h > 6) return 3.5;
+  if (riskOnThemes.includes(normalized) && change24h > 2) return 1.75;
+  if (normalized === "core" && change24h > 0) return 0.75;
+  if (change24h < -6) return -3;
+  return 0;
+}
+
+function appendMarketEdgeNote(reason, edge) {
+  if (!edge || edge.label === "Neutral edge") return reason;
+  const detail = edge.details?.[0] ? ` ${edge.details[0]}` : "";
+  return `${reason} Edge read: ${edge.label.toLowerCase()} (${edge.score}).${detail}`;
 }
 
 function appendTrajectoryNote(reason, prices) {
@@ -3931,11 +3999,20 @@ async function selectPulseCandidate(ticker) {
   if (!selected || selected.ticker === currentFavorite?.ticker) return;
 
   currentFavorite = selected;
+  currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
   pulseStatus.textContent = `#${selected.rank} Loading`;
   currentFavorite = await loadPulseChart(selected);
   currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === currentFavorite.ticker ? currentFavorite : candidate));
+  currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
+}
+
+function movePulseCandidate(direction) {
+  if (!currentFavorites.length) return;
+  const nextIndex = (currentFavoriteIndex + direction + currentFavorites.length) % currentFavorites.length;
+  const next = currentFavorites[nextIndex];
+  if (next?.ticker) selectPulseCandidate(next.ticker);
 }
 
 function buildFavoriteReason(meta, market, rank = 1, source = "CoinGecko") {
@@ -4008,41 +4085,45 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       : "Refresh market pulse";
   }
   pulseChart.innerHTML = makeSparkline(favorite.prices, favorite.change24h);
-  renderPulseBackCards(favorites);
+  renderPulseCardStrip(favorites);
   updateFavoriteToggle();
 }
 
-function renderPulseBackCards(favorites) {
-  const backCards = favorites.filter((favorite) => favorite?.ticker !== currentFavorite?.ticker).slice(0, 2);
-  renderPulseBackCard(pulseSecondCard, backCards[0]);
-  renderPulseBackCard(pulseThirdCard, backCards[1]);
-}
-
-function renderPulseBackCard(card, favorite) {
-  if (!favorite) {
-    card.hidden = true;
-    card.removeAttribute("data-pulse-ticker");
-    card.removeAttribute("aria-label");
-    card.innerHTML = "";
+function renderPulseCardStrip(favorites) {
+  if (!pulseCardStrip) return;
+  const deck = (favorites || []).filter(Boolean);
+  if (!deck.length) {
+    pulseCardStrip.innerHTML = "";
     return;
   }
+  const activeIndex = Math.max(0, deck.findIndex((favorite) => favorite.ticker === currentFavorite?.ticker));
+  const visible = visiblePulseCards(deck, activeIndex, 3);
+  pulseCardStrip.innerHTML = visible.map(makePulseBackCard).join("");
+  currentFavoriteIndex = activeIndex;
+  if (pulsePrev) pulsePrev.disabled = deck.length <= 1;
+  if (pulseNext) pulseNext.disabled = deck.length <= 1;
+}
 
-  card.hidden = false;
-  card.dataset.pulseTicker = favorite.ticker;
-  card.setAttribute("aria-label", `Show ${favorite.name} market pulse`);
-  card.innerHTML = makePulseBackCard(favorite);
+function visiblePulseCards(deck, activeIndex, count = 3) {
+  if (deck.length <= count) return deck;
+  return Array.from({ length: count }, (_, offset) => deck[(activeIndex + offset) % deck.length]);
 }
 
 function makePulseBackCard(favorite) {
   if (!favorite) return "";
+  const activeClass = favorite.ticker === currentFavorite?.ticker ? " is-active" : "";
+  const edge = favorite.marketEdge ? `<span class="pulse-edge-chip">${escapeHtml(favorite.marketEdge.label)}</span>` : "";
   return `
-    <span class="pulse-back-rank">#${favorite.rank}</span>
-    <div class="pulse-back-copy">
-      <strong>${favorite.name}</strong>
-      <span>${favorite.ticker} - 24h ${formatPercent(favorite.change24h)}</span>
-      <p>${favorite.theme.toUpperCase()} lane</p>
-    </div>
-    <span class="pulse-back-source">${favorite.source}</span>
+    <button class="pulse-card pulse-card-back${activeClass}" type="button" data-pulse-ticker="${escapeHtml(favorite.ticker)}" aria-label="Show ${escapeHtml(favorite.name)} market pulse">
+      <span class="pulse-back-rank">#${favorite.rank}</span>
+      <div class="pulse-back-copy">
+        <strong>${escapeHtml(favorite.name)}</strong>
+        <span>${escapeHtml(favorite.ticker)} - 24h ${formatPercent(favorite.change24h)}</span>
+        <p>${escapeHtml(String(favorite.theme || "market").toUpperCase())} lane</p>
+      </div>
+      <span class="pulse-back-source">${escapeHtml(favorite.source || "Market")}</span>
+      ${edge}
+    </button>
   `;
 }
 

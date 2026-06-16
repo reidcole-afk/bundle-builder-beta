@@ -69,8 +69,15 @@
                     </div>
                   </div>
                 </div>
-                <button class="pulse-card pulse-card-back pulse-card-second" id="pulseSecondCard" type="button"></button>
-                <button class="pulse-card pulse-card-back pulse-card-third" id="pulseThirdCard" type="button"></button>
+                <div class="pulse-carousel" aria-label="Top market pulse coins">
+                  <button class="pulse-nav" id="pulsePrev" type="button" aria-label="Previous market pulse coin">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+                  </button>
+                  <div class="pulse-card-strip" id="pulseCardStrip"></div>
+                  <button class="pulse-nav" id="pulseNext" type="button" aria-label="Next market pulse coin">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                  </button>
+                </div>
               </div>
             </aside>
           </div>
