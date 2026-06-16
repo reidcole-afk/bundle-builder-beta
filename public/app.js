@@ -396,7 +396,7 @@ const MARKET_PULSE_TIMEOUT_MS = 18000;
 const MARKET_STATS_TIMEOUT_MS = 9000;
 const MARKET_SIMPLE_TIMEOUT_MS = 9000;
 const MARKET_CHART_TIMEOUT_MS = 12000;
-const MARKET_PULSE_CANDIDATE_LIMIT = 24;
+const MARKET_PULSE_CANDIDATE_LIMIT = 90;
 const BINANCE_TICKER_CACHE_MS = 1000 * 60 * 2;
 const COINBASE_STATS_CACHE_MS = 1000 * 60 * 2;
 const CRYPTOCOMPARE_STATS_CACHE_MS = 1000 * 60 * 2;
@@ -1355,11 +1355,56 @@ function normalizeAllocationWeights(allocation) {
 }
 
 function getViciMarketCandidates(network = getPreferences().network) {
-  return marketCandidates.filter((coin) => isTickerOnNetwork(coin.ticker, network));
+  const normalizedNetwork = normalizeNetwork(network);
+  return getSupportedTickersForNetwork(normalizedNetwork).map((ticker) => marketCandidateForTicker(ticker, normalizedNetwork));
 }
 
 function findMarketCandidateById(id, network = getPreferences().network) {
   return getViciMarketCandidates(network).find((coin) => coin.id === id);
+}
+
+function findMarketCandidateForMarket(market, network = getPreferences().network) {
+  const normalizedTicker = normalizeTicker(market?.ticker);
+  return getViciMarketCandidates(network).find((coin) => (
+    (market?.id && coin.id === market.id)
+    || (normalizedTicker && coin.ticker === normalizedTicker)
+  ));
+}
+
+function marketCandidateForTicker(ticker, network = getPreferences().network) {
+  const normalizedTicker = normalizeTicker(ticker);
+  const known = marketCandidates.find((coin) => coin.ticker === normalizedTicker);
+  if (known) return known;
+  const row = coinData.find(([coinTicker]) => coinTicker === normalizedTicker);
+  const token = tokenInfoForNetwork(normalizedTicker, network);
+  const theme = row?.[1]?.split("/")?.[0]?.trim()?.toLowerCase() || inferPulseTheme(normalizedTicker);
+  return {
+    ticker: normalizedTicker,
+    id: "",
+    name: token?.name || row?.[0] || normalizedTicker,
+    theme,
+    baseScore: row?.[3] || (isStableOrCashTicker(normalizedTicker) ? 30 : isCoreWrappedTicker(normalizedTicker) ? 52 : 38),
+    reason: row?.[4] || "It is in the current ViciSwap Receive-token list for this network, so it can compete if live market data confirms enough momentum and depth.",
+  };
+}
+
+function tokenInfoForNetwork(ticker, network = getPreferences().network) {
+  const normalizedTicker = normalizeTicker(ticker);
+  const normalizedNetwork = normalizeNetwork(network);
+  const apiToken = getTokenUniverseNetwork(apiViciTokenUniverse, normalizedNetwork)
+    ?.tokens?.find((token) => normalizeTicker(token.ticker) === normalizedTicker);
+  const scannedToken = getTokenUniverseNetwork(scannedViciTokenUniverse, normalizedNetwork)
+    ?.tokens?.find((token) => normalizeTicker(token.ticker) === normalizedTicker);
+  return apiToken || scannedToken || null;
+}
+
+function inferPulseTheme(ticker) {
+  const normalized = normalizeTicker(ticker);
+  if (isStableOrCashTicker(normalized) || isCoreWrappedTicker(normalized)) return "core";
+  if (/BTC|ETH|SOL/.test(normalized)) return "core";
+  if (/AERO|VELO|UNI|CRV|GMX|GNS|AAVE|MORPHO|PENDLE|LDO/.test(normalized)) return "defi";
+  if (/AIXBT|VIRTUAL|KAITO/.test(normalized)) return "ai";
+  return "network";
 }
 
 function scoreBundle(bundle, preferences) {
@@ -2342,7 +2387,7 @@ async function getLivePulseDeck(eligibleCandidates, network) {
 
 function marketPulseCandidates(eligibleCandidates, network = getPreferences().network) {
   return [...(eligibleCandidates || [])]
-    .filter((coin) => coin?.id && isTickerOnNetwork(coin.ticker, network))
+    .filter((coin) => coin?.ticker && isTickerOnNetwork(coin.ticker, network))
     .sort((a, b) => b.baseScore - a.baseScore)
     .slice(0, MARKET_PULSE_CANDIDATE_LIMIT);
 }
@@ -2384,7 +2429,7 @@ async function getDexScreenerPulseDeck(eligibleCandidates, network) {
   if (!favoriteMarkets.length) throw new Error("No DEX Screener candidates ranked");
   const favoriteDeck = favoriteMarkets
     .map((market, index) => {
-      const meta = findMarketCandidateById(market.id, network);
+      const meta = findMarketCandidateForMarket(market, network);
       if (!meta) return null;
       return buildDexScreenerPulseCandidate(meta, market, network, index + 1);
     })
@@ -2838,6 +2883,7 @@ function buildDexScreenerMarketRow(meta, pair, network) {
   const prices = scanPulsePrices(change24h, true);
   return {
     id: meta.id,
+    ticker: meta.ticker,
     current_price: finiteOrNull(pair.priceUsd),
     market_cap: finiteOrNull(pair.marketCap ?? pair.fdv),
     market_cap_rank: null,
@@ -3199,7 +3245,7 @@ function updateLatestPricesFromDexScreener(markets) {
   const nextPrices = new Map(latestPrices);
   const nextSignals = new Map(latestMarketSignals);
   markets.forEach((market) => {
-    const meta = findMarketCandidateById(market.id, network);
+    const meta = findMarketCandidateForMarket(market, network);
     const price = finiteOrNull(market.current_price);
     if (meta && Number.isFinite(price) && price > 0) {
       nextPrices.set(meta.ticker, { price, source: "DEX Screener" });
@@ -3465,7 +3511,7 @@ function selectFavoriteMarkets(markets, limit = 3) {
   const { network } = getPreferences();
   const scored = markets
     .map((market) => {
-      const meta = findMarketCandidateById(market.id, network);
+      const meta = findMarketCandidateForMarket(market, network);
       if (!meta) return null;
       const change = market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h ?? 0;
       const volume = Math.log10(Math.max(market.total_volume || 1, 1));
