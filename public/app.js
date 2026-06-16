@@ -727,6 +727,8 @@ const favoriteCoinInsights = document.getElementById("favoriteCoinInsights");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
+const pulseLoading = document.getElementById("pulseLoading");
+const pulseLoadingText = document.getElementById("pulseLoadingText");
 const useFavoriteCoin = document.getElementById("useFavoriteCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
@@ -740,6 +742,7 @@ let currentBundle = null;
 let pulseChartCache = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
+let pulseLoadingTimer = null;
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -2357,7 +2360,7 @@ function hideFitSliceTooltip(slice) {
 
 async function refreshMarketPulse({ preserveSelection = false, silent = false, render = true } = {}) {
   const refreshId = ++marketPulseRefreshSeq;
-  if (!silent) pulseStatus.textContent = "Refreshing";
+  if (!silent) startPulseLoading("Loading graph...");
   const { network } = getPreferences();
   const eligibleCandidates = getViciMarketCandidates(network);
   try {
@@ -2395,6 +2398,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
   if (render && currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
     buildBundle({ scroll: false });
   }
+  if (!silent) stopPulseLoading();
 }
 
 function mergePulseDeckByTicker(currentDeck = [], nextDeck = []) {
@@ -4202,13 +4206,14 @@ async function selectPulseCandidate(ticker) {
   currentFavorite = selected;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
-  pulseStatus.textContent = `#${selected.rank} Loading`;
+  startPulseLoading("Loading graph...");
   const loadedFavorite = await loadPulseChart(selected);
   currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === loadedFavorite.ticker ? loadedFavorite : candidate));
   if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
   currentFavorite = loadedFavorite;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
+  stopPulseLoading();
 }
 
 function movePulseCandidate(direction) {
@@ -4309,6 +4314,42 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
   updateFavoriteToggle();
+}
+
+function startPulseLoading(initialText = "Loading graph...") {
+  if (!pulseLoading || !pulseLoadingText) {
+    if (pulseStatus) pulseStatus.textContent = "Refreshing";
+    return;
+  }
+  const phrases = [
+    initialText,
+    "Checking market depth...",
+    "Reading the tape...",
+    "Scanning catalysts...",
+    "Tightening the screws...",
+  ];
+  let phraseIndex = Math.max(0, phrases.indexOf(initialText));
+  pulseLoadingText.textContent = phrases[phraseIndex] || phrases[0];
+  pulseLoading.hidden = false;
+  pulseLoading.classList.add("is-active");
+  if (pulseStatus) pulseStatus.textContent = "Working";
+  window.clearInterval(pulseLoadingTimer);
+  pulseLoadingTimer = window.setInterval(() => {
+    phraseIndex = (phraseIndex + 1) % phrases.length;
+    pulseLoadingText.textContent = phrases[phraseIndex];
+  }, 1100);
+}
+
+function stopPulseLoading() {
+  if (pulseLoadingTimer) {
+    window.clearInterval(pulseLoadingTimer);
+    pulseLoadingTimer = null;
+  }
+  if (!pulseLoading) return;
+  pulseLoading.classList.remove("is-active");
+  window.setTimeout(() => {
+    if (!pulseLoading.classList.contains("is-active")) pulseLoading.hidden = true;
+  }, 180);
 }
 
 function renderPulseInsights(favorite) {
