@@ -741,6 +741,7 @@ let pulseChartCache = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseLoadingActive = false;
+let marketPulseReady = false;
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -2204,6 +2205,7 @@ form.addEventListener("input", (event) => {
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
 });
 targetNetwork.addEventListener("change", () => {
+  marketPulseReady = false;
   renderNetworkGroups();
   renderCoinPreferenceChips();
   updateCoinPreferenceAvailability();
@@ -2358,7 +2360,7 @@ function hideFitSliceTooltip(slice) {
 
 async function refreshMarketPulse({ preserveSelection = false, silent = false, render = true } = {}) {
   const refreshId = render ? ++marketPulseRefreshSeq : marketPulseRefreshSeq;
-  if (!silent) startPulseLoading("Loading graph...");
+  if (!silent) startPulseLoading("Loading graph...", { lockControls: !marketPulseReady });
   const { network } = getPreferences();
   const eligibleCandidates = getViciMarketCandidates(network);
   try {
@@ -2380,6 +2382,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
         ? currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0]
         : currentFavorites[0];
       currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
+      marketPulseReady = true;
     } catch (error) {
       if (refreshId !== marketPulseRefreshSeq) return;
       lastMarketPulseError = error?.message || String(error);
@@ -2391,6 +2394,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
       const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
       currentFavorite = currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0];
       currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
+      marketPulseReady = true;
     }
     if (render) renderMarketPulse(currentFavorite, currentFavorites);
     if (render) renderCoinRows();
@@ -4207,7 +4211,7 @@ async function selectPulseCandidate(ticker) {
   currentFavorite = selected;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
-  startPulseLoading("Loading graph...");
+  startPulseLoading("Loading graph...", { lockControls: false });
   const loadedFavorite = await loadPulseChart(selected);
   currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === loadedFavorite.ticker ? loadedFavorite : candidate));
   if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
@@ -4317,11 +4321,13 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   updateFavoriteToggle();
 }
 
-function startPulseLoading(initialText = "Loading graph...") {
+function startPulseLoading(initialText = "Loading graph...", { lockControls = false } = {}) {
   pulseLoadingActive = true;
-  if (pulseStatus) pulseStatus.textContent = "Loading";
-  if (pulsePrev) pulsePrev.disabled = true;
-  if (pulseNext) pulseNext.disabled = true;
+  if (lockControls && pulseStatus) pulseStatus.textContent = "Loading";
+  if (lockControls) {
+    if (pulsePrev) pulsePrev.disabled = true;
+    if (pulseNext) pulseNext.disabled = true;
+  }
   if (!pulseChart) return;
   pulseChart.classList.add("is-loading");
   pulseChart.innerHTML = `
