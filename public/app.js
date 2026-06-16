@@ -727,8 +727,6 @@ const favoriteCoinInsights = document.getElementById("favoriteCoinInsights");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
-const pulseLoading = document.getElementById("pulseLoading");
-const pulseLoadingText = document.getElementById("pulseLoadingText");
 const useFavoriteCoin = document.getElementById("useFavoriteCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
@@ -742,7 +740,7 @@ let currentBundle = null;
 let pulseChartCache = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
-let pulseLoadingTimer = null;
+let pulseLoadingActive = false;
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -2359,46 +2357,49 @@ function hideFitSliceTooltip(slice) {
 }
 
 async function refreshMarketPulse({ preserveSelection = false, silent = false, render = true } = {}) {
-  const refreshId = ++marketPulseRefreshSeq;
+  const refreshId = render ? ++marketPulseRefreshSeq : marketPulseRefreshSeq;
   if (!silent) startPulseLoading("Loading graph...");
   const { network } = getPreferences();
   const eligibleCandidates = getViciMarketCandidates(network);
   try {
-    if (!eligibleCandidates.length) throw new Error("No market candidates for network");
-    const nextFavorites = await getLivePulseDeck(eligibleCandidates, network);
-    if (refreshId !== marketPulseRefreshSeq) return;
-    if (!render) {
-      currentFavorites = mergePulseDeckByTicker(currentFavorites, nextFavorites);
-      currentFavorite = currentFavorites.find((candidate) => candidate.ticker === currentFavorite?.ticker) || currentFavorite;
-      currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite?.ticker));
+    try {
+      if (!eligibleCandidates.length) throw new Error("No market candidates for network");
+      const nextFavorites = await getLivePulseDeck(eligibleCandidates, network);
+      if (refreshId !== marketPulseRefreshSeq) return;
+      if (!render) {
+        currentFavorites = mergePulseDeckByTicker(currentFavorites, nextFavorites);
+        currentFavorite = currentFavorites.find((candidate) => candidate.ticker === currentFavorite?.ticker) || currentFavorite;
+        currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite?.ticker));
+        lastMarketPulseError = "";
+        return;
+      }
+      currentFavorites = nextFavorites;
       lastMarketPulseError = "";
-      return;
+      const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
+      currentFavorite = preserveSelection
+        ? currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0]
+        : currentFavorites[0];
+      currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
+    } catch (error) {
+      if (refreshId !== marketPulseRefreshSeq) return;
+      lastMarketPulseError = error?.message || String(error);
+      window.viciMarketPulseLastError = lastMarketPulseError;
+      console.warn("Live market pulse unavailable.", error);
+      if (!render) return;
+      currentFavorites = getFallbackPulseDeckForNetwork(network);
+      if (!currentFavorites.length) currentFavorites = getMarketDataUnavailableDeck(network, lastMarketPulseError);
+      const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
+      currentFavorite = currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0];
+      currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
     }
-    currentFavorites = nextFavorites;
-    lastMarketPulseError = "";
-    const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
-    currentFavorite = preserveSelection
-      ? currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0]
-      : currentFavorites[0];
-    currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
-  } catch (error) {
-    if (refreshId !== marketPulseRefreshSeq) return;
-    lastMarketPulseError = error?.message || String(error);
-    window.viciMarketPulseLastError = lastMarketPulseError;
-    console.warn("Live market pulse unavailable.", error);
-    if (!render) return;
-    currentFavorites = getFallbackPulseDeckForNetwork(network);
-    if (!currentFavorites.length) currentFavorites = getMarketDataUnavailableDeck(network, lastMarketPulseError);
-    const selectedTicker = preserveSelection ? currentFavorite?.ticker : "";
-    currentFavorite = currentFavorites.find((candidate) => candidate.ticker === selectedTicker) || currentFavorites[0];
-    currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
+    if (render) renderMarketPulse(currentFavorite, currentFavorites);
+    if (render) renderCoinRows();
+    if (render && currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
+      buildBundle({ scroll: false });
+    }
+  } finally {
+    if (!silent) stopPulseLoading();
   }
-  if (render) renderMarketPulse(currentFavorite, currentFavorites);
-  if (render) renderCoinRows();
-  if (render && currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
-    buildBundle({ scroll: false });
-  }
-  if (!silent) stopPulseLoading();
 }
 
 function mergePulseDeckByTicker(currentDeck = [], nextDeck = []) {
@@ -4317,39 +4318,24 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
 }
 
 function startPulseLoading(initialText = "Loading graph...") {
-  if (!pulseLoading || !pulseLoadingText) {
-    if (pulseStatus) pulseStatus.textContent = "Refreshing";
-    return;
-  }
-  const phrases = [
-    initialText,
-    "Checking market depth...",
-    "Reading the tape...",
-    "Scanning catalysts...",
-    "Tightening the screws...",
-  ];
-  let phraseIndex = Math.max(0, phrases.indexOf(initialText));
-  pulseLoadingText.textContent = phrases[phraseIndex] || phrases[0];
-  pulseLoading.hidden = false;
-  pulseLoading.classList.add("is-active");
-  if (pulseStatus) pulseStatus.textContent = "Working";
-  window.clearInterval(pulseLoadingTimer);
-  pulseLoadingTimer = window.setInterval(() => {
-    phraseIndex = (phraseIndex + 1) % phrases.length;
-    pulseLoadingText.textContent = phrases[phraseIndex];
-  }, 1100);
+  pulseLoadingActive = true;
+  if (pulseStatus) pulseStatus.textContent = "Loading";
+  if (pulsePrev) pulsePrev.disabled = true;
+  if (pulseNext) pulseNext.disabled = true;
+  if (!pulseChart) return;
+  pulseChart.classList.add("is-loading");
+  pulseChart.innerHTML = `
+    <div class="pulse-chart-loading">
+      <span>${escapeHtml(initialText)}</span>
+    </div>
+  `;
 }
 
 function stopPulseLoading() {
-  if (pulseLoadingTimer) {
-    window.clearInterval(pulseLoadingTimer);
-    pulseLoadingTimer = null;
-  }
-  if (!pulseLoading) return;
-  pulseLoading.classList.remove("is-active");
-  window.setTimeout(() => {
-    if (!pulseLoading.classList.contains("is-active")) pulseLoading.hidden = true;
-  }, 180);
+  pulseLoadingActive = false;
+  if (pulseChart) pulseChart.classList.remove("is-loading");
+  if (pulsePrev) pulsePrev.disabled = (currentFavorites || []).length <= 1;
+  if (pulseNext) pulseNext.disabled = (currentFavorites || []).length <= 1;
 }
 
 function renderPulseInsights(favorite) {
