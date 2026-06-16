@@ -2488,7 +2488,7 @@ async function enrichPulseDeckWithCatalysts(deck, network) {
       const currentEdge = candidate.marketEdge || marketEdgeSignal(candidate, candidate, candidate.prices);
       const nextEdge = {
         ...currentEdge,
-        label: catalyst.score >= 5 && currentEdge.label === "Neutral edge" ? "Positive edge" : currentEdge.label,
+        label: catalyst.score >= 5 && currentEdge.label === "Neutral data edge" ? "Positive data edge" : currentEdge.label,
         score: roundTo((currentEdge.score || 0) + catalyst.score, 1),
         details: [...(currentEdge.details || []), catalyst.summary].slice(0, 4),
       };
@@ -3783,7 +3783,7 @@ function marketEdgeSignal(meta, market = {}, prices = []) {
     -12,
     16,
   );
-  const label = score >= 8 ? "Strong edge" : score >= 3 ? "Positive edge" : score <= -5 ? "Weak edge" : "Neutral edge";
+  const label = score >= 8 ? "Strong data edge" : score >= 3 ? "Positive data edge" : score <= -5 ? "Weak data edge" : "Neutral data edge";
   const details = [];
   if (volume24h >= 1_000_000) details.push(`${formatCompactUsd(volume24h)} volume`);
   if (liquidityUsd >= 1_000_000) details.push(`${formatCompactUsd(liquidityUsd)} liquidity`);
@@ -3811,9 +3811,9 @@ function themeMomentumScore(theme, change24h) {
 }
 
 function appendMarketEdgeNote(reason, edge) {
-  if (!edge || edge.label === "Neutral edge") return reason;
+  if (!edge || edge.label === "Neutral data edge") return reason;
   const detail = edge.details?.[0] ? ` ${edge.details[0]}` : "";
-  return `${reason} Edge read: ${edge.label.toLowerCase()} (${edge.score}).${detail}`;
+  return `${reason} Data edge: ${edge.label.toLowerCase()} (${edge.score}).${detail}`;
 }
 
 function appendTrajectoryNote(reason, prices) {
@@ -4339,11 +4339,7 @@ function buildPulseInsights(favorite = {}) {
 
   insights.push({
     label: "Market read",
-    text: [
-      Number.isFinite(change) ? `${formatPercent(change)} over 24h` : "",
-      volume ? `${formatCompactUsd(volume)} volume` : "",
-      liquidity ? `${formatCompactUsd(liquidity)} liquidity` : "",
-    ].filter(Boolean).join(", ") || `${favorite.ticker} is being ranked from the latest available market signal.`,
+    text: plainMarketRead(favorite.ticker, change, volume, liquidity),
   });
 
   insights.push({
@@ -4353,27 +4349,64 @@ function buildPulseInsights(favorite = {}) {
 
   if (favorite.newsCatalyst?.summary) {
     insights.push({
-      label: "News pulse",
-      text: favorite.newsCatalyst.summary.replace(/^Recent news includes risk words; /, "Risk headline scan: "),
+      label: "Catalyst check",
+      text: plainCatalystRead(favorite.newsCatalyst),
     });
   } else if (edge?.details?.length) {
     insights.push({
-      label: edge.label || "Edge read",
-      text: edge.details.slice(0, 2).join("; "),
+      label: "What to watch",
+      text: plainWatchRead(favorite, edge, trajectory),
     });
   } else if (trajectory?.text) {
     insights.push({
-      label: "Chart note",
-      text: trajectory.text,
+      label: "What to watch",
+      text: plainWatchRead(favorite, edge, trajectory),
     });
   } else {
     insights.push({
-      label: "Beta note",
-      text: "No fresh catalyst headline yet; the coin is being judged by support, liquidity, momentum, and fit.",
+      label: "What to watch",
+      text: "No fresh catalyst headline yet, so this pick is mostly being judged by support, market activity, and fit.",
     });
   }
 
   return insights;
+}
+
+function plainMarketRead(ticker, change, volume, liquidity) {
+  const hasChange = Number.isFinite(change);
+  const hasSolidVolume = Number.isFinite(volume) && volume >= 1_000_000;
+  const hasSolidLiquidity = Number.isFinite(liquidity) && liquidity >= 1_000_000;
+  if (hasChange && change > 6 && hasSolidVolume && hasSolidLiquidity) {
+    return `${ticker} is moving with enough activity behind it to look like more than a thin one-off spike.`;
+  }
+  if (hasChange && change > 0 && hasSolidVolume) {
+    return `${ticker} has positive momentum and enough trading activity to earn a closer look.`;
+  }
+  if (hasChange && change < 0) {
+    return `${ticker} is cooling off right now, so the builder treats the setup more carefully.`;
+  }
+  if (hasSolidLiquidity) {
+    return `${ticker} has usable market depth, which helps reduce execution risk compared with thinner tokens.`;
+  }
+  return `${ticker} is being ranked from the latest available market signal, but users should still verify the route.`;
+}
+
+function plainCatalystRead(catalyst) {
+  const summary = String(catalyst?.summary || "").replace(/^Recent news includes risk words; /, "Recent headlines include risk language. ");
+  return summary.length > 150 ? `${summary.slice(0, 147)}...` : summary;
+}
+
+function plainWatchRead(favorite, edge, trajectory) {
+  if (trajectory?.tone === "bearish" || trajectory?.tone === "softening") {
+    return "The chart is losing short-term strength, so a better entry may depend on stabilization rather than chasing.";
+  }
+  if (trajectory?.tone === "constructive") {
+    return "The recent chart is still constructive, but users should watch whether volume keeps confirming the move.";
+  }
+  if (edge?.label?.includes("Strong")) {
+    return "The data setup is strong, but the next check is whether liquidity and route quality hold up inside ViciSwap.";
+  }
+  return `${favorite.ticker} still needs a live route, quote, and slippage check before anyone treats the setup as actionable.`;
 }
 
 function coinInsightForTheme(theme = "", ticker = "This coin") {
