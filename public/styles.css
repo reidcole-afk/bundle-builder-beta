@@ -447,6 +447,74 @@ svg {
   font-weight: 850;
 }
 
+.pulse-change-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.pulse-change-control select {
+  min-width: 48px;
+  padding: 0 14px 0 0;
+  border: 0;
+  color: var(--ink-soft);
+  background: transparent;
+  font-weight: 900;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.pulse-change-control select:focus-visible {
+  outline: 2px solid rgba(13, 107, 115, 0.25);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.pulse-change-control span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.pulse-change-control span::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+}
+
+.pulse-change-control span.positive {
+  color: #00a83b;
+}
+
+.pulse-change-control span.positive::before {
+  border-bottom: 6px solid currentColor;
+}
+
+.pulse-change-control span.negative {
+  color: #d14d3f;
+}
+
+.pulse-change-control span.negative::before {
+  border-top: 6px solid currentColor;
+}
+
+.pulse-change-control span.neutral::before {
+  display: none;
+}
+
 .pulse-copy p {
   color: var(--ink-soft);
   line-height: 1.45;

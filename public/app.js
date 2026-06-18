@@ -824,6 +824,7 @@ const recommendation = document.getElementById("recommendation");
 const contextRefreshed = document.getElementById("contextRefreshed");
 const favoriteCoinName = document.getElementById("favoriteCoinName");
 const favoriteCoinTicker = document.getElementById("favoriteCoinTicker");
+const favoriteCoinWindow = document.getElementById("favoriteCoinWindow");
 const favoriteCoinChange = document.getElementById("favoriteCoinChange");
 const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
 const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
@@ -847,12 +848,23 @@ let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseLoadingActive = false;
 let marketPulseReady = false;
+let selectedPulseWindow = "24h";
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
 let dexScreenerStatsCache = new Map();
 let newsCatalystCache = new Map();
 let latestMarketSignals = new Map();
+const pulseWindowOptions = [
+  { key: "24h", label: "24h", minutes: 1440 },
+  { key: "12h", label: "12h", minutes: 720 },
+  { key: "6h", label: "6h", minutes: 360 },
+  { key: "3h", label: "3h", minutes: 180 },
+  { key: "1h", label: "1h", minutes: 60 },
+  { key: "30m", label: "30m", minutes: 30 },
+  { key: "15m", label: "15m", minutes: 15 },
+  { key: "5m", label: "5m", minutes: 5 },
+];
 let latestPrices = new Map(
   Object.entries(fallbackPrices).map(([ticker, price]) => [ticker, { price, source: "Cached estimate" }]),
 );
@@ -2132,11 +2144,11 @@ function coinMetaForTicker(ticker) {
 
   return {
     ticker,
-    theme: "ViciSwap listed",
+    theme: tokenThesisForTicker(ticker)?.role || "ViciSwap listed",
     network: networkTextForTicker(ticker),
     score,
     bullish: coinBullishCase(ticker, "Listed on the selected ViciSwap Receive list, so it can be considered for same-network bundle ideas."),
-    watchout: coinWatchout(ticker, "No custom thesis yet. Review route, slippage, token details, and transaction terms before swapping."),
+    watchout: coinWatchout(ticker, "Review route, slippage, token details, and transaction terms before swapping."),
   };
 }
 
@@ -2404,6 +2416,11 @@ pulseRefresh?.addEventListener("click", () => {
   refreshMarketPulse({ preserveSelection: true }).finally(() => {
     pulseRefresh.disabled = false;
   });
+});
+
+favoriteCoinWindow?.addEventListener("change", () => {
+  selectedPulseWindow = favoriteCoinWindow.value || "24h";
+  renderPulseChange(currentFavorite);
 });
 
 pulsePrev?.addEventListener("click", () => movePulseCandidate(-1));
@@ -3223,6 +3240,16 @@ function dexScreenerPairScore(pair) {
 function buildDexScreenerMarketRow(meta, pair, network) {
   const change24h = finiteOrNull(pair.priceChange?.h24) ?? 0;
   const prices = scanPulsePrices(change24h, true);
+  const changeWindows = {
+    "24h": change24h,
+    "6h": finiteOrNull(pair.priceChange?.h6),
+    "1h": finiteOrNull(pair.priceChange?.h1),
+    "5m": finiteOrNull(pair.priceChange?.m5),
+  };
+  changeWindows["12h"] = interpolateWindowChange(changeWindows["6h"], changeWindows["24h"], 6 / 18);
+  changeWindows["3h"] = interpolateWindowChange(changeWindows["1h"], changeWindows["6h"], 2 / 5);
+  changeWindows["30m"] = interpolateWindowChange(changeWindows["5m"], changeWindows["1h"], 25 / 55);
+  changeWindows["15m"] = interpolateWindowChange(changeWindows["5m"], changeWindows["1h"], 10 / 55);
   return {
     id: meta.id,
     ticker: meta.ticker,
@@ -3232,6 +3259,7 @@ function buildDexScreenerMarketRow(meta, pair, network) {
     total_volume: finiteOrNull(pair.volume?.h24),
     price_change_percentage_24h: change24h,
     price_change_percentage_24h_in_currency: change24h,
+    changeWindows,
     price_change_percentage_7d_in_currency: null,
     price_change_percentage_30d_in_currency: null,
     sparkline_in_7d: { price: prices },
@@ -4121,6 +4149,7 @@ function buildPulseCandidate(meta, market, source, rank = 1, network = getPrefer
     network: normalizeNetwork(network),
     metaReason: meta.reason,
     change24h,
+    changeWindows: market.changeWindows || {},
     prices: sparklinePrices,
     reason: buildFavoriteReason(meta, market, rank, source),
     source,
@@ -4144,6 +4173,7 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
     network: normalizeNetwork(network),
     metaReason: meta.reason,
     change24h,
+    changeWindows: market.changeWindows || {},
     prices,
     reason: buildDexScreenerFavoriteReason(meta, market, network, rank),
     source: "DEX Screener",
@@ -4499,7 +4529,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       ? `${favorite.name} is the current favorite`
       : `${favorite.name} is the #${favorite.rank} market favorite`;
   favoriteCoinTicker.textContent = favorite.ticker;
-  favoriteCoinChange.textContent = `24h ${formatPercent(favorite.change24h)}`;
+  renderPulseChange(favorite);
   favoriteCoinUpdated.textContent = marketTimestampLabel(favorite);
   if (favoriteCoinEdge) {
     const edgeLabel = favorite.marketEdge?.label || "";
@@ -4523,6 +4553,64 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
   updateFavoriteToggle();
+}
+
+function renderPulseChange(favorite = currentFavorite) {
+  if (!favoriteCoinChange) return;
+  if (favoriteCoinWindow && favoriteCoinWindow.value !== selectedPulseWindow) {
+    favoriteCoinWindow.value = selectedPulseWindow;
+  }
+  const change = pulseChangeForWindow(favorite, selectedPulseWindow);
+  favoriteCoinChange.classList.remove("positive", "negative", "neutral");
+  favoriteCoinChange.classList.add(changeClass(change));
+  favoriteCoinChange.textContent = Number.isFinite(change) ? formatAbsPercent(change) : "--";
+  favoriteCoinChange.title = Number.isFinite(change)
+    ? `${pulseWindowLabel(selectedPulseWindow)} change: ${formatPercent(change)}`
+    : `${pulseWindowLabel(selectedPulseWindow)} change unavailable`;
+}
+
+function pulseChangeForWindow(favorite = {}, key = "24h") {
+  if (key === "24h") return finiteOrNull(favorite.change24h);
+  const direct = finiteOrNull(favorite.changeWindows?.[key]);
+  if (direct !== null) return direct;
+  const window = pulseWindowOptions.find((option) => option.key === key);
+  if (!window) return null;
+  return percentChangeFromPriceWindow(favorite.prices, window.minutes);
+}
+
+function pulseWindowLabel(key) {
+  return pulseWindowOptions.find((option) => option.key === key)?.label || key || "24h";
+}
+
+function percentChangeFromPriceWindow(prices, minutes) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 3 || !Number.isFinite(minutes) || minutes <= 0) return null;
+  const lookbackPoints = Math.max(1, Math.round((series.length - 1) * Math.min(minutes, 1440) / 1440));
+  if (series.length - 1 - lookbackPoints < 0) return null;
+  const start = series[series.length - 1 - lookbackPoints];
+  const end = series.at(-1);
+  if (!start || !end) return null;
+  return ((end - start) / start) * 100;
+}
+
+function interpolateWindowChange(startChange, endChange, ratio) {
+  const start = finiteOrNull(startChange);
+  const end = finiteOrNull(endChange);
+  const amount = finiteOrNull(ratio);
+  if (start === null || end === null || amount === null) return null;
+  return start + (end - start) * clamp(amount, 0, 1);
+}
+
+function changeClass(value) {
+  const numeric = finiteOrNull(value);
+  if (numeric === null || Math.abs(numeric) < 0.005) return "neutral";
+  return numeric > 0 ? "positive" : "negative";
+}
+
+function formatAbsPercent(value) {
+  const numeric = finiteOrNull(value);
+  if (numeric === null) return "--";
+  return `${Math.abs(numeric).toFixed(2)}%`;
 }
 
 function startPulseLoading(initialText = "Loading graph...", { lockControls = false } = {}) {
@@ -4686,7 +4774,92 @@ function coinInsightForTheme(theme = "", ticker = "This coin") {
 }
 
 function tokenThesisForTicker(ticker) {
-  return tokenThesisProfiles[normalizeTicker(ticker)] || null;
+  const normalized = normalizeTicker(ticker);
+  return tokenThesisProfiles[normalized] || routeThesisForTicker(normalized);
+}
+
+function routeThesisForTicker(ticker) {
+  const normalized = normalizeTicker(ticker);
+  if (!normalized) return null;
+  const label = normalized.replace(/\./g, " ");
+
+  if (isStableOrCashTicker(normalized)) {
+    return {
+      role: "Stable / cash sleeve",
+      why: `${label} is a ViciSwap-supported cash or stable sleeve, useful for defensive allocations, quote stability, or reducing bundle volatility rather than chasing upside.`,
+      watch: "Stable and cash-like assets still need peg, route, and liquidity checks before swapping.",
+      marketRead: "The machine treats this as defensive utility rather than an upside catalyst.",
+      coverage: "category",
+    };
+  }
+
+  if (isCoreWrappedTicker(normalized) || /^(BTC|ETH|SOL|WPOL|POL|ARB|OP)$/.test(normalized)) {
+    return {
+      role: "Core market sleeve",
+      why: `${label} gives the bundle broad market or network exposure through a ViciSwap-supported asset on the selected chain.`,
+      watch: "Core and wrapped assets still need route quality, liquidity depth, peg or premium, and custody-risk review.",
+      marketRead: "The machine treats this as core exposure and route depth rather than a pure narrative bet.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(AAVE|COMP|MORPHO|CRV|VELO|AERO|PENDLE|LDO|GMX|GNS|DOLA|GHO|FRX|SUS|USDE|USDAI|SUSDAI|USDS|USDSM|ETHFI|SYRUPUSDC|MAI|MIM)$/.test(normalized)) {
+    return {
+      role: "DeFi / yield sleeve",
+      why: `${label} gives the bundle DeFi exposure, where usage, liquidity depth, lending demand, fees, or yield activity can matter more than headline hype.`,
+      watch: "DeFi tokens can lag if incentives fade, yields compress, or route depth weakens.",
+      marketRead: "The machine looks for DeFi coins only when same-network support is confirmed and market depth is strong enough for the selected risk level.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(VIRTUAL|AIXBT|KAITO|BIO|BNKR|CLANKER|NOCK|VFY|VVV|CGN|KTA|TIBBIR|TRUST)$/.test(normalized)) {
+    return {
+      role: "AI / data narrative sleeve",
+      why: `${label} adds AI, data, or attention-market exposure, which can help a bundle capture faster narrative rotation when users want more upside.`,
+      watch: "AI and attention tokens can be reflexive, so the machine should require stronger volume, liquidity, and trend confirmation before sizing them up.",
+      marketRead: "The machine treats this as a higher-beta narrative sleeve rather than a defensive asset.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(BRETT|DEGEN|TOSHI|MOG|DINO|CBDOGE|CHECK|CHIP|ELSA|FUN|LUNA|ZORA)$/.test(normalized)) {
+    return {
+      role: "Community / social beta",
+      why: `${label} adds community momentum exposure, which can make aggressive bundles more responsive when social risk appetite is leading the market.`,
+      watch: "Community tokens can reverse sharply, so they should be avoided or kept small unless liquidity, volume, and trend strength are all confirming.",
+      marketRead: "The machine treats this as sentiment-led exposure that needs a higher evidence bar than core or infrastructure assets.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(LINK|ZRO|AXLUSDC|GRT|LPT|MAGIC|ARB|OP|POL|MATICX|STMATIC|TEL|VSN|GRAIL|LAVA|RAIN)$/.test(normalized)) {
+    return {
+      role: "Infrastructure / network sleeve",
+      why: `${label} adds infrastructure or network exposure, helping the bundle diversify beyond simple ETH, BTC, and single-app tokens.`,
+      watch: "Infrastructure tokens can trade unevenly, so category strength and execution depth should confirm the thesis.",
+      marketRead: "The machine likes infrastructure exposure when it improves the bundle's theme mix without weakening liquidity quality.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(PAXG|XAUT0|THBILL|WTMSTR|WTSPYM|ONDO)$/.test(normalized)) {
+    return {
+      role: "RWA / treasury sleeve",
+      why: `${label} can add real-world-asset, treasury, or off-chain market exposure when ViciSwap support and route quality are confirmed.`,
+      watch: "RWA-style assets need extra review around issuer, wrapper, redemption, liquidity, and route quality.",
+      marketRead: "The machine treats this as a diversification sleeve rather than a pure crypto momentum bet.",
+      coverage: "category",
+    };
+  }
+
+  return {
+    role: "Route-supported token",
+    why: `${label} is confirmed in the selected ViciSwap Receive list, so it can be considered only when market data, route quality, and user preferences support it.`,
+    watch: "The builder does not yet have a high-conviction custom thesis for this token; verify route, slippage, liquidity, and token details before using it.",
+    marketRead: "The machine treats this as eligible but not thesis-led until stronger data appears.",
+    coverage: "route-only",
+  };
 }
 
 function updateFavoriteToggle() {

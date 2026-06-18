@@ -2,7 +2,7 @@ const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://
 const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.15";
+const API_VERSION = "0.1.17";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -788,7 +788,7 @@ function buildCandidateRows(tokens, params) {
         theme: meta?.[1] || inferTheme(token.ticker),
         baseScore: meta?.[2] || 36,
         rationale: thesis?.why || meta?.[3] || "Found in ViciSwap's same-network Receive-token list; include only if route quality and market depth check out.",
-        riskNote: thesis?.watch || meta?.[4] || "No custom thesis yet; keep allocation small unless market depth is verified.",
+        riskNote: thesis?.watch || meta?.[4] || "Keep allocation small unless market depth, route quality, and token details are verified.",
         thesisProfile: thesis,
       };
     });
@@ -1511,7 +1511,97 @@ function rationaleForCandidate(candidate) {
 }
 
 function tokenThesisForTicker(ticker) {
-  return tokenThesisProfiles[normalizeTicker(ticker)] || null;
+  const normalized = normalizeTicker(ticker);
+  return tokenThesisProfiles[normalized] || routeThesisForTicker(normalized);
+}
+
+function isStableOrCashTicker(ticker) {
+  const normalized = normalizeTicker(ticker);
+  return (
+    /USD/.test(normalized)
+    || ["DAI", "FRAX", "LUSD", "SUSD", "DOLA", "MAI", "MIM", "PYUSD", "GHO", "EURC", "EURS", "EUSD", "TUSD", "BUSD"].includes(normalized)
+  );
+}
+
+function isCoreWrappedTicker(ticker) {
+  const normalized = normalizeTicker(ticker);
+  return ["ETH", "WETH", "WBTC", "CBBTC", "CBETH", "TBTC", "WEETH", "WSTETH", "EZETH", "RETH", "RSETH", "LBTC", "WPOL"].includes(normalized);
+}
+
+function routeThesisForTicker(ticker) {
+  const normalized = normalizeTicker(ticker);
+  if (!normalized) return null;
+  const label = normalized.replace(/\./g, " ");
+
+  if (isStableOrCashTicker(normalized)) {
+    return {
+      role: "Stable / cash sleeve",
+      why: `${label} is a ViciSwap-supported cash or stable sleeve, useful for defensive allocations, quote stability, or reducing bundle volatility rather than chasing upside.`,
+      watch: "Stable and cash-like assets still need peg, route, and liquidity checks before swapping.",
+      coverage: "category",
+    };
+  }
+
+  if (isCoreWrappedTicker(normalized) || /^(BTC|ETH|SOL|WPOL|POL|ARB|OP)$/.test(normalized)) {
+    return {
+      role: "Core market sleeve",
+      why: `${label} gives the bundle broad market or network exposure through a ViciSwap-supported asset on the selected chain.`,
+      watch: "Core and wrapped assets still need route quality, liquidity depth, peg or premium, and custody-risk review.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(AAVE|COMP|MORPHO|CRV|VELO|AERO|PENDLE|LDO|GMX|GNS|DOLA|GHO|FRX|SUS|USDE|USDAI|SUSDAI|USDS|USDSM|ETHFI|SYRUPUSDC|MAI|MIM)$/.test(normalized)) {
+    return {
+      role: "DeFi / yield sleeve",
+      why: `${label} gives the bundle DeFi exposure, where usage, liquidity depth, lending demand, fees, or yield activity can matter more than headline hype.`,
+      watch: "DeFi tokens can lag if incentives fade, yields compress, or route depth weakens.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(VIRTUAL|AIXBT|KAITO|BIO|BNKR|CLANKER|NOCK|VFY|VVV|CGN|KTA|TIBBIR|TRUST)$/.test(normalized)) {
+    return {
+      role: "AI / data narrative sleeve",
+      why: `${label} adds AI, data, or attention-market exposure, which can help a bundle capture faster narrative rotation when users want more upside.`,
+      watch: "AI and attention tokens can be reflexive, so the machine should require stronger volume, liquidity, and trend confirmation before sizing them up.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(BRETT|DEGEN|TOSHI|MOG|DINO|CBDOGE|CHECK|CHIP|ELSA|FUN|LUNA|ZORA)$/.test(normalized)) {
+    return {
+      role: "Community / social beta",
+      why: `${label} adds community momentum exposure, which can make aggressive bundles more responsive when social risk appetite is leading the market.`,
+      watch: "Community tokens can reverse sharply, so they should be avoided or kept small unless liquidity, volume, and trend strength are all confirming.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(LINK|ZRO|AXLUSDC|GRT|LPT|MAGIC|ARB|OP|POL|MATICX|STMATIC|TEL|VSN|GRAIL|LAVA|RAIN)$/.test(normalized)) {
+    return {
+      role: "Infrastructure / network sleeve",
+      why: `${label} adds infrastructure or network exposure, helping the bundle diversify beyond simple ETH, BTC, and single-app tokens.`,
+      watch: "Infrastructure tokens can trade unevenly, so category strength and execution depth should confirm the thesis.",
+      coverage: "category",
+    };
+  }
+
+  if (/^(PAXG|XAUT0|THBILL|WTMSTR|WTSPYM|ONDO)$/.test(normalized)) {
+    return {
+      role: "RWA / treasury sleeve",
+      why: `${label} can add real-world-asset, treasury, or off-chain market exposure when ViciSwap support and route quality are confirmed.`,
+      watch: "RWA-style assets need extra review around issuer, wrapper, redemption, liquidity, and route quality.",
+      coverage: "category",
+    };
+  }
+
+  return {
+    role: "Route-supported token",
+    why: `${label} is confirmed in the selected ViciSwap Receive list, so it can be considered only when market data, route quality, and user preferences support it.`,
+    watch: "The builder does not yet have a high-conviction custom thesis for this token; verify route, slippage, liquidity, and token details before using it.",
+    coverage: "route-only",
+  };
 }
 
 function thesisProfileForResponse(candidate) {
@@ -1527,6 +1617,7 @@ function thesisProfileForResponse(candidate) {
     role: thesis.role,
     why: thesis.why,
     watch: thesis.watch,
+    coverage: thesis.coverage || "custom",
   };
 }
 
