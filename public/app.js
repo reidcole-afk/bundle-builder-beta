@@ -496,6 +496,7 @@ const BUILDER_TOKEN_UNIVERSE_MESSAGE = "VICI_TOKEN_UNIVERSE";
 const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
 const MARKET_CHART_CACHE_MS = 1000 * 60 * 4;
+const MARKET_CHART_STALE_MS = 1000 * 60 * 60;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
 const MARKET_PULSE_TIMEOUT_MS = 18000;
 const MARKET_STATS_TIMEOUT_MS = 9000;
@@ -825,6 +826,8 @@ const contextRefreshed = document.getElementById("contextRefreshed");
 const favoriteCoinName = document.getElementById("favoriteCoinName");
 const favoriteCoinTicker = document.getElementById("favoriteCoinTicker");
 const favoriteCoinWindow = document.getElementById("favoriteCoinWindow");
+const pulseWindowPrev = document.getElementById("pulseWindowPrev");
+const pulseWindowNext = document.getElementById("pulseWindowNext");
 const favoriteCoinChange = document.getElementById("favoriteCoinChange");
 const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
 const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
@@ -844,6 +847,7 @@ let currentFavorites = fallbackPulseDeck;
 let currentFavoriteIndex = 0;
 let currentBundle = null;
 let pulseChartCache = new Map();
+let pendingPulseChartLoads = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseLoadingActive = false;
@@ -884,6 +888,7 @@ function getPreferences() {
     risk: data.get("risk"),
     theme: data.get("theme"),
     confidence: Number(data.get("confidence")),
+    targetHorizon: normalizeTargetHorizon(data.get("targetHorizon")),
     bundleAmount: normalizeBundleAmount(data.get("bundleAmount")),
     selectedCoins: data.getAll("coinPrefs").filter((ticker) => isTickerOnNetwork(ticker, network)),
     diversityEnabled: data.get("diversityToggle") === "on",
@@ -900,12 +905,30 @@ function safePreferences() {
       risk: "moderate",
       theme: "core",
       confidence: 3,
+      targetHorizon: "swing",
       bundleAmount: 0,
       selectedCoins: [],
       diversityEnabled: false,
       coinCount: 6,
     };
   }
+}
+
+function normalizeTargetHorizon(value) {
+  const normalized = String(value || "").toLowerCase().replace(/[_\s-]+/g, "");
+  if (["quick", "13days", "1d", "3d", "days", "short"].includes(normalized)) return "quick";
+  if (["trend", "23weeks", "2w", "3w", "multiweek"].includes(normalized)) return "trend";
+  if (["position", "1month", "month", "long", "longer"].includes(normalized)) return "position";
+  return "swing";
+}
+
+function horizonLabel(horizon = "swing") {
+  return {
+    quick: "1-3 days",
+    swing: "about 1 week",
+    trend: "2-3 weeks",
+    position: "1+ month",
+  }[normalizeTargetHorizon(horizon)] || "about 1 week";
 }
 
 function normalizeBundleAmount(value) {
@@ -1385,11 +1408,12 @@ function marketSignalForTicker(ticker) {
 
 function liveSignalAdjustment(signal, preferences = safePreferences()) {
   const risk = riskSignalProfile(preferences.risk);
+  const horizon = horizonSignalProfile(preferences.targetHorizon);
   const momentum =
-    clamp(signal.change24h, -18, 18) * 0.45
-    + clamp(signal.change7d, -35, 35) * 0.32
-    + clamp(signal.change30d, -60, 60) * 0.18
-    + signal.trendReturn * 0.05;
+    clamp(signal.change24h, -18, 18) * horizon.change24h
+    + clamp(signal.change7d, -35, 35) * horizon.change7d
+    + clamp(signal.change30d, -60, 60) * horizon.change30d
+    + signal.trendReturn * horizon.trendReturn;
   const liquidity = Math.min(12, Math.log10(Math.max(signal.volume24h || 1, 1)) - 5);
   const consistency = (signal.consistency - 0.5) * 16;
   const volatilityPenalty = Math.min(18, signal.volatility * 250);
@@ -1397,11 +1421,21 @@ function liveSignalAdjustment(signal, preferences = safePreferences()) {
 
   return (
     momentum * risk.momentum
-    + liquidity * risk.liquidity
-    + consistency * risk.consistency
-    - volatilityPenalty * risk.volatilityPenalty
-    - drawdownPenalty * risk.drawdownPenalty
+    + liquidity * risk.liquidity * horizon.liquidity
+    + consistency * risk.consistency * horizon.consistency
+    - volatilityPenalty * risk.volatilityPenalty * horizon.volatilityPenalty
+    - drawdownPenalty * risk.drawdownPenalty * horizon.drawdownPenalty
   );
+}
+
+function horizonSignalProfile(horizon) {
+  const profiles = {
+    quick: { change24h: 0.62, change7d: 0.18, change30d: 0.05, trendReturn: 0.15, liquidity: 0.95, consistency: 0.75, volatilityPenalty: 1.2, drawdownPenalty: 1.1 },
+    swing: { change24h: 0.45, change7d: 0.32, change30d: 0.18, trendReturn: 0.05, liquidity: 1.0, consistency: 1.0, volatilityPenalty: 1.0, drawdownPenalty: 0.9 },
+    trend: { change24h: 0.25, change7d: 0.42, change30d: 0.28, trendReturn: 0.05, liquidity: 1.12, consistency: 1.15, volatilityPenalty: 0.9, drawdownPenalty: 0.75 },
+    position: { change24h: 0.12, change7d: 0.3, change30d: 0.48, trendReturn: 0.1, liquidity: 1.25, consistency: 1.25, volatilityPenalty: 0.8, drawdownPenalty: 0.65 },
+  };
+  return profiles[normalizeTargetHorizon(horizon)] || profiles.swing;
 }
 
 function riskSignalProfile(risk) {
@@ -1429,12 +1463,45 @@ function rebalanceAllocationByLiveSignals(allocation, preferences = safePreferen
 
 function marketSignalSummary(ticker, preferences = safePreferences()) {
   const signal = marketSignalForTicker(ticker);
-  if (!signal) return "Data score uses the confirmed ViciSwap list; live market signal is still refreshing.";
+  const bestFor = bestHorizonForTicker(ticker, preferences);
+  if (!signal) return `Best for ${bestFor.label}. Data score uses the confirmed ViciSwap list; live market signal is still refreshing.`;
 
   const score = scoreForTicker(ticker, preferences);
   const volatilityLabel = signal.volatility < 0.01 ? "calmer chart" : signal.volatility < 0.025 ? "moderate volatility" : "high volatility";
   const liquidityLabel = signal.volume24h >= 100_000_000 ? "deep volume" : signal.volume24h >= 10_000_000 ? "solid volume" : "thin volume";
-  return `Data ${score}: 24h ${formatPercent(signal.change24h)}, 7d ${formatPercent(signal.change7d)}, 30d ${formatPercent(signal.change30d)}, ${liquidityLabel}, ${volatilityLabel}.`;
+  return `Best for ${bestFor.label} (${bestFor.fit}). Data ${score}: 24h ${formatPercent(signal.change24h)}, 7d ${formatPercent(signal.change7d)}, 30d ${formatPercent(signal.change30d)}, ${liquidityLabel}, ${volatilityLabel}.`;
+}
+
+function bestHorizonForTicker(ticker, preferences = safePreferences()) {
+  const normalized = normalizeTicker(ticker);
+  const signal = marketSignalForTicker(normalized);
+  const thesis = tokenThesisForTicker(normalized);
+  const isStable = isStableOrCashTicker(normalized);
+  const isCore = isCoreWrappedTicker(normalized);
+  const isCommunity = /Community|social|meme/i.test(thesis?.role || "") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA"].includes(normalized);
+  const change24h = finiteOrNull(signal?.change24h) || 0;
+  const change7d = finiteOrNull(signal?.change7d) || 0;
+  const change30d = finiteOrNull(signal?.change30d) || 0;
+  const volume = finiteOrNull(signal?.volume24h) || 0;
+  const volatility = finiteOrNull(signal?.volatility) || 0;
+
+  let key = "swing";
+  if (isStable) key = "position";
+  else if (isCommunity && change24h > 4 && volume >= 500_000) key = "quick";
+  else if (change7d > 8 && change30d > 10 && volatility < 0.045) key = "trend";
+  else if (isCore || change30d > 18) key = "position";
+  else if (change24h > 6 && volatility > 0.025) key = "quick";
+
+  const selected = normalizeTargetHorizon(preferences.targetHorizon);
+  const fit = selected === key
+    ? "good match"
+    : selected === "position" && ["trend", "position"].includes(key)
+      ? "reasonable match"
+      : selected === "quick" && ["quick", "swing"].includes(key)
+        ? "reasonable match"
+        : "watch fit";
+
+  return { key, label: horizonLabel(key), fit };
 }
 
 function clamp(value, min, max) {
@@ -1724,9 +1791,7 @@ function renderPrimary(bundle) {
   allocationTotal.textContent = `${formatCurrency(preferences.bundleAmount)} total`;
   const passedCount = latestMatches.length || (bundle.id === "same-network-fallback" ? 0 : 1);
   strategyUniverse.textContent = `Screened ${bundleData.length} models; ${passedCount} passed strict ${bundleNetwork} support from ${supportSourceForNetwork(bundleNetwork)}`;
-  allocationMode.textContent = preferences.diversityEnabled
-    ? `${bundleNetwork} network - ${adjustedAllocation.length} confirmed Receive coins`
-    : `${bundleNetwork} network - ${adjustedAllocation.length} confirmed Receive coins`;
+  allocationMode.textContent = `${bundleNetwork} network - ${adjustedAllocation.length} confirmed Receive coins - target ${horizonLabel(preferences.targetHorizon)}`;
   primaryResult.innerHTML = `
     <div class="result-copy">
       <p class="eyebrow">${bundle.tagline}</p>
@@ -1738,6 +1803,7 @@ function renderPrimary(bundle) {
         <div class="metric"><span>Risk index</span><strong>${bundle.riskIndex}</strong></div>
         <div class="metric"><span>Coins</span><strong>${adjustedAllocation.length}</strong></div>
         <div class="metric"><span>Total</span><strong>${formatCurrency(preferences.bundleAmount)}</strong></div>
+        <div class="metric"><span>Horizon</span><strong>${horizonLabel(preferences.targetHorizon)}</strong></div>
       </div>
       <div class="result-actions">
         <a class="action-button primary" href="${viciSwapUrl}" target="_blank" rel="noreferrer" data-open-viciswap="${bundle.id}">
@@ -1923,6 +1989,7 @@ function getAllocationPlan(allocation, totalAmount = getPreferences().bundleAmou
     networks,
     dataScore,
     signalSummary,
+    bestFor: bestHorizonForTicker(ticker, preferences),
     thesisProfile: tokenThesisForTicker(ticker),
     safetyProfile: safetyProfileForTicker(ticker, { amount: cents / 100, priceSource }),
     quantity: price ? cents / 100 / price : null,
@@ -2004,7 +2071,7 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
   }
 
   allocationBars.innerHTML = allocationPlan
-    .map(({ ticker, weight, role, amount, quantity, price, priceSource, networks, signalSummary, thesisProfile, safetyProfile }, index) => {
+    .map(({ ticker, weight, role, amount, quantity, price, priceSource, networks, signalSummary, thesisProfile, safetyProfile, bestFor }, index) => {
       const color = colors[index % colors.length];
       const selectedNetwork = getPreferences().network;
       const otherNetworks = (networks || []).filter((network) => network !== selectedNetwork);
@@ -2017,6 +2084,7 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
             <span class="allocation-label">
               ${ticker} - ${role}
               <small>${networkText}</small>
+              ${bestFor ? `<small>Best for ${escapeHtml(bestFor.label)} - ${escapeHtml(bestFor.fit)} with your target.</small>` : ""}
               ${thesisProfile ? `<small>${escapeHtml(thesisProfile.role)}: ${escapeHtml(thesisProfile.why)}</small>` : ""}
               <small>${signalSummary}</small>
               ${renderSafetyStrip(safetyProfile)}
@@ -2418,10 +2486,8 @@ pulseRefresh?.addEventListener("click", () => {
   });
 });
 
-favoriteCoinWindow?.addEventListener("change", () => {
-  selectedPulseWindow = favoriteCoinWindow.value || "24h";
-  renderPulseChange(currentFavorite);
-});
+pulseWindowPrev?.addEventListener("click", () => stepPulseWindow(-1));
+pulseWindowNext?.addEventListener("click", () => stepPulseWindow(1));
 
 pulsePrev?.addEventListener("click", () => movePulseCandidate(-1));
 pulseNext?.addEventListener("click", () => movePulseCandidate(1));
@@ -4296,7 +4362,22 @@ async function loadPulseChart(candidate) {
   }
 
   try {
-    const chartUrl = `https://api.coingecko.com/api/v3/coins/${candidate.id}/market_chart?vs_currency=usd&days=1`;
+    const chartData = await getPulseChartData(candidate.id);
+    const { prices, updatedAt } = chartData;
+    return withCoinGeckoChart(candidate, prices, updatedAt);
+  } catch {
+    if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
+      return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, true);
+    }
+    return candidate;
+  }
+}
+
+async function getPulseChartData(coinGeckoId) {
+  const existing = pendingPulseChartLoads.get(coinGeckoId);
+  if (existing) return existing;
+  const request = (async () => {
+    const chartUrl = `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart?vs_currency=usd&days=1`;
     const chart = await withTimeout(
       fetchMarketJson(chartUrl),
       MARKET_CHART_TIMEOUT_MS,
@@ -4306,17 +4387,21 @@ async function loadPulseChart(candidate) {
     const prices = normalizePriceSeries(priceRows.map(([, price]) => price));
     if (prices.length < 2) throw new Error("Chart data empty");
     const updatedAt = timestampFromCoinGeckoPriceRows(priceRows) || new Date().toISOString();
-    pulseChartCache.set(candidate.id, { prices, cachedAt: Date.now(), updatedAt });
-    return withCoinGeckoChart(candidate, prices, updatedAt);
-  } catch {
-    return candidate;
+    pulseChartCache.set(coinGeckoId, { prices, cachedAt: Date.now(), updatedAt });
+    return { prices, updatedAt };
+  })();
+  pendingPulseChartLoads.set(coinGeckoId, request);
+  try {
+    return await request;
+  } finally {
+    pendingPulseChartLoads.delete(coinGeckoId);
   }
 }
 
-function withCoinGeckoChart(candidate, prices, updatedAt = new Date().toISOString()) {
+function withCoinGeckoChart(candidate, prices, updatedAt = new Date().toISOString(), isStale = false) {
   const chartPatch = {
     prices,
-    chartSource: "CoinGecko 24h chart",
+    chartSource: isStale ? "Cached CoinGecko 24h chart" : "CoinGecko 24h chart",
     currentPrice: prices.at(-1) || candidate.currentPrice || null,
   };
 
@@ -4557,9 +4642,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
 
 function renderPulseChange(favorite = currentFavorite) {
   if (!favoriteCoinChange) return;
-  if (favoriteCoinWindow && favoriteCoinWindow.value !== selectedPulseWindow) {
-    favoriteCoinWindow.value = selectedPulseWindow;
-  }
+  if (favoriteCoinWindow) favoriteCoinWindow.textContent = pulseWindowLabel(selectedPulseWindow);
   const change = pulseChangeForWindow(favorite, selectedPulseWindow);
   favoriteCoinChange.classList.remove("positive", "negative", "neutral");
   favoriteCoinChange.classList.add(changeClass(change));
@@ -4567,6 +4650,13 @@ function renderPulseChange(favorite = currentFavorite) {
   favoriteCoinChange.title = Number.isFinite(change)
     ? `${pulseWindowLabel(selectedPulseWindow)} change: ${formatPercent(change)}`
     : `${pulseWindowLabel(selectedPulseWindow)} change unavailable`;
+}
+
+function stepPulseWindow(direction) {
+  const currentIndex = Math.max(0, pulseWindowOptions.findIndex((option) => option.key === selectedPulseWindow));
+  const nextIndex = (currentIndex + direction + pulseWindowOptions.length) % pulseWindowOptions.length;
+  selectedPulseWindow = pulseWindowOptions[nextIndex].key;
+  renderPulseChange(currentFavorite);
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {

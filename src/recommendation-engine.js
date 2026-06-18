@@ -2,7 +2,7 @@ const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://
 const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.17";
+const API_VERSION = "0.1.19";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -443,6 +443,7 @@ async function recommendBundle(rawParams = {}, options = {}) {
       preferredCoins: params.preferredCoins,
       excludedCoins: params.excludedCoins,
       timeframe: params.timeframe,
+      targetHoldPeriod: timeframeLabel(params.timeframe),
       strictEligibility: !params.allowFallbackEligibility,
       betaAllowedNetworks: allowedNetworkKeys(),
     },
@@ -465,6 +466,7 @@ async function recommendBundle(rawParams = {}, options = {}) {
       liquidityTokenCount: liquiditySource.tokenCount,
       liquidityQualifiedTokenCount: liquidityQualifiedRows.length,
       marketEdge: "deterministic signal from ViciSwap simulated liquidity, DEX Screener market data, category strength, and token relative strength",
+      horizonModel: "target hold period changes the weighting between short-term momentum, multi-day continuation, volume, liquidity, and steadiness",
       note: "ViciSwap token eligibility is separated from token and category market ranking data. ViciSwap simulated-swap liquidity is the primary risk gate.",
     },
     bundle: {
@@ -854,6 +856,7 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
       role,
       theme: candidate.theme,
       thesisProfile: thesisProfileForResponse(candidate),
+      bestFor: bestTimeframeForCandidate(candidate, params),
       allocationPercent: roundPercent(weight),
       amountUsd,
       estimatedQuantity,
@@ -1319,6 +1322,56 @@ function convictionSummary(candidate, confidence, trend) {
   return `${candidate.ticker} is eligible, but the data support is thinner or more speculative.`;
 }
 
+function bestTimeframeForCandidate(candidate, params = {}) {
+  const ticker = normalizeTicker(candidate.ticker);
+  const market = candidate.market || {};
+  const thesis = tokenThesisForTicker(ticker);
+  const isStable = isStableOrCashTicker(ticker);
+  const isCore = isCoreWrappedTicker(ticker);
+  const isCommunity = /Community|social|meme/i.test(thesis?.role || "")
+    || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA"].includes(ticker);
+  const change1h = finiteOrNull(market.change1h) || 0;
+  const change6h = finiteOrNull(market.change6h) || 0;
+  const change24h = finiteOrNull(market.change24h) || 0;
+  const volume = finiteOrNull(market.volume24h) || 0;
+  const liquidityLoss = finiteOrNull(candidate.viciLiquidity?.diffThousandUsd);
+
+  let timeframe = "7d";
+  if (isStable) timeframe = "90d";
+  else if (isCommunity && change24h > 4 && volume >= 500_000) timeframe = "1h";
+  else if (change24h > 8 && (change1h > 0 || change6h > 0)) timeframe = "1h";
+  else if (change24h > 2 && change6h > -1 && volume >= 750_000) timeframe = "7d";
+  else if (isCore || (liquidityLoss !== null && liquidityLoss <= 12 && volume >= 1_000_000)) timeframe = "30d";
+
+  const selected = normalizeTimeframe(params.timeframe);
+  const fit = selected === timeframe
+    ? "good match"
+    : selected === "90d" && ["30d", "90d"].includes(timeframe)
+      ? "reasonable match"
+      : selected === "1h" && ["1h", "7d"].includes(timeframe)
+        ? "reasonable match"
+        : "watch fit";
+
+  return {
+    timeframe,
+    label: timeframeLabel(timeframe),
+    selectedTimeframe: selected,
+    selectedLabel: timeframeLabel(selected),
+    fit,
+    rationale: horizonRationale(candidate, timeframe),
+  };
+}
+
+function horizonRationale(candidate, timeframe) {
+  const market = candidate.market || {};
+  const volume = finiteOrNull(market.volume24h) || 0;
+  if (timeframe === "1h") return "Shorter setup: ranking depends more on fresh momentum, active volume, and quick confirmation.";
+  if (timeframe === "30d") return "Multi-week setup: ranking gives more credit to liquidity depth, steadier trend quality, and less noisy pullbacks.";
+  if (timeframe === "90d") return "Longer setup: ranking favors core, stable, or liquid assets over short-lived momentum.";
+  if (volume >= 1_000_000) return "Swing setup: enough volume is present for a short hold, but route and slippage still need review.";
+  return "Swing setup: useful only if live route quality and volume keep confirming.";
+}
+
 function isSpeculativeCandidate(candidate = {}) {
   const ticker = normalizeTicker(candidate.ticker);
   const theme = String(candidate.theme || "").toLowerCase();
@@ -1353,7 +1406,7 @@ function normalizeParams(rawParams) {
     amountUsd: clampNumber(params.amountUsd || params.amount || params.totalUsd || 100, 0, 1_000_000_000),
     preferredCoins: normalizeTickerList(params.preferredCoins || params.preferred || params.useCoins),
     excludedCoins: normalizeTickerList(params.excludedCoins || params.exclude || params.blocklist),
-    timeframe: normalizeTimeframe(params.timeframe || params.horizon || "24h"),
+    timeframe: normalizeTimeframe(params.timeframe || params.horizon || params.targetHorizon || params.holdPeriod || "7d"),
     includeMarketData: params.includeMarketData === false || params.marketData === false || params.marketData === "false" ? false : true,
     includeCategoryIntelligence: params.includeCategoryIntelligence === false
       || params.categoryIntelligence === false
@@ -1404,11 +1457,21 @@ function normalizeFocus(focus) {
 
 function normalizeTimeframe(timeframe) {
   const value = String(timeframe || "").toLowerCase().replace(/[_\s-]+/g, "");
-  if (["1h", "hour", "intraday"].includes(value)) return "1h";
-  if (["7d", "1w", "week", "weekly", "shortterm"].includes(value)) return "7d";
-  if (["30d", "1m", "month", "monthly", "swing"].includes(value)) return "30d";
-  if (["90d", "3m", "quarter", "conviction"].includes(value)) return "90d";
+  if (["1h", "hour", "intraday", "quick", "13days", "1d", "3d", "days", "short"].includes(value)) return "1h";
+  if (["7d", "1w", "week", "weekly", "shortterm", "swing"].includes(value)) return "7d";
+  if (["30d", "1m", "month", "monthly", "trend", "23weeks", "2w", "3w", "multiweek"].includes(value)) return "30d";
+  if (["90d", "3m", "quarter", "conviction", "position", "long", "longer"].includes(value)) return "90d";
   return "24h";
+}
+
+function timeframeLabel(timeframe = "24h") {
+  return {
+    "1h": "1-3 days",
+    "24h": "about 1 week",
+    "7d": "about 1 week",
+    "30d": "2-3 weeks",
+    "90d": "1+ month",
+  }[normalizeTimeframe(timeframe)] || "about 1 week";
 }
 
 function normalizeNetwork(network) {
