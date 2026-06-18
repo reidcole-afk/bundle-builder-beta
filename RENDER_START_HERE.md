@@ -45,7 +45,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-"version": "0.1.11",
+"version": "0.1.12",
 "homepage": {
   "enabled": true,
   "indexExists": true

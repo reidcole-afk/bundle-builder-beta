@@ -2412,10 +2412,12 @@ function mergePulseDeckByTicker(currentDeck = [], nextDeck = []) {
   return currentDeck.map((candidate) => {
     const updated = nextByTicker.get(candidate.ticker);
     if (!updated) return candidate;
+    const rank = candidate.rank;
     return {
       ...candidate,
       ...updated,
-      rank: candidate.rank,
+      rank,
+      reason: rewritePulseRankLabel(updated.reason || candidate.reason, rank),
     };
   });
 }
@@ -3736,13 +3738,8 @@ function selectFavoriteMarkets(markets, limit = 3) {
     .map((market) => {
       const meta = findMarketCandidateForMarket(market, network);
       if (!meta) return null;
-      const change = market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h ?? 0;
-      const volume = Math.log10(Math.max(market.total_volume || 1, 1));
-      const liquidity = Math.log10(Math.max(market.liquidityUsd || 1, 1));
-      const momentum = Math.max(-8, Math.min(change, 18));
-      const trajectory = chartTrajectoryScore(market.sparkline_in_7d?.price);
       const edge = marketEdgeSignal(meta, market, market.sparkline_in_7d?.price);
-      const score = meta.baseScore + momentum * 2.4 + volume * 2 + liquidity * 1.4 + trajectory + edge.score * 0.35;
+      const score = marketConvictionScore(meta, market, market.sparkline_in_7d?.price, edge);
       return { ...market, pulseScore: score, marketEdge: edge };
     })
     .filter(Boolean)
@@ -3755,10 +3752,9 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
   return loaded
     .map((candidate) => {
       const edge = marketEdgeSignal(candidate, candidate, candidate.prices);
-      const adjustment = chartTrajectoryScore(candidate.prices) + edge.score * 0.35;
       return {
         ...candidate,
-        pulseScore: (candidate.pulseScore || 0) + adjustment,
+        pulseScore: marketConvictionScore(candidate, candidate, candidate.prices, edge),
         trajectory: chartTrajectoryLabel(candidate.prices),
         marketEdge: edge,
       };
@@ -3773,6 +3769,76 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
         reason: appendMarketEdgeNote(appendTrajectoryNote(rewritePulseRankLabel(candidate.reason, rank), candidate.prices), candidate.marketEdge),
       };
     });
+}
+
+function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
+  const change24h = finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h ?? market.change24h) ?? 0;
+  const change7d = finiteOrNull(market.price_change_percentage_7d_in_currency ?? market.change7d);
+  const change30d = finiteOrNull(market.price_change_percentage_30d_in_currency ?? market.change30d);
+  const volume24h = finiteOrNull(market.total_volume ?? market.volume24h) || 0;
+  const liquidityUsd = finiteOrNull(market.liquidityUsd) || 0;
+  const volumeQuality = clamp(Math.log10(Math.max(volume24h, 1)) - 5.4, -2.5, 4.5);
+  const liquidityQuality = clamp(Math.log10(Math.max(liquidityUsd, 1)) - 5.3, -2.5, 4.5);
+  const multiTimeframe = (
+    (Number.isFinite(change7d) ? clamp(change7d, -35, 55) * 0.22 : 0)
+    + (Number.isFinite(change30d) ? clamp(change30d, -60, 95) * 0.11 : 0)
+  );
+  const trajectory = chartTrajectoryScore(prices);
+  const pullback = pullbackQualityScore(prices, { volume24h, liquidityUsd });
+  const theme = durableThemeScore(meta, { change24h, volume24h, liquidityUsd });
+  const speculativePenalty = speculativePulsePenalty(meta, { volume24h, liquidityUsd });
+  const edgeScore = finiteOrNull(edge?.score) || 0;
+  return meta.baseScore
+    + clamp(change24h, -14, 20) * 1.25
+    + multiTimeframe
+    + volumeQuality * 2.1
+    + liquidityQuality * 2.05
+    + trajectory * 1.05
+    + pullback
+    + theme
+    + edgeScore * 0.22
+    - speculativePenalty;
+}
+
+function durableThemeScore(meta, { change24h = 0, volume24h = 0, liquidityUsd = 0 } = {}) {
+  const theme = String(meta?.theme || "").toLowerCase();
+  const ticker = normalizeTicker(meta?.ticker);
+  let score = 0;
+  if (theme.includes("base")) score += 3.4;
+  if (theme.includes("defi")) score += 2.7;
+  if (theme.includes("rwa")) score += 1.8;
+  if (theme.includes("ai")) score += 1.2;
+  if (theme.includes("core")) score += 1.1;
+  if (["AERO", "MORPHO", "VIRTUAL", "ZRO", "CBBTC", "CBETH"].includes(ticker)) score += 1.6;
+  if (liquidityUsd >= 5_000_000 && volume24h >= 1_000_000) score += 1.6;
+  if (change24h < -4 && score > 0) score *= 0.65;
+  return score;
+}
+
+function speculativePulsePenalty(meta, { volume24h = 0, liquidityUsd = 0 } = {}) {
+  const ticker = normalizeTicker(meta?.ticker);
+  const theme = String(meta?.theme || "").toLowerCase();
+  const speculative = theme.includes("meme") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA"].includes(ticker);
+  if (!speculative) return 0;
+  let penalty = 1.5;
+  if (liquidityUsd < 1_000_000) penalty += 4;
+  if (volume24h < 1_000_000) penalty += 2;
+  return penalty;
+}
+
+function pullbackQualityScore(prices, { volume24h = 0, liquidityUsd = 0 } = {}) {
+  const stats = chartTrajectoryStats(prices);
+  if (!stats) return 0;
+  if (stats.pullbackFromHigh >= 0.28 && stats.recentReturn < -1) return -5.5;
+  if (stats.pullbackFromHigh >= 0.16 && stats.reboundFromLow < 2.5) return -2.5;
+  const hasRealDepth = volume24h >= 1_000_000 && liquidityUsd >= 750_000;
+  const hasStrongDepth = volume24h >= 3_000_000 && liquidityUsd >= 2_000_000;
+  const reboundIsSteep = stats.reboundFromLow >= 4.5 && stats.reboundSlope >= 0.7;
+  const reboundIsConstructive = stats.reboundFromLow >= 2.2 && stats.reboundSlope >= 0.28;
+  if (stats.pullbackFromHigh >= 0.08 && stats.pullbackFromHigh <= 0.26 && reboundIsSteep && hasStrongDepth) return 5.2;
+  if (stats.pullbackFromHigh >= 0.06 && stats.pullbackFromHigh <= 0.22 && reboundIsConstructive && hasRealDepth) return 3.2;
+  if (stats.recentReturn >= 1.5 && stats.consistency >= 0.5 && hasRealDepth) return 2.2;
+  return 0;
 }
 
 function marketEdgeSignal(meta, market = {}, prices = []) {
@@ -3821,8 +3887,8 @@ function themeMomentumScore(theme, change24h) {
 
 function appendMarketEdgeNote(reason, edge) {
   if (!edge || edge.label === "Neutral data edge") return reason;
-  const detail = edge.details?.[0] ? ` ${edge.details[0]}` : "";
-  return `${reason} Data edge: ${edge.label.toLowerCase()} (${edge.score}).${detail}`;
+  const detail = (edge.details || []).find((item) => !/slope|fading|chart|entry/i.test(item));
+  return `${reason} Data edge: ${edge.label.toLowerCase()} (${edge.score}).${detail ? ` ${detail}` : ""}`;
 }
 
 function appendTrajectoryNote(reason, prices) {
@@ -3846,6 +3912,9 @@ function chartTrajectoryLabel(prices) {
   }
   if (stats.recentReturn <= -1.25) {
     return { tone: "softening", text: "recent slope is softening, so the entry looks less clean." };
+  }
+  if (stats.pullbackFromHigh >= 0.08 && stats.reboundFromLow >= 4.5 && stats.reboundSlope >= 0.7) {
+    return { tone: "rebound", text: "pullback is being bought with a sharp rebound from the recent low." };
   }
   if (stats.recentReturn >= 1.5 && stats.consistency >= 0.52) {
     return { tone: "constructive", text: "recent slope is still constructive." };
@@ -3873,7 +3942,12 @@ function chartTrajectoryStats(prices) {
   const recentReturn = ((recentEnd - recentStart) / recentStart) * 100;
   const recentHigh = Math.max(...recent);
   const fullHigh = Math.max(...series);
+  const recentLow = Math.min(...recent);
   const pullbackFromHigh = recentEnd && fullHigh ? (fullHigh - recentEnd) / fullHigh : 0;
+  const reboundFromLow = recentEnd && recentLow ? ((recentEnd - recentLow) / recentLow) * 100 : 0;
+  const reboundIndex = recent.lastIndexOf(recentLow);
+  const barsSinceLow = reboundIndex >= 0 ? Math.max(1, recent.length - 1 - reboundIndex) : recent.length;
+  const reboundSlope = reboundFromLow / barsSinceLow;
   const returns = [];
   for (let index = 1; index < recent.length; index += 1) {
     returns.push((recent[index] - recent[index - 1]) / recent[index - 1]);
@@ -3884,6 +3958,8 @@ function chartTrajectoryStats(prices) {
   return {
     recentReturn: Number.isFinite(recentReturn) ? recentReturn : 0,
     pullbackFromHigh: Number.isFinite(pullbackFromHigh) ? pullbackFromHigh : 0,
+    reboundFromLow: Number.isFinite(reboundFromLow) ? reboundFromLow : 0,
+    reboundSlope: Number.isFinite(reboundSlope) ? reboundSlope : 0,
     recentHigh,
     consistency,
   };
@@ -4305,7 +4381,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
     favoriteCoinEdge.title = favorite.marketEdge?.details?.join(" • ") || "";
   }
   favoriteCoinUpdated.title = lastMarketPulseError || "";
-  favoriteCoinReason.textContent = favorite.reason;
+  favoriteCoinReason.textContent = rewritePulseRankLabel(favorite.reason, favorite.rank || 1);
   renderPulseInsights(favorite);
   pulseStatus.textContent = `#${favorite.rank} ${favorite.source}`;
   pulseStatus.title = lastMarketPulseError || `Showing ${favorite.source} market data`;
@@ -4432,6 +4508,9 @@ function plainCatalystRead(catalyst) {
 function plainWatchRead(favorite, edge, trajectory) {
   if (trajectory?.tone === "bearish" || trajectory?.tone === "softening") {
     return "The chart is losing short-term strength, so a better entry may depend on stabilization rather than chasing.";
+  }
+  if (trajectory?.tone === "rebound") {
+    return "The pullback is being bought, so the next check is whether volume and liquidity keep supporting the rebound.";
   }
   if (trajectory?.tone === "constructive") {
     return "The recent chart is still constructive, but users should watch whether volume keeps confirming the move.";
