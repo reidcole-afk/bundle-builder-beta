@@ -382,6 +382,111 @@ const coinData = [
   ["VCNT", "Community / Vici ecosystem", "Base", 28, "Home-court asset for users who want Vici ecosystem alignment.", "Lower current momentum and lower volume."],
 ];
 
+const tokenThesisProfiles = {
+  AERO: {
+    role: "Base liquidity layer",
+    why: "AERO is the Base DEX infrastructure bet: it tends to matter most when Base trading activity, incentives, and ecosystem liquidity are expanding.",
+    watch: "Watch whether trading volume and route depth keep confirming the move, because DEX tokens can cool quickly if incentives or activity fade.",
+    marketRead: "The machine treats AERO as an ecosystem activity signal, not just a price chart, because stronger Base volume can flow directly through its DEX lane.",
+  },
+  MORPHO: {
+    role: "Base lending engine",
+    why: "MORPHO gives the bundle lending-market exposure, where the thesis is tied to borrowing demand, collateral growth, and DeFi credit activity.",
+    watch: "Watch utilization, route depth, and whether DeFi lending remains in favor; lending tokens can lag if risk appetite drops.",
+    marketRead: "The machine likes MORPHO more when Base DeFi is active and liquidity is strong enough to support the allocation.",
+  },
+  VIRTUAL: {
+    role: "AI-agent upside",
+    why: "VIRTUAL is the AI-agent narrative sleeve, useful when users want exposure to attention-driven AI infrastructure inside Base.",
+    watch: "AI tokens can be reflexive and sentiment-heavy, so the setup needs volume confirmation and careful sizing.",
+    marketRead: "The machine reads VIRTUAL as a higher-beta narrative coin that needs both momentum and liquidity support to deserve a larger role.",
+  },
+  AIXBT: {
+    role: "AI market-intelligence beta",
+    why: "AIXBT adds a market-intelligence flavor to the AI sleeve rather than pure agent speculation.",
+    watch: "This can move on attention as much as fundamentals, so weak volume or fading short-term trend should reduce conviction.",
+    marketRead: "The machine uses AIXBT when AI attention is active but keeps it sensitive to volume and trend quality.",
+  },
+  BRETT: {
+    role: "Base social beta",
+    why: "BRETT is a recognizable Base community asset, so it can add social momentum for users who explicitly want aggressive upside.",
+    watch: "This is not a core holding; meme exposure can reverse fast and should be penalized when liquidity or volume thins out.",
+    marketRead: "The machine treats BRETT as a sentiment trade first, so it needs stronger live confirmation than infrastructure coins.",
+  },
+  DEGEN: {
+    role: "Base community momentum",
+    why: "DEGEN captures Base-native community energy and can move quickly when risk appetite is high.",
+    watch: "Community momentum can disappear quickly, so the builder should require strong volume and avoid it for low-risk users.",
+    marketRead: "The machine only likes DEGEN when the data suggests the move has active participation behind it.",
+  },
+  ZRO: {
+    role: "Interoperability infrastructure",
+    why: "ZRO gives the bundle cross-chain infrastructure exposure, which is different from DEX, lending, or meme beta.",
+    watch: "Interoperability tokens can trade unevenly, so the setup is stronger when category strength and short-term trend align.",
+    marketRead: "The machine uses ZRO as an infrastructure diversifier when it has enough market confirmation.",
+  },
+  CBBTC: {
+    role: "Base BTC ballast",
+    why: "CBBTC gives Base bundles BTC exposure without leaving the selected network, making it useful as a core ballast asset.",
+    watch: "Wrapped BTC still needs route, custody, and liquidity review even when the broader BTC thesis is simple.",
+    marketRead: "The machine treats CBBTC as a steadier core sleeve rather than a high-upside narrative bet.",
+  },
+  CBETH: {
+    role: "Staked ETH core",
+    why: "CBETH adds staked ETH exposure, giving the bundle ETH beta with a yield-oriented wrapper where ViciSwap supports it.",
+    watch: "Premium/discount behavior and route quality matter because wrapped staking assets do not always trade exactly like ETH.",
+    marketRead: "The machine treats CBETH as core ETH exposure with staking nuance, not as a speculative momentum token.",
+  },
+  WETH: {
+    role: "ETH core beta",
+    why: "WETH anchors bundles with liquid ETH exposure, which can keep a portfolio from becoming only narrative-driven.",
+    watch: "WETH usually lowers upside versus smaller coins, but it can improve route depth and reduce concentration risk.",
+    marketRead: "The machine uses WETH when the bundle needs liquidity, core market exposure, and a cleaner execution profile.",
+  },
+  WBTC: {
+    role: "BTC core beta",
+    why: "WBTC gives the bundle Bitcoin exposure on the selected network, useful when users want broader market ballast.",
+    watch: "Wrapped BTC needs route and custody-risk review, and it will usually not move as explosively as smaller tokens.",
+    marketRead: "The machine treats WBTC as defensive growth exposure rather than a narrative accelerator.",
+  },
+  LINK: {
+    role: "Oracle and infrastructure overlap",
+    why: "LINK connects infrastructure, DeFi, RWA, and AI narratives, making it a useful cross-theme asset instead of a single-lane bet.",
+    watch: "Because LINK is larger and more established, it may not provide the same upside burst as smaller Base tokens.",
+    marketRead: "The machine likes LINK when the bundle needs a credible infrastructure anchor with multiple narrative overlaps.",
+  },
+  AAVE: {
+    role: "Blue-chip DeFi lending",
+    why: "AAVE brings recognizable lending infrastructure and can stabilize a DeFi-heavy bundle with a more proven protocol name.",
+    watch: "AAVE still sells off when DeFi risk appetite fades, so positive category context matters.",
+    marketRead: "The machine treats AAVE as the mature lending benchmark inside DeFi-focused bundles.",
+  },
+  PENDLE: {
+    role: "Yield-tokenization beta",
+    why: "PENDLE adds a more specialized DeFi yield angle, which can make a bundle less generic than simple ETH/BTC exposure.",
+    watch: "The story is more complex for beginners and can weaken if yield narratives cool.",
+    marketRead: "The machine likes PENDLE when DeFi yield appetite and market depth are both present.",
+  },
+  KAITO: {
+    role: "InfoFi and attention data",
+    why: "KAITO adds exposure to the market-data and attention layer of crypto, which is distinct from AI-agent tokens.",
+    watch: "Newer attention-driven tokens can be volatile, so it needs strong confirmation before becoming a large allocation.",
+    marketRead: "The machine treats KAITO as a fresher narrative sleeve that should earn its spot through trend and volume.",
+  },
+  ZORA: {
+    role: "Creator economy beta",
+    why: "ZORA gives Base bundles creator-economy exposure, adding a different consumer/social lane.",
+    watch: "Creator-economy tokens can be sentiment-heavy and may not track broader Base liquidity.",
+    marketRead: "The machine uses ZORA only when market activity supports the creator-economy story.",
+  },
+  VCNT: {
+    role: "Vici ecosystem alignment",
+    why: "VCNT is the home-court Vici asset, useful for users who specifically want ecosystem alignment.",
+    watch: "VCNT should still be sized carefully when live market depth or volume is thinner.",
+    marketRead: "The machine treats VCNT as ecosystem exposure, not as a generic momentum asset.",
+  },
+};
+
 const viciNetworks = ["Base", "Arbitrum", "Polygon", "Optimism"];
 const TOKEN_UNIVERSE_LOCAL_STORAGE_KEY = "viciBundleBuilderTokenUniverse";
 const VICI_API_TOKEN_UNIVERSE_LOCAL_STORAGE_KEY = "viciBundleBuilderApiTokenUniverse";
@@ -1459,6 +1564,7 @@ function scoreBundleBreakdown(bundle, preferences) {
     : 78;
   const networkFit = Math.min(100, 62 + nativeAllocation.length * 6);
   const qualityFit = getAllocationDataFit(allocation, preferences, bundle);
+  const roleSummary = allocationRoleSummary(allocation);
   const weights = preferences.selectedCoins.length
     ? { risk: 0.34, theme: 0.23, coins: 0.22, quality: 0.08, diversity: 0.05, network: 0.08 }
     : { risk: 0.46, theme: 0.29, coins: 0, quality: 0.11, diversity: 0.05, network: 0.09 };
@@ -1495,7 +1601,7 @@ function scoreBundleBreakdown(bundle, preferences) {
       value: qualityFit,
       weight: weights.quality,
       color: "#1f8a5f",
-      detail: `Upside/data fit ${Math.round(qualityFit)}/100. This blends the model thesis with live coin signals like momentum, volume, volatility, and drawdown.`,
+      detail: `Upside/data fit ${Math.round(qualityFit)}/100. This blends live coin signals with the actual bundle roles: ${roleSummary}.`,
     },
     {
       id: "diversity",
@@ -1533,6 +1639,14 @@ function getAllocationDataFit(allocation, preferences, bundle) {
   const averageCoinScore = allocation.reduce((sum, [ticker]) => sum + scoreForTicker(ticker, preferences), 0) / allocation.length;
   const modelThesisScore = Math.min(100, bundle.score + 32);
   return Math.max(25, Math.min(100, averageCoinScore * 0.68 + modelThesisScore * 0.32));
+}
+
+function allocationRoleSummary(allocation) {
+  const roles = allocation
+    .map(([ticker]) => tokenThesisForTicker(ticker)?.role || roleForTicker(ticker))
+    .filter(Boolean);
+  const uniqueRoles = [...new Set(roles)].slice(0, 4);
+  return uniqueRoles.length ? uniqueRoles.join(", ") : "same-network supported coins";
 }
 
 function rankBundles() {
@@ -1628,6 +1742,7 @@ function renderPrimary(bundle) {
     <div class="fit-panel">
       ${renderFitDonut(fitBreakdown)}
       <p>${bundle.action}</p>
+      <p class="fit-role-note"><strong>Signal roles:</strong> ${escapeHtml(allocationRoleSummary(adjustedAllocation))}</p>
     </div>
   `;
   renderAllocation(bundle, allocationPlan);
@@ -1796,6 +1911,7 @@ function getAllocationPlan(allocation, totalAmount = getPreferences().bundleAmou
     networks,
     dataScore,
     signalSummary,
+    thesisProfile: tokenThesisForTicker(ticker),
     safetyProfile: safetyProfileForTicker(ticker, { amount: cents / 100, priceSource }),
     quantity: price ? cents / 100 / price : null,
   }));
@@ -1876,7 +1992,7 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
   }
 
   allocationBars.innerHTML = allocationPlan
-    .map(({ ticker, weight, role, amount, quantity, price, priceSource, networks, signalSummary, safetyProfile }, index) => {
+    .map(({ ticker, weight, role, amount, quantity, price, priceSource, networks, signalSummary, thesisProfile, safetyProfile }, index) => {
       const color = colors[index % colors.length];
       const selectedNetwork = getPreferences().network;
       const otherNetworks = (networks || []).filter((network) => network !== selectedNetwork);
@@ -1889,6 +2005,7 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
             <span class="allocation-label">
               ${ticker} - ${role}
               <small>${networkText}</small>
+              ${thesisProfile ? `<small>${escapeHtml(thesisProfile.role)}: ${escapeHtml(thesisProfile.why)}</small>` : ""}
               <small>${signalSummary}</small>
               ${renderSafetyStrip(safetyProfile)}
             </span>
@@ -2024,20 +2141,24 @@ function coinMetaForTicker(ticker) {
 }
 
 function coinBullishCase(ticker, baseText) {
+  const thesis = tokenThesisForTicker(ticker);
   const liveText = liveSignalText(marketSignalForTicker(ticker));
-  return liveText ? `${baseText} Live signal: ${liveText}.` : baseText;
+  const thesisText = thesis ? `${thesis.role}: ${thesis.why}` : baseText;
+  return liveText ? `${thesisText} Live signal: ${liveText}.` : thesisText;
 }
 
 function coinWatchout(ticker, baseText) {
+  const thesis = tokenThesisForTicker(ticker);
   const signal = marketSignalForTicker(ticker);
-  if (!signal) return baseText;
+  const startingText = thesis?.watch || baseText;
+  if (!signal) return startingText;
 
   const notes = [];
   const volatility = finiteOrNull(signal.volatility);
   const drawdown = finiteOrNull(signal.drawdown);
   if (Number.isFinite(volatility) && volatility > 0.055) notes.push("live chart is high volatility");
   if (Number.isFinite(drawdown) && drawdown > 0.12) notes.push("recent drawdown is elevated");
-  return notes.length ? `${baseText} Also note: ${notes.join(", ")}.` : baseText;
+  return notes.length ? `${startingText} Also note: ${notes.join(", ")}.` : startingText;
 }
 
 function liveSignalText(signal) {
@@ -2077,14 +2198,21 @@ function networkTextForTicker(ticker) {
 function pitchFor(bundle) {
   const preferences = getPreferences();
   const bundleNetwork = preferences.network;
-  const allocation = getAllocationPlan(getAdjustedAllocation(bundle, bundleNetwork, preferences), preferences.bundleAmount)
+  const allocationRows = getAllocationPlan(getAdjustedAllocation(bundle, bundleNetwork, preferences), preferences.bundleAmount);
+  const allocation = allocationRows
     .map(({ ticker, weight, amount, quantity, networks }) => {
       const otherNetworks = (networks || []).filter((network) => network !== bundleNetwork);
       const networkNote = otherNetworks.length ? `${bundleNetwork}; also ${otherNetworks.join("/")}` : bundleNetwork;
       return `${ticker} ${weight}% (${formatCurrency(amount)}, ${formatQuantity(quantity, ticker)}, Receive: ${networkNote})`;
     })
     .join(", ");
-  return `${bundle.name}: ${bundle.thesis}\n\nNetwork: ${bundleNetwork}\nTotal bundle value: ${formatCurrency(preferences.bundleAmount)}\n\nSuggested allocation: ${allocation}\n\nWhy use it: ${bundle.action}\n\nBuilder note: ${bundle.vcPlan}\n\nRisk note: ${bundle.disclosure}\n\nAlways verify route, slippage, and token availability in ViciSwap before swapping.`;
+  const tokenNotes = allocationRows
+    .map(({ ticker, thesisProfile, signalSummary }) => {
+      if (!thesisProfile) return `- ${ticker}: ${signalSummary}`;
+      return `- ${ticker}: ${thesisProfile.role}. ${thesisProfile.why} Watch: ${thesisProfile.watch}`;
+    })
+    .join("\n");
+  return `${bundle.name}: ${bundle.thesis}\n\nNetwork: ${bundleNetwork}\nTotal bundle value: ${formatCurrency(preferences.bundleAmount)}\n\nSuggested allocation: ${allocation}\n\nWhy these coins:\n${tokenNotes}\n\nWhy use it: ${bundle.action}\n\nBuilder note: ${bundle.vcPlan}\n\nRisk note: ${bundle.disclosure}\n\nAlways verify route, slippage, and token availability in ViciSwap before swapping.`;
 }
 
 async function copyPitch(bundleId) {
@@ -2360,7 +2488,7 @@ function hideFitSliceTooltip(slice) {
 
 async function refreshMarketPulse({ preserveSelection = false, silent = false, render = true } = {}) {
   const refreshId = render ? ++marketPulseRefreshSeq : marketPulseRefreshSeq;
-  if (!silent) startPulseLoading("Loading graph...", { lockControls: !marketPulseReady });
+  if (!silent) startPulseLoading(pulseLoadingLabel(currentFavorite), { lockControls: !marketPulseReady });
   const { network } = getPreferences();
   const eligibleCandidates = getViciMarketCandidates(network);
   try {
@@ -4287,7 +4415,7 @@ async function selectPulseCandidate(ticker) {
   currentFavorite = selected;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
-  startPulseLoading("Loading graph...", { lockControls: false });
+  startPulseLoading(pulseLoadingLabel(selected), { lockControls: false });
   const loadedFavorite = await loadPulseChart(selected);
   currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === loadedFavorite.ticker ? loadedFavorite : candidate));
   if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
@@ -4413,6 +4541,12 @@ function startPulseLoading(initialText = "Loading graph...", { lockControls = fa
   `;
 }
 
+function pulseLoadingLabel(candidate = currentFavorite) {
+  if (candidate?.ticker && candidate.ticker !== "--") return `Loading ${candidate.ticker} graph...`;
+  if (candidate?.name && candidate.name !== "No scanned coin") return `Loading ${candidate.name} graph...`;
+  return "Loading market graph...";
+}
+
 function stopPulseLoading() {
   pulseLoadingActive = false;
   if (pulseChart) pulseChart.classList.remove("is-loading");
@@ -4482,22 +4616,31 @@ function buildPulseInsights(favorite = {}) {
 }
 
 function plainMarketRead(ticker, change, volume, liquidity) {
+  const thesis = tokenThesisForTicker(ticker);
   const hasChange = Number.isFinite(change);
   const hasSolidVolume = Number.isFinite(volume) && volume >= 1_000_000;
   const hasSolidLiquidity = Number.isFinite(liquidity) && liquidity >= 1_000_000;
   if (hasChange && change > 6 && hasSolidVolume && hasSolidLiquidity) {
-    return `${ticker} is moving with enough activity behind it to look like more than a thin one-off spike.`;
+    return thesis?.marketRead
+      ? `${thesis.marketRead} Today's move also has enough activity behind it to look like more than a thin one-off spike.`
+      : `${ticker} is moving with enough activity behind it to look like more than a thin one-off spike.`;
   }
   if (hasChange && change > 0 && hasSolidVolume) {
-    return `${ticker} has positive momentum and enough trading activity to earn a closer look.`;
+    return thesis?.marketRead
+      ? `${thesis.marketRead} Current volume gives the setup a cleaner read.`
+      : `${ticker} has positive momentum and enough trading activity to earn a closer look.`;
   }
   if (hasChange && change < 0) {
-    return `${ticker} is cooling off right now, so the builder treats the setup more carefully.`;
+    return thesis?.marketRead
+      ? `${thesis.marketRead} It is cooling off right now, so the builder treats the setup more carefully.`
+      : `${ticker} is cooling off right now, so the builder treats the setup more carefully.`;
   }
   if (hasSolidLiquidity) {
-    return `${ticker} has usable market depth, which helps reduce execution risk compared with thinner tokens.`;
+    return thesis?.marketRead
+      ? `${thesis.marketRead} Usable market depth helps reduce execution risk compared with thinner tokens.`
+      : `${ticker} has usable market depth, which helps reduce execution risk compared with thinner tokens.`;
   }
-  return `${ticker} is being ranked from the latest available market signal, but users should still verify the route.`;
+  return thesis?.marketRead || `${ticker} is being ranked from the latest available market signal, but users should still verify the route.`;
 }
 
 function plainCatalystRead(catalyst) {
@@ -4506,22 +4649,33 @@ function plainCatalystRead(catalyst) {
 }
 
 function plainWatchRead(favorite, edge, trajectory) {
+  const thesis = tokenThesisForTicker(favorite.ticker);
   if (trajectory?.tone === "bearish" || trajectory?.tone === "softening") {
-    return "The chart is losing short-term strength, so a better entry may depend on stabilization rather than chasing.";
+    return thesis?.watch
+      ? `${thesis.watch} The chart is also losing short-term strength, so a better entry may depend on stabilization rather than chasing.`
+      : "The chart is losing short-term strength, so a better entry may depend on stabilization rather than chasing.";
   }
   if (trajectory?.tone === "rebound") {
-    return "The pullback is being bought, so the next check is whether volume and liquidity keep supporting the rebound.";
+    return thesis?.watch
+      ? `${thesis.watch} The pullback is being bought, so the next check is whether volume and liquidity keep supporting the rebound.`
+      : "The pullback is being bought, so the next check is whether volume and liquidity keep supporting the rebound.";
   }
   if (trajectory?.tone === "constructive") {
-    return "The recent chart is still constructive, but users should watch whether volume keeps confirming the move.";
+    return thesis?.watch
+      ? `${thesis.watch} The recent chart is still constructive, but users should watch whether volume keeps confirming the move.`
+      : "The recent chart is still constructive, but users should watch whether volume keeps confirming the move.";
   }
   if (edge?.label?.includes("Strong")) {
-    return "The data setup is strong, but the next check is whether liquidity and route quality hold up inside ViciSwap.";
+    return thesis?.watch
+      ? `${thesis.watch} The data setup is strong, but the next check is whether liquidity and route quality hold up inside ViciSwap.`
+      : "The data setup is strong, but the next check is whether liquidity and route quality hold up inside ViciSwap.";
   }
-  return `${favorite.ticker} still needs a live route, quote, and slippage check before anyone treats the setup as actionable.`;
+  return thesis?.watch || `${favorite.ticker} still needs a live route, quote, and slippage check before anyone treats the setup as actionable.`;
 }
 
 function coinInsightForTheme(theme = "", ticker = "This coin") {
+  const thesis = tokenThesisForTicker(ticker);
+  if (thesis) return thesis.why;
   const normalizedTheme = String(theme || "").toLowerCase();
   if (normalizedTheme.includes("base")) return `${ticker} adds Base ecosystem exposure, which can matter when Base activity and liquidity are leading the market.`;
   if (normalizedTheme.includes("defi")) return `${ticker} gives the bundle DeFi exposure, where usage, fees, and liquidity depth tend to matter more than hype alone.`;
@@ -4529,6 +4683,10 @@ function coinInsightForTheme(theme = "", ticker = "This coin") {
   if (normalizedTheme.includes("meme")) return `${ticker} is a community momentum asset; the upside can be fast, but sizing should be careful.`;
   if (normalizedTheme.includes("rwa")) return `${ticker} connects the bundle to the RWA/infrastructure lane, where adoption stories can build more gradually.`;
   return `${ticker} is included because it is ViciSwap-supported on this network and fits the current bundle signal mix.`;
+}
+
+function tokenThesisForTicker(ticker) {
+  return tokenThesisProfiles[normalizeTicker(ticker)] || null;
 }
 
 function updateFavoriteToggle() {

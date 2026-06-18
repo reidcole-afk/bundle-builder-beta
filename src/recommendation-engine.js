@@ -2,7 +2,7 @@ const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://
 const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.12";
+const API_VERSION = "0.1.15";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -183,6 +183,94 @@ const coinMetadata = new Map([
   ["USDC", ["USDC", "core", 32, "Stability sleeve for defensive bundles.", "Caps upside when risk assets rally."]],
   ["VCNT", ["ViciCoin", "vici", 28, "Vici ecosystem alignment.", "Lower market depth should be checked before swapping."]],
 ]);
+
+const tokenThesisProfiles = {
+  AERO: {
+    role: "Base liquidity layer",
+    why: "AERO is the Base DEX infrastructure bet: it tends to matter most when Base trading activity, incentives, and ecosystem liquidity are expanding.",
+    watch: "Watch whether trading volume and route depth keep confirming the move, because DEX tokens can cool quickly if incentives or activity fade.",
+  },
+  MORPHO: {
+    role: "Base lending engine",
+    why: "MORPHO gives the bundle lending-market exposure, where the thesis is tied to borrowing demand, collateral growth, and DeFi credit activity.",
+    watch: "Watch utilization, route depth, and whether DeFi lending remains in favor; lending tokens can lag if risk appetite drops.",
+  },
+  VIRTUAL: {
+    role: "AI-agent upside",
+    why: "VIRTUAL is the AI-agent narrative sleeve, useful when users want exposure to attention-driven AI infrastructure inside Base.",
+    watch: "AI tokens can be reflexive and sentiment-heavy, so the setup needs volume confirmation and careful sizing.",
+  },
+  AIXBT: {
+    role: "AI market-intelligence beta",
+    why: "AIXBT adds a market-intelligence flavor to the AI sleeve rather than pure agent speculation.",
+    watch: "This can move on attention as much as fundamentals, so weak volume or fading short-term trend should reduce conviction.",
+  },
+  BRETT: {
+    role: "Base social beta",
+    why: "BRETT is a recognizable Base community asset, so it can add social momentum for users who explicitly want aggressive upside.",
+    watch: "This is not a core holding; meme exposure can reverse fast and should be penalized when liquidity or volume thins out.",
+  },
+  DEGEN: {
+    role: "Base community momentum",
+    why: "DEGEN captures Base-native community energy and can move quickly when risk appetite is high.",
+    watch: "Community momentum can disappear quickly, so the builder should require strong volume and avoid it for low-risk users.",
+  },
+  ZRO: {
+    role: "Interoperability infrastructure",
+    why: "ZRO gives the bundle cross-chain infrastructure exposure, which is different from DEX, lending, or meme beta.",
+    watch: "Interoperability tokens can trade unevenly, so the setup is stronger when category strength and short-term trend align.",
+  },
+  CBBTC: {
+    role: "Base BTC ballast",
+    why: "CBBTC gives Base bundles BTC exposure without leaving the selected network, making it useful as a core ballast asset.",
+    watch: "Wrapped BTC still needs route, custody, and liquidity review even when the broader BTC thesis is simple.",
+  },
+  CBETH: {
+    role: "Staked ETH core",
+    why: "CBETH adds staked ETH exposure, giving the bundle ETH beta with a yield-oriented wrapper where ViciSwap supports it.",
+    watch: "Premium/discount behavior and route quality matter because wrapped staking assets do not always trade exactly like ETH.",
+  },
+  WETH: {
+    role: "ETH core beta",
+    why: "WETH anchors bundles with liquid ETH exposure, which can keep a portfolio from becoming only narrative-driven.",
+    watch: "WETH usually lowers upside versus smaller coins, but it can improve route depth and reduce concentration risk.",
+  },
+  WBTC: {
+    role: "BTC core beta",
+    why: "WBTC gives the bundle Bitcoin exposure on the selected network, useful when users want broader market ballast.",
+    watch: "Wrapped BTC needs route and custody-risk review, and it will usually not move as explosively as smaller tokens.",
+  },
+  LINK: {
+    role: "Oracle and infrastructure overlap",
+    why: "LINK connects infrastructure, DeFi, RWA, and AI narratives, making it a useful cross-theme asset instead of a single-lane bet.",
+    watch: "Because LINK is larger and more established, it may not provide the same upside burst as smaller Base tokens.",
+  },
+  AAVE: {
+    role: "Blue-chip DeFi lending",
+    why: "AAVE brings recognizable lending infrastructure and can stabilize a DeFi-heavy bundle with a more proven protocol name.",
+    watch: "AAVE still sells off when DeFi risk appetite fades, so positive category context matters.",
+  },
+  PENDLE: {
+    role: "Yield-tokenization beta",
+    why: "PENDLE adds a more specialized DeFi yield angle, which can make a bundle less generic than simple ETH/BTC exposure.",
+    watch: "The story is more complex for beginners and can weaken if yield narratives cool.",
+  },
+  KAITO: {
+    role: "InfoFi and attention data",
+    why: "KAITO adds exposure to the market-data and attention layer of crypto, which is distinct from AI-agent tokens.",
+    watch: "Newer attention-driven tokens can be volatile, so it needs strong confirmation before becoming a large allocation.",
+  },
+  ZORA: {
+    role: "Creator economy beta",
+    why: "ZORA gives Base bundles creator-economy exposure, adding a different consumer/social lane.",
+    watch: "Creator-economy tokens can be sentiment-heavy and may not track broader Base liquidity.",
+  },
+  VCNT: {
+    role: "Vici ecosystem alignment",
+    why: "VCNT is the home-court Vici asset, useful for users who specifically want ecosystem alignment.",
+    watch: "VCNT should still be sized carefully when live market depth or volume is thinner.",
+  },
+};
 
 const fallbackPrices = {
   USDC: 1, USDT: 1, "USDC.E": 1, DAI: 1, WETH: 3800, ETH: 3800, WBTC: 62500, CBBTC: 62500,
@@ -662,6 +750,7 @@ function applyLiquidityGate(candidates, liquiditySource, params) {
     }))
     .filter((candidate) => {
       if (!candidate.viciLiquidity) return false;
+      if (params.risk === "low" && isSpeculativeCandidate(candidate) && !params.preferredCoins.includes(candidate.ticker)) return false;
       return candidate.viciLiquidity.diffThousandUsd <= maxDiff;
     });
 }
@@ -691,14 +780,16 @@ function buildCandidateRows(tokens, params) {
     .filter((token) => !params.excludedCoins.includes(token.ticker))
     .map((token) => {
       const meta = coinMetadata.get(token.ticker);
+      const thesis = tokenThesisForTicker(token.ticker);
       return {
         ticker: token.ticker,
         name: token.name && token.name !== token.ticker ? token.name : meta?.[0] || token.ticker,
         address: token.address || "",
         theme: meta?.[1] || inferTheme(token.ticker),
         baseScore: meta?.[2] || 36,
-        rationale: meta?.[3] || "Found in ViciSwap's same-network Receive-token list; include only if route quality and market depth check out.",
-        riskNote: meta?.[4] || "No custom thesis yet; keep allocation small unless market depth is verified.",
+        rationale: thesis?.why || meta?.[3] || "Found in ViciSwap's same-network Receive-token list; include only if route quality and market depth check out.",
+        riskNote: thesis?.watch || meta?.[4] || "No custom thesis yet; keep allocation small unless market depth is verified.",
+        thesisProfile: thesis,
       };
     });
 }
@@ -762,12 +853,15 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
       address: token.address || candidate.address || null,
       role,
       theme: candidate.theme,
+      thesisProfile: thesisProfileForResponse(candidate),
       allocationPercent: roundPercent(weight),
       amountUsd,
       estimatedQuantity,
       priceUsd,
       rationale: rationaleForCandidate(candidate),
       riskNote: candidate.riskNote,
+      confidence: confidenceSignalForCandidate(candidate, params),
+      conviction: convictionSignalForCandidate(candidate, params),
       support: {
         source: token.address ? "vici-api-with-address" : "vici-eligible",
         receiveToken: true,
@@ -776,6 +870,8 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
       riskBreakdown: riskBreakdownForCandidate(candidate, params),
       market: candidate.market ? {
         source: "DEX Screener",
+        change1h: candidate.market.change1h,
+        change6h: candidate.market.change6h,
         change24h: candidate.market.change24h,
         volume24hUsd: candidate.market.volume24h,
         liquidityUsd: candidate.market.liquidityUsd,
@@ -831,6 +927,8 @@ async function fetchDexSignal(candidate, network) {
   if (!pair) return null;
   return {
     priceUsd: finiteOrNull(pair.priceUsd),
+    change1h: finiteOrNull(pair.priceChange?.h1) || 0,
+    change6h: finiteOrNull(pair.priceChange?.h6) || 0,
     change24h: finiteOrNull(pair.priceChange?.h24) || 0,
     volume24h: finiteOrNull(pair.volume?.h24) || 0,
     liquidityUsd: finiteOrNull(pair.liquidity?.usd) || 0,
@@ -1046,15 +1144,18 @@ function scoreCandidate(candidate, params) {
   const preferredBoost = params.preferredCoins.includes(candidate.ticker) ? 18 : 0;
   const market = candidate.market || {};
   const category = candidate.categorySignal || {};
-  const momentum = clamp(finiteOrNull(market.change24h) || 0, -25, 40);
+  const momentum = timeframeMomentumScore(market, params.timeframe);
   const volumeScore = logScore(market.volume24h, 1_000_000);
   const liquidityScore = viciLiquidityScore(candidate.viciLiquidity);
   const liquidityPenalty = liquidityPenaltyForCandidate(candidate, params);
   const categoryScore = category.score ? (category.score - 50) * 0.2 : 0;
   const relativeStrengthScore = category.relativeStrength24h ? clamp(category.relativeStrength24h, -20, 25) * 0.2 : 0;
   const edgeScore = candidate.marketEdge ? candidate.marketEdge.score * 0.55 : 0;
+  const confidence = confidenceSignalForCandidate(candidate, params).score;
+  const confidenceBoost = (confidence - 50) * 0.08;
+  const speculativePenalty = speculativePenaltyForRisk(candidate, params);
   const riskWeight = riskMomentumMultiplier(params.risk);
-  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore - liquidityPenalty;
+  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore + confidenceBoost - liquidityPenalty - speculativePenalty;
 }
 
 function marketEdgeSignal(candidate) {
@@ -1062,6 +1163,7 @@ function marketEdgeSignal(candidate) {
   const category = candidate.categorySignal || {};
   const liquidity = candidate.viciLiquidity || null;
   const change24h = finiteOrNull(market.change24h) || 0;
+  const trendScore = trendContinuationScore(market);
   const volume24h = finiteOrNull(market.volume24h) || 0;
   const liquidityDepthScore = liquidity ? clamp(22 - liquidity.diffThousandUsd, -20, 22) : -18;
   const volumeScore = logScore(volume24h, 750_000) * 0.7;
@@ -1069,7 +1171,7 @@ function marketEdgeSignal(candidate) {
   const categoryScore = category.score ? (category.score - 50) * 0.16 : 0;
   const relativeStrengthScore = category.relativeStrength24h ? clamp(category.relativeStrength24h, -20, 25) * 0.18 : 0;
   const score = roundPercent(clamp(
-    liquidityDepthScore * 0.5 + volumeScore + momentumScore + categoryScore + relativeStrengthScore,
+    liquidityDepthScore * 0.5 + volumeScore + momentumScore + trendScore + categoryScore + relativeStrengthScore,
     -25,
     35,
   ));
@@ -1079,6 +1181,8 @@ function marketEdgeSignal(candidate) {
   if (volume24h >= 1_000_000) reasons.push(`DEX Screener shows solid 24h volume`);
   if (category.interpretation) reasons.push(category.interpretation);
   if (change24h > 0) reasons.push(`24h price action is positive`);
+  if (trendScore > 1.5) reasons.push(`shorter-term trend is confirming the 24h move`);
+  if (trendScore < -1.5) reasons.push(`shorter-term trend is fading versus the 24h move`);
   if (!reasons.length) reasons.push("Market edge is limited because live supporting data is thin.");
   return {
     label,
@@ -1087,11 +1191,144 @@ function marketEdgeSignal(candidate) {
       viciLiquidityDepth: roundPercent(liquidityDepthScore),
       dexVolume: roundPercent(volumeScore),
       momentum24h: roundPercent(momentumScore),
+      trendContinuation: roundPercent(trendScore),
       categoryStrength: roundPercent(categoryScore),
       relativeStrength: roundPercent(relativeStrengthScore),
     },
     interpretation: `${label}: ${reasons.slice(0, 2).join("; ")}.`,
   };
+}
+
+function timeframeMomentumScore(market = {}, timeframe = "24h") {
+  const change1h = finiteOrNull(market.change1h);
+  const change6h = finiteOrNull(market.change6h);
+  const change24h = finiteOrNull(market.change24h) || 0;
+  const c1 = Number.isFinite(change1h) ? clamp(change1h, -10, 12) : 0;
+  const c6 = Number.isFinite(change6h) ? clamp(change6h, -18, 22) : 0;
+  const c24 = clamp(change24h, -25, 40);
+  if (timeframe === "1h") return c1 * 0.5 + c6 * 0.3 + c24 * 0.2;
+  if (timeframe === "7d") return c1 * 0.08 + c6 * 0.22 + c24 * 0.7;
+  if (timeframe === "30d" || timeframe === "90d") return c1 * 0.05 + c6 * 0.15 + c24 * 0.8;
+  return c1 * 0.12 + c6 * 0.28 + c24 * 0.6;
+}
+
+function trendContinuationScore(market = {}) {
+  const change1h = finiteOrNull(market.change1h);
+  const change6h = finiteOrNull(market.change6h);
+  const change24h = finiteOrNull(market.change24h) || 0;
+  if (!Number.isFinite(change1h) && !Number.isFinite(change6h)) return 0;
+  const shortTerm = (Number.isFinite(change1h) ? change1h * 0.55 : 0) + (Number.isFinite(change6h) ? change6h * 0.45 : 0);
+  if (change24h > 4 && shortTerm < -1) return clamp(shortTerm * 0.9, -6, -1.5);
+  if (change24h > 0 && shortTerm > 0) return clamp(shortTerm * 0.7, 0, 5);
+  if (change24h < 0 && shortTerm > 1.5) return clamp(shortTerm * 0.55, 0, 4);
+  return clamp(shortTerm * 0.25, -3, 3);
+}
+
+function confidenceSignalForCandidate(candidate, params = {}) {
+  const liquidity = candidate.viciLiquidity;
+  const market = candidate.market || {};
+  const category = candidate.categorySignal || {};
+  let score = 35;
+  const reasons = [];
+  const watchouts = [];
+
+  if (liquidity) {
+    const depthScore = clamp(35 - liquidity.diffThousandUsd, -20, 35);
+    score += depthScore;
+    reasons.push(`ViciSwap simulated $1k round-trip loss is about $${roundMoney(liquidity.diffThousandUsd)}`);
+    if (liquidity.diffThousandUsd > maxDiffForRisk(params.risk) * 0.75) watchouts.push("route depth is close to the selected risk limit");
+  } else {
+    score -= 35;
+    watchouts.push("missing ViciSwap simulated liquidity depth");
+  }
+
+  if (market.volume24h >= 1_000_000) {
+    score += 12;
+    reasons.push("solid 24h trading volume");
+  } else if (market.volume24h > 0) {
+    score += 4;
+    watchouts.push("volume is available but not especially deep");
+  } else {
+    watchouts.push("fresh DEX volume was unavailable");
+  }
+
+  if (market.liquidityUsd >= 1_000_000) score += 8;
+  else if (market.liquidityUsd > 0) score += 3;
+
+  if (category.score >= 60) {
+    score += 8;
+    reasons.push("category context supports the token");
+  } else if (category.score && category.score < 45) {
+    score -= 5;
+    watchouts.push("category context is weak");
+  }
+
+  const trend = trendContinuationScore(market);
+  if (trend > 2) {
+    score += 6;
+    reasons.push("shorter-term trend confirms the move");
+  } else if (trend < -2) {
+    score -= 7;
+    watchouts.push("shorter-term trend is fading");
+  }
+
+  if (params.risk === "low" && isSpeculativeCandidate(candidate)) {
+    score -= 18;
+    watchouts.push("speculative/community token is not a natural low-risk fit");
+  }
+
+  const normalized = roundPercent(clamp(score, 0, 100));
+  return {
+    label: normalized >= 75 ? "High confidence" : normalized >= 55 ? "Medium confidence" : "Low confidence",
+    score: normalized,
+    reasons: reasons.slice(0, 4),
+    watchouts: watchouts.slice(0, 4),
+  };
+}
+
+function convictionSignalForCandidate(candidate, params = {}) {
+  const confidence = confidenceSignalForCandidate(candidate, params);
+  const market = candidate.market || {};
+  const category = candidate.categorySignal || {};
+  const trend = trendContinuationScore(market);
+  const liquidity = candidate.viciLiquidity;
+  const score = roundPercent(clamp(
+    confidence.score * 0.52
+      + clamp(timeframeMomentumScore(market, params.timeframe), -20, 30) * 0.55
+      + (category.score ? (category.score - 50) * 0.16 : 0)
+      + (liquidity ? clamp(20 - liquidity.diffThousandUsd, -10, 20) * 0.35 : -8)
+      + trend * 1.1,
+    0,
+    100,
+  ));
+  return {
+    label: score >= 72 ? "High conviction setup" : score >= 52 ? "Developing setup" : "Speculative setup",
+    score,
+    timeframe: params.timeframe,
+    summary: convictionSummary(candidate, confidence, trend),
+  };
+}
+
+function convictionSummary(candidate, confidence, trend) {
+  if (confidence.score >= 75 && trend > 1.5) {
+    return `${candidate.ticker} has stronger confirmation from liquidity, volume, and shorter-term trend.`;
+  }
+  if (confidence.score >= 55) {
+    return `${candidate.ticker} has usable support, but users should still verify the live quote and route.`;
+  }
+  return `${candidate.ticker} is eligible, but the data support is thinner or more speculative.`;
+}
+
+function isSpeculativeCandidate(candidate = {}) {
+  const ticker = normalizeTicker(candidate.ticker);
+  const theme = String(candidate.theme || "").toLowerCase();
+  return theme.includes("meme") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "DINO", "CHECK", "CLANKER"].includes(ticker);
+}
+
+function speculativePenaltyForRisk(candidate, params = {}) {
+  if (!isSpeculativeCandidate(candidate)) return 0;
+  if (params.preferredCoins.includes(candidate.ticker)) return params.risk === "low" ? 8 : 0;
+  return { low: 18, moderate: 5, high: 0, very_high: 0 }[params.risk] || 5;
 }
 
 function viciLiquidityScore(liquidity) {
@@ -1250,25 +1487,47 @@ function rationaleForCandidate(candidate) {
   const market = candidate.market;
   const category = candidate.categorySignal;
   const liquidity = candidate.viciLiquidity;
+  const thesis = tokenThesisForTicker(candidate.ticker);
+  const roleLead = thesis ? `${candidate.ticker} is acting as this bundle's ${thesis.role} sleeve. ${thesis.why}` : candidate.rationale;
   const edgeNote = candidate.marketEdge?.interpretation ? ` Edge read: ${candidate.marketEdge.interpretation}` : "";
   if (liquidity && liquidity.diffThousandUsd <= VICI_MAX_DIFF_THOUSAND_USD) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip, which passes the conservative beta screen.${categoryNote}${edgeNote}`;
+    return `${roleLead} It made the cut because ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip, which passes the conservative beta screen.${categoryNote}${edgeNote}`;
   }
   if (liquidity) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip; size should match the user's risk setting.${categoryNote}${edgeNote}`;
+    return `${roleLead} It made the cut for this risk setting, but ViciSwap simulated liquidity shows about $${roundMoney(liquidity.diffThousandUsd)} loss on a $1k round-trip, so sizing should match the user's risk setting.${categoryNote}${edgeNote}`;
   }
   if (market && market.volume24h >= 500_000 && market.liquidityUsd >= 250_000) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} DEX Screener currently shows solid volume and liquidity for this network.${categoryNote}${edgeNote}`;
+    return `${roleLead} DEX Screener currently shows solid volume and liquidity for this network, but ViciSwap should still verify live execution depth.${categoryNote}${edgeNote}`;
   }
   if (market && market.volume24h > 0) {
     const categoryNote = category ? ` Category read: ${category.interpretation}` : "";
-    return `${candidate.rationale} Market data is available, but route and depth still need review.${categoryNote}${edgeNote}`;
+    return `${roleLead} Market data is available, but route and depth still need review.${categoryNote}${edgeNote}`;
   }
-  if (category) return `${candidate.rationale} Category read: ${category.interpretation}${edgeNote}`;
-  return candidate.rationale;
+  if (category) return `${roleLead} Category read: ${category.interpretation}${edgeNote}`;
+  return roleLead;
+}
+
+function tokenThesisForTicker(ticker) {
+  return tokenThesisProfiles[normalizeTicker(ticker)] || null;
+}
+
+function thesisProfileForResponse(candidate) {
+  const thesis = tokenThesisForTicker(candidate.ticker);
+  if (!thesis) {
+    return {
+      role: roleForCandidate(candidate),
+      why: candidate.rationale,
+      watch: candidate.riskNote,
+    };
+  }
+  return {
+    role: thesis.role,
+    why: thesis.why,
+    watch: thesis.watch,
+  };
 }
 
 function liquidityCheckForCandidate(candidate, params = {}) {

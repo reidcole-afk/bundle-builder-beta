@@ -1114,6 +1114,17 @@ input[type="range"] {
   background: #f8fafc;
 }
 
+.fit-role-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.fit-role-note strong {
+  color: var(--ink-soft);
+}
+
 .fit-meter {
   display: grid;
   place-items: center;
@@ -1311,6 +1322,7 @@ input[type="range"] {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
+  line-height: 1.3;
 }
 
 .safety-strip {

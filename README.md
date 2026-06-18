@@ -127,10 +127,11 @@ Bundle Builder uses a scored recommendation pipeline. It does not predict return
 2. **User preference mapping:** `risk` maps to a target risk band, `focus` maps to a theme such as DeFi/Base/AI/core, `coinCount` controls diversification, and `preferredCoins`/`excludedCoins` boost or remove specific tickers.
 3. **Liquidity gate:** The selected network is checked against ViciSwap's `coin_data` endpoint. Any coin not returned by that endpoint is excluded immediately. Remaining candidates must pass a risk-adjusted `diff_thousand` cutoff.
 4. **Candidate enrichment:** Eligible ViciSwap tokens are enriched with local token metadata, DEX Screener token-level market context, and CoinGecko category context.
-5. **Scoring:** Each candidate receives a recommendation score from base quality, user focus match, preferred coin boost, 24h momentum adjusted by risk tolerance, ViciSwap simulated liquidity depth, DEX Screener volume context, CoinGecko category strength, and relative strength versus its category.
-6. **Model fit:** The system compares candidate bundles against strategy models with different risk indices and themes. It favors models that match the user's risk, focus, and the selected network's eligible token set.
-7. **Allocation:** Seed weights come from the chosen model and preferred coins. Weights are adjusted modestly for market momentum and category strength, then normalized to 100%.
-8. **Response:** The API returns the final same-network coin list, allocation percentage, estimated dollar/coin amount, rationale, market data, category signals, and the ViciSwap simulated liquidity check.
+5. **Risk rules:** Low-risk bundles exclude speculative/community tokens unless the user explicitly asks for one. Every risk level still requires ViciSwap simulated liquidity depth.
+6. **Scoring:** Each candidate receives a recommendation score from base quality, user focus match, preferred coin boost, risk-adjusted 1h/6h/24h trend confirmation, ViciSwap simulated liquidity depth, DEX Screener volume context, CoinGecko category strength, and relative strength versus its category.
+7. **Model fit:** The system compares candidate bundles against strategy models with different risk indices and themes. It favors models that match the user's risk, focus, and the selected network's eligible token set.
+8. **Allocation:** Seed weights come from the chosen model and preferred coins. Weights are adjusted modestly for market momentum and category strength, then normalized to 100%.
+9. **Response:** The API returns the final same-network coin list, allocation percentage, estimated dollar/coin amount, rationale, market data, category signals, confidence, conviction, and the ViciSwap simulated liquidity check.
 
 Default `diff_thousand` thresholds:
 
@@ -148,12 +149,14 @@ candidate score =
   base token score
   + focus match
   + preferred coin boost
-  + risk-adjusted 24h momentum
+  + risk-adjusted 1h/6h/24h trend
   + volume score
   + liquidity score
   + category trend score
   + relative strength score
+  + confidence boost
   - liquidity penalty
+  - speculative risk penalty
 ```
 
 Important limits: this is an educational beta tool, not financial advice, not a rug-pull detector, not a contract audit, and not a swap execution engine.
@@ -191,9 +194,23 @@ Important limits: this is an educational beta tool, not financial advice, not a 
         "rationale": "Base-native lending beta...",
         "market": {
           "source": "DEX Screener",
+          "change1h": 0.4,
+          "change6h": 2.6,
           "change24h": 5.2,
           "volume24hUsd": 1200000,
           "liquidityUsd": 900000
+        },
+        "confidence": {
+          "label": "High confidence",
+          "score": 78,
+          "reasons": ["ViciSwap simulated $1k round-trip loss is about $8", "solid 24h trading volume"],
+          "watchouts": []
+        },
+        "conviction": {
+          "label": "High conviction setup",
+          "score": 74,
+          "timeframe": "24h",
+          "summary": "MORPHO has stronger confirmation from liquidity, volume, and shorter-term trend."
         },
         "liquidityCheck": {
           "status": "passed",
