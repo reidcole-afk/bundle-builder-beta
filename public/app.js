@@ -810,6 +810,11 @@ const reviewTokenList = document.getElementById("reviewTokenList");
 const reviewAcknowledge = document.getElementById("reviewAcknowledge");
 const reviewConfirm = document.getElementById("reviewConfirm");
 const reviewCancel = document.getElementById("reviewCancel");
+const openSubmittedBundles = document.getElementById("openSubmittedBundles");
+const submittedBundlesDialog = document.getElementById("submittedBundlesDialog");
+const submittedBundlesList = document.getElementById("submittedBundlesList");
+const submittedBundlesRefresh = document.getElementById("submittedBundlesRefresh");
+const submittedBundlesClose = document.getElementById("submittedBundlesClose");
 const termsDialog = document.getElementById("termsDialog");
 const termsAcknowledge = document.getElementById("termsAcknowledge");
 const termsAccept = document.getElementById("termsAccept");
@@ -859,6 +864,7 @@ let cryptoCompareStatsCache = null;
 let dexScreenerStatsCache = new Map();
 let newsCatalystCache = new Map();
 let latestMarketSignals = new Map();
+const submittedBundlesLocalStorageKey = "viciBundleBuilderSubmittedBundles";
 const pulseWindowOptions = [
   { key: "24h", label: "24h", minutes: 1440 },
   { key: "12h", label: "12h", minutes: 720 },
@@ -2439,6 +2445,10 @@ reviewAcknowledge.addEventListener("change", () => {
 });
 reviewConfirm.addEventListener("click", confirmViciReview);
 reviewCancel.addEventListener("click", closeViciReview);
+openSubmittedBundles?.addEventListener("click", openSubmittedBundlesFeed);
+submittedBundlesRefresh?.addEventListener("click", () => loadSubmittedBundlesFeed({ showLoading: true }));
+submittedBundlesClose?.addEventListener("click", closeSubmittedBundlesFeed);
+submittedBundlesDialog?.addEventListener("cancel", closeSubmittedBundlesFeed);
 termsDialog?.addEventListener("cancel", (event) => {
   if (!hasAcceptedTerms()) event.preventDefault();
 });
@@ -5030,6 +5040,223 @@ async function copyViciSwapHandoff(bundleId) {
   }
 }
 
+function makeSubmittedBundleSnapshot(bundleId) {
+  const bundle = latestMatches.find((item) => item.id === bundleId) || currentBundle || bundleData.find((item) => item.id === bundleId);
+  if (!bundle) return null;
+  const preferences = getPreferences();
+  const bundleNetwork = chooseBundleNetwork(bundle, preferences);
+  const allocation = getNetworkSafeAllocation(getAdjustedAllocation(bundle, bundleNetwork, preferences), bundleNetwork);
+  const allocationPlan = getAllocationPlan(allocation, preferences.bundleAmount);
+  const startValueUsd = allocationPlan.reduce((sum, item) => sum + item.amount, 0);
+  return {
+    bundleId: bundle.id,
+    bundleName: bundle.name,
+    network: bundleNetwork,
+    amountUsd: Number(preferences.bundleAmount.toFixed(2)),
+    startValueUsd: Number(startValueUsd.toFixed(2)),
+    preferences: {
+      risk: preferences.risk,
+      focus: preferences.theme,
+      confidence: preferences.confidence,
+      targetHorizon: preferences.targetHorizon,
+      coinCount: allocationPlan.length,
+    },
+    fitScore: bundle.fitBreakdown?.score || bundle.fit || null,
+    riskIndex: bundle.riskIndex || null,
+    thesis: bundle.thesis,
+    coins: allocationPlan.map(({ ticker, weight, role, amount, quantity, price, priceSource, safetyProfile, thesisProfile }) => ({
+      ticker,
+      name: thesisProfile?.name || ticker,
+      network: bundleNetwork,
+      allocationPercent: weight,
+      amountUsd: Number(amount.toFixed(2)),
+      quantity: quantity ? Number(quantity.toFixed(10)) : null,
+      startPriceUsd: price ? Number(price.toFixed(10)) : null,
+      priceSource,
+      role: role || thesisProfile?.role || "",
+      safetyLabel: safetyProfile?.label || "",
+    })),
+  };
+}
+
+async function submitTrackedBundle(bundleId) {
+  const snapshot = makeSubmittedBundleSnapshot(bundleId);
+  if (!snapshot?.coins?.length) return null;
+  try {
+    const response = await fetch("/api/v1/submitted-bundles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    if (payload?.bundle) {
+      saveSubmittedBundleLocal(payload.bundle);
+      return payload.bundle;
+    }
+    return null;
+  } catch {
+    saveSubmittedBundleLocal({ ...snapshot, id: snapshot.id || makeLocalSubmissionId(), submittedAt: new Date().toISOString() });
+    return null;
+  }
+}
+
+function makeLocalSubmissionId() {
+  return `${Date.now()}${Math.floor(Math.random() * 9000) + 1000}`.slice(0, 17);
+}
+
+function saveSubmittedBundleLocal(record) {
+  try {
+    const records = readSubmittedBundlesLocal();
+    const id = String(record.id || record.bundleNumber || makeLocalSubmissionId());
+    const next = [{ ...record, id, bundleNumber: id }, ...records.filter((item) => String(item.id || item.bundleNumber) !== id)].slice(0, 80);
+    localStorage.setItem(submittedBundlesLocalStorageKey, JSON.stringify(next));
+  } catch {
+    // Local feed backup is best-effort only.
+  }
+}
+
+function readSubmittedBundlesLocal() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(submittedBundlesLocalStorageKey) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.coins?.length) : [];
+  } catch {
+    return [];
+  }
+}
+
+function openSubmittedBundlesFeed() {
+  if (!submittedBundlesDialog) return;
+  if (typeof submittedBundlesDialog.showModal === "function") {
+    if (!submittedBundlesDialog.open) submittedBundlesDialog.showModal();
+  } else {
+    submittedBundlesDialog.setAttribute("open", "");
+  }
+  loadSubmittedBundlesFeed({ showLoading: true });
+}
+
+function closeSubmittedBundlesFeed() {
+  if (!submittedBundlesDialog) return;
+  if (typeof submittedBundlesDialog.close === "function" && submittedBundlesDialog.open) {
+    submittedBundlesDialog.close();
+  } else {
+    submittedBundlesDialog.removeAttribute("open");
+  }
+}
+
+async function loadSubmittedBundlesFeed({ showLoading = false } = {}) {
+  if (!submittedBundlesList) return;
+  if (showLoading) {
+    submittedBundlesList.innerHTML = `<div class="submitted-empty">Loading submitted bundles...</div>`;
+  }
+  try {
+    const response = await fetch("/api/v1/submitted-bundles?limit=100", { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const serverRecords = Array.isArray(payload?.bundles) ? payload.bundles : [];
+    renderSubmittedBundles(mergeSubmittedBundles(serverRecords, readSubmittedBundlesLocal()));
+  } catch {
+    renderSubmittedBundles(readSubmittedBundlesLocal(), { localOnly: true });
+  }
+}
+
+function mergeSubmittedBundles(primary, secondary) {
+  const seen = new Set();
+  return [...primary, ...secondary].filter((record) => {
+    const id = String(record.id || record.bundleNumber || "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function renderSubmittedBundles(records, { localOnly = false } = {}) {
+  if (!submittedBundlesList) return;
+  if (!records.length) {
+    submittedBundlesList.innerHTML = `
+      <div class="submitted-empty">
+        No submitted bundles yet. Build a bundle, confirm the ViciSwap handoff, and it will appear here.
+      </div>
+    `;
+    return;
+  }
+  submittedBundlesList.innerHTML = records.map((record) => renderSubmittedBundle(record, { localOnly })).join("");
+}
+
+function renderSubmittedBundle(record, { localOnly = false } = {}) {
+  const performance = submittedBundlePerformance(record);
+  const direction = performance.percent > 0.01 ? "up" : performance.percent < -0.01 ? "down" : "flat";
+  const className = direction === "up" ? "gain" : direction === "down" ? "loss" : "neutral";
+  const submittedAt = record.submittedAt ? new Date(record.submittedAt) : null;
+  const submittedLabel = submittedAt && !Number.isNaN(submittedAt.getTime())
+    ? submittedAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    : "time unknown";
+  const storageNote = localOnly ? "local backup" : "tracked handoff";
+  const coins = Array.isArray(record.coins) ? record.coins : [];
+  return `
+    <article class="submitted-bundle ${className}">
+      <div class="submitted-bundle-head">
+        <div class="submitted-bundle-title">
+          <strong>Bundle #${escapeHtml(record.bundleNumber || record.id || "pending")}</strong>
+          <span>${escapeHtml(record.bundleName || "Bundle Builder allocation")} - ${escapeHtml(record.network || "Base")} - ${formatCurrency(record.startValueUsd || record.amountUsd || 0)} - ${escapeHtml(submittedLabel)} - ${escapeHtml(storageNote)}</span>
+        </div>
+        <div class="submitted-performance ${direction === "up" ? "up" : direction === "down" ? "down" : ""}" aria-label="Estimated bundle performance">
+          ${performanceIcon(direction)}
+          <span>${formatPercent(performance.percent)}</span>
+        </div>
+      </div>
+      <div class="submitted-token-grid">
+        ${coins.map((coin) => renderSubmittedToken(coin)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderSubmittedToken(coin) {
+  const quantity = Number.isFinite(Number(coin.quantity)) ? formatQuantity(Number(coin.quantity), coin.ticker) : "quantity tracking";
+  const currentPrice = currentPriceForSubmittedToken(coin);
+  const valueNote = currentPrice ? `Current estimate ${formatUsdPrice(currentPrice)}` : "Current price tracking";
+  return `
+    <div class="submitted-token">
+      <strong>${escapeHtml(coin.ticker)}</strong>
+      <span>${Number(coin.allocationPercent || 0).toFixed(0)}% - ${formatCurrency(coin.amountUsd || 0)} - ${escapeHtml(quantity)} - Receive: ${escapeHtml(coin.network || "Base")}</span>
+      <em>${escapeHtml(coin.safetyLabel || "Review")}: ${escapeHtml(valueNote)}${coin.role ? `; ${escapeHtml(coin.role)}` : ""}</em>
+    </div>
+  `;
+}
+
+function submittedBundlePerformance(record) {
+  const coins = Array.isArray(record.coins) ? record.coins : [];
+  const startValue = Number(record.startValueUsd) || coins.reduce((sum, coin) => sum + (Number(coin.amountUsd) || 0), 0);
+  if (!startValue) return { percent: 0, currentValue: 0, startValue };
+  const currentValue = coins.reduce((sum, coin) => {
+    const quantity = Number(coin.quantity);
+    const currentPrice = currentPriceForSubmittedToken(coin);
+    if (Number.isFinite(quantity) && quantity > 0 && currentPrice) return sum + quantity * currentPrice;
+    return sum + (Number(coin.amountUsd) || 0);
+  }, 0);
+  return {
+    percent: ((currentValue - startValue) / startValue) * 100,
+    currentValue,
+    startValue,
+  };
+}
+
+function currentPriceForSubmittedToken(coin) {
+  const ticker = normalizeTicker(coin?.ticker);
+  const livePrice = getCoinPriceInfo(ticker)?.price;
+  if (livePrice) return livePrice;
+  const signalPrice = finiteOrNull(marketSignalForTicker(ticker)?.priceUsd);
+  if (signalPrice) return signalPrice;
+  return finiteOrNull(coin?.startPriceUsd);
+}
+
+function performanceIcon(direction) {
+  if (direction === "up") return '<svg viewBox="0 0 12 10" aria-hidden="true"><path d="M6 1 11 9H1z" /></svg>';
+  if (direction === "down") return '<svg viewBox="0 0 12 10" aria-hidden="true"><path d="M6 9 1 1h10z" /></svg>';
+  return '<svg viewBox="0 0 12 10" aria-hidden="true"><rect x="2" y="4" width="8" height="2" rx="1" /></svg>';
+}
+
 function openViciReview(bundleId, viciSwapUrl) {
   const bundle = latestMatches.find((item) => item.id === bundleId) || currentBundle || bundleData.find((item) => item.id === bundleId);
   if (!bundle || !reviewDialog) return;
@@ -5084,6 +5311,7 @@ async function confirmViciReview() {
   if (!pendingViciSwapHandoff || !reviewAcknowledge.checked) return;
   const { bundleId, url } = pendingViciSwapHandoff;
   closeViciReview();
+  submitTrackedBundle(bundleId);
   await copyViciSwapHandoff(bundleId);
   window.open(url, "_blank", "noopener,noreferrer");
 }

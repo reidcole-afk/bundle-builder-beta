@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.19");
+  assert.equal(health.body.version, "0.1.20");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -48,6 +48,24 @@ global.fetch = async (url) => {
   const allowedProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fapi.coingecko.com%2Fapi%2Fv3%2Fcoins%2Faerodrome-finance%2Fmarket_chart%3Fvs_currency%3Dusd%26days%3D1");
   assert.equal(allowedProxy.statusCode, 200);
   assert.deepEqual(allowedProxy.body.prices, [[1, 1], [2, 1.1]]);
+
+  const submittedBundle = await postJson("/api/v1/submitted-bundles", {
+    bundleName: "Test Bundle",
+    network: "Base",
+    startValueUsd: 100,
+    coins: [
+      { ticker: "AERO", allocationPercent: 50, amountUsd: 50, quantity: 100, startPriceUsd: 0.5, network: "Base" },
+      { ticker: "MORPHO", allocationPercent: 50, amountUsd: 50, quantity: 25, startPriceUsd: 2, network: "Base" },
+    ],
+  });
+  assert.equal(submittedBundle.statusCode, 201);
+  assert.equal(submittedBundle.body.ok, true);
+  assert.equal(submittedBundle.body.bundle.coins.length, 2);
+
+  const submittedFeed = await getJson("/api/v1/submitted-bundles?limit=5");
+  assert.equal(submittedFeed.statusCode, 200);
+  assert.equal(submittedFeed.body.ok, true);
+  assert(submittedFeed.body.bundles.some((bundle) => bundle.bundleName === "Test Bundle"));
 
   global.fetch = async (url) => {
     const target = String(url);
@@ -130,12 +148,20 @@ function getJson(path) {
   return getRaw(path).then(({ statusCode, headers, body }) => ({ statusCode, headers, body: JSON.parse(body) }));
 }
 
-function getRaw(path) {
+function postJson(path, payload) {
+  return getRaw(path, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json", host: "localhost" },
+  }).then(({ statusCode, headers, body }) => ({ statusCode, headers, body: JSON.parse(body) }));
+}
+
+function getRaw(path, options = {}) {
   return new Promise((resolve, reject) => {
     const request = new EventEmitter();
-    request.method = "GET";
+    request.method = options.method || "GET";
     request.url = path;
-    request.headers = { host: "localhost" };
+    request.headers = options.headers || { host: "localhost" };
 
     const response = {
       headers: {},
@@ -153,5 +179,7 @@ function getRaw(path) {
     };
 
     handleRequest(request, response).catch(reject);
+    if (options.body) request.emit("data", Buffer.from(options.body));
+    request.emit("end");
   });
 }

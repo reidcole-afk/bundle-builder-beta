@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Bundle Builder Beta</title>
-    <link rel="stylesheet" href="./styles.css?v=54" />
+    <link rel="stylesheet" href="./styles.css?v=55" />
   </head>
   <body>
     <header class="app-header">
@@ -18,6 +18,10 @@
         </div>
       </div>
       <div class="header-actions" aria-label="Reference links">
+        <button class="icon-link" type="button" id="openSubmittedBundles" aria-label="Open submitted bundle feed">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h10" /></svg>
+          <span>Bundle Feed</span>
+        </button>
         <a class="icon-link" href="https://viciswap.io/" target="_blank" rel="noreferrer" aria-label="Open ViciSwap">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10" /><path d="M7 17 17 7" /><path d="M7 7h10v10" /></svg>
           <span>ViciSwap</span>
@@ -363,8 +367,31 @@
       </section>
     </main>
 
+    <dialog class="submitted-dialog" id="submittedBundlesDialog" aria-labelledby="submittedBundlesTitle">
+      <div class="submitted-dialog-card">
+        <div class="submitted-head">
+          <div>
+            <p class="eyebrow">Beta tracking feed</p>
+            <h2 id="submittedBundlesTitle">Submitted bundles</h2>
+            <p>Bundles appear here after users confirm the ViciSwap handoff. Performance is estimated from the saved starting allocation and the latest prices the builder can read.</p>
+          </div>
+          <div class="submitted-actions">
+            <button class="action-button" type="button" id="submittedBundlesRefresh">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg>
+              Refresh
+            </button>
+            <button class="action-button" type="button" id="submittedBundlesClose">Close</button>
+          </div>
+        </div>
+        <div class="submitted-note">
+          Beta note: this tracks Bundle Builder handoffs, not confirmed swaps. A durable database or ViciSwap swap ID can be added when native integration is ready.
+        </div>
+        <div class="submitted-list" id="submittedBundlesList" aria-live="polite"></div>
+      </div>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=54"></script>
+    <script src="./app.js?v=55"></script>
   </body>
 </html>

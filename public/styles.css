@@ -140,6 +140,7 @@ h3 {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.18);
+  font: inherit;
 }
 
 .icon-link:hover,
@@ -713,7 +714,8 @@ input[type="number"] {
 
 .amount-dialog,
 .review-dialog,
-.terms-dialog {
+.terms-dialog,
+.submitted-dialog {
   width: min(360px, calc(100vw - 32px));
   padding: 0;
   border: 0;
@@ -730,16 +732,22 @@ input[type="number"] {
   width: min(680px, calc(100vw - 32px));
 }
 
+.submitted-dialog {
+  width: min(980px, calc(100vw - 32px));
+}
+
 .amount-dialog::backdrop,
 .review-dialog::backdrop,
-.terms-dialog::backdrop {
+.terms-dialog::backdrop,
+.submitted-dialog::backdrop {
   background: rgba(15, 23, 42, 0.42);
   backdrop-filter: blur(4px);
 }
 
 .amount-dialog-card,
 .review-dialog-card,
-.terms-dialog-card {
+.terms-dialog-card,
+.submitted-dialog-card {
   display: grid;
   gap: 16px;
   padding: 20px;
@@ -757,6 +765,169 @@ input[type="number"] {
 .terms-dialog-card {
   gap: 18px;
   padding: 24px;
+}
+
+.submitted-dialog-card {
+  max-height: min(82vh, 900px);
+  overflow: auto;
+  gap: 18px;
+  padding: 24px;
+}
+
+.submitted-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: start;
+}
+
+.submitted-head h2 {
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+}
+
+.submitted-head p:not(.eyebrow) {
+  max-width: 720px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.submitted-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.submitted-note {
+  padding: 12px 14px;
+  border: 1px solid rgba(201, 130, 25, 0.32);
+  border-radius: var(--radius);
+  color: #6f4300;
+  background: #fff7e6;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.submitted-list {
+  display: grid;
+  gap: 14px;
+}
+
+.submitted-empty {
+  padding: 26px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--surface-soft);
+  font-weight: 850;
+  text-align: center;
+}
+
+.submitted-bundle {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--bundle-accent, var(--teal));
+  border-radius: var(--radius);
+  background: #fbfdff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.07);
+}
+
+.submitted-bundle.loss {
+  --bundle-accent: #c8503e;
+}
+
+.submitted-bundle.gain {
+  --bundle-accent: #0d8067;
+}
+
+.submitted-bundle.neutral {
+  --bundle-accent: #8a93a4;
+}
+
+.submitted-bundle-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.submitted-bundle-title {
+  display: grid;
+  gap: 4px;
+}
+
+.submitted-bundle-title strong {
+  color: var(--ink);
+  font-size: 1.12rem;
+}
+
+.submitted-bundle-title span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.submitted-performance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 122px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: var(--performance-color, var(--muted));
+  background: var(--performance-bg, #f1f5f9);
+  font-weight: 950;
+}
+
+.submitted-performance.up {
+  --performance-color: #069447;
+  --performance-bg: #ecf9f2;
+}
+
+.submitted-performance.down {
+  --performance-color: #c84a3d;
+  --performance-bg: #fff0ef;
+}
+
+.submitted-performance svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.submitted-token-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.submitted-token {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.submitted-token strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.submitted-token span,
+.submitted-token em {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.32;
 }
 
 .terms-list {
@@ -1817,8 +1988,16 @@ input[type="range"] {
   .bundle-footer,
   .result-actions,
   .amount-actions,
-  .review-actions {
+  .review-actions,
+  .submitted-head,
+  .submitted-actions,
+  .submitted-bundle-head {
     flex-direction: column;
+  }
+
+  .submitted-actions,
+  .submitted-performance {
+    width: 100%;
   }
 
   .allocation-head {
