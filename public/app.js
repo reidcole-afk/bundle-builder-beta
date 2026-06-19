@@ -3181,17 +3181,16 @@ async function fetchCoinGeckoChartRows(candidates) {
 }
 
 async function fetchCoinGeckoChartRow(meta) {
-  const chartUrl = `https://api.coingecko.com/api/v3/coins/${meta.id}/market_chart?vs_currency=usd&days=1`;
-  const chart = await fetchMarketJson(chartUrl);
-  const priceRows = Array.isArray(chart.prices) ? chart.prices : [];
-  const prices = normalizePriceSeries(priceRows.map(([, price]) => price));
+  const chartData = await fetchBackendCoinGeckoChart(meta.id)
+    .catch(() => fetchDirectCoinGeckoChart(meta.id));
+  const prices = normalizePriceSeries(chartData.prices);
   if (prices.length < 2) return null;
   const currentPrice = prices.at(-1);
   const change24h = percentChangeFromPrices(prices);
-  const updatedAt = timestampFromCoinGeckoPriceRows(priceRows) || new Date().toISOString();
-  const volumeSeries = normalizePriceSeries((chart.total_volumes || []).map(([, volume]) => volume));
-  const marketCapSeries = normalizePriceSeries((chart.market_caps || []).map(([, cap]) => cap));
-  pulseChartCache.set(meta.id, { prices, cachedAt: Date.now(), updatedAt });
+  const updatedAt = chartData.updatedAt || new Date().toISOString();
+  const volumeSeries = normalizePriceSeries(chartData.totalVolumes || []);
+  const marketCapSeries = normalizePriceSeries(chartData.marketCaps || []);
+  pulseChartCache.set(meta.id, { prices, cachedAt: Date.now(), updatedAt, stale: chartData.stale });
   return {
     id: meta.id,
     current_price: currentPrice,
@@ -3202,7 +3201,38 @@ async function fetchCoinGeckoChartRow(meta) {
     price_change_percentage_24h_in_currency: change24h,
     sparkline_in_7d: { price: prices },
     is24hChart: true,
+    isStaleChart: Boolean(chartData.stale),
     last_updated: updatedAt,
+  };
+}
+
+async function fetchBackendCoinGeckoChart(coinGeckoId) {
+  const payload = await fetchJsonUrl(`/api/v1/coingecko-chart?id=${encodeURIComponent(coinGeckoId)}`);
+  const prices = normalizePriceSeries(payload.prices);
+  if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
+  return {
+    prices,
+    totalVolumes: normalizePriceSeries(payload.totalVolumes),
+    marketCaps: normalizePriceSeries(payload.marketCaps),
+    updatedAt: payload.updatedAt || new Date().toISOString(),
+    stale: Boolean(payload.stale),
+    cacheStatus: payload.cacheStatus || "",
+  };
+}
+
+async function fetchDirectCoinGeckoChart(coinGeckoId) {
+  const chartUrl = `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart?vs_currency=usd&days=1`;
+  const chart = await fetchMarketJson(chartUrl);
+  const priceRows = Array.isArray(chart.prices) ? chart.prices : [];
+  const prices = normalizePriceSeries(priceRows.map(([, price]) => price));
+  if (prices.length < 2) throw new Error("CoinGecko chart data empty");
+  return {
+    prices,
+    totalVolumes: normalizePriceSeries((chart.total_volumes || []).map(([, volume]) => volume)),
+    marketCaps: normalizePriceSeries((chart.market_caps || []).map(([, cap]) => cap)),
+    updatedAt: timestampFromCoinGeckoPriceRows(priceRows) || new Date().toISOString(),
+    stale: false,
+    cacheStatus: "direct",
   };
 }
 
@@ -4368,13 +4398,13 @@ async function loadPulseChart(candidate) {
   if (!canUseCoinGeckoChart) return candidate;
   const cached = pulseChartCache.get(candidate.id);
   if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
-    return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt);
+    return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, cached.stale);
   }
 
   try {
     const chartData = await getPulseChartData(candidate.id);
-    const { prices, updatedAt } = chartData;
-    return withCoinGeckoChart(candidate, prices, updatedAt);
+    const { prices, updatedAt, stale } = chartData;
+    return withCoinGeckoChart(candidate, prices, updatedAt, stale);
   } catch {
     if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
       return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, true);
@@ -4387,18 +4417,20 @@ async function getPulseChartData(coinGeckoId) {
   const existing = pendingPulseChartLoads.get(coinGeckoId);
   if (existing) return existing;
   const request = (async () => {
-    const chartUrl = `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart?vs_currency=usd&days=1`;
-    const chart = await withTimeout(
-      fetchMarketJson(chartUrl),
+    const chartData = await withTimeout(
+      fetchBackendCoinGeckoChart(coinGeckoId),
+      MARKET_CHART_TIMEOUT_MS,
+      "Bundle Builder chart workflow timed out",
+    ).catch(() => withTimeout(
+      fetchDirectCoinGeckoChart(coinGeckoId),
       MARKET_CHART_TIMEOUT_MS,
       "CoinGecko chart timed out",
-    );
-    const priceRows = Array.isArray(chart.prices) ? chart.prices : [];
-    const prices = normalizePriceSeries(priceRows.map(([, price]) => price));
+    ));
+    const prices = normalizePriceSeries(chartData.prices);
     if (prices.length < 2) throw new Error("Chart data empty");
-    const updatedAt = timestampFromCoinGeckoPriceRows(priceRows) || new Date().toISOString();
-    pulseChartCache.set(coinGeckoId, { prices, cachedAt: Date.now(), updatedAt });
-    return { prices, updatedAt };
+    const updatedAt = chartData.updatedAt || new Date().toISOString();
+    pulseChartCache.set(coinGeckoId, { prices, cachedAt: Date.now(), updatedAt, stale: chartData.stale });
+    return { prices, updatedAt, stale: Boolean(chartData.stale) };
   })();
   pendingPulseChartLoads.set(coinGeckoId, request);
   try {

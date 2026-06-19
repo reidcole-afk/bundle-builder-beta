@@ -186,6 +186,74 @@ svg {
   max-width: 760px;
 }
 
+.market-context-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  margin-bottom: 16px;
+}
+
+.market-context-row .eyebrow {
+  margin-bottom: 0;
+}
+
+.market-feed-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 42px;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #b8c2ce;
+  border-radius: 6px;
+  color: #253248;
+  background: linear-gradient(180deg, #ffffff, #edf1f5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 0 #c9d1db,
+    0 6px 14px rgba(23, 32, 51, 0.08);
+  cursor: pointer;
+  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.market-feed-button:hover {
+  transform: translateY(-1px);
+  border-color: #94a3b8;
+  background: linear-gradient(180deg, #ffffff, #e6ebf0);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 3px 0 #c1cad4,
+    0 8px 16px rgba(23, 32, 51, 0.1);
+}
+
+.market-feed-button:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 4px rgba(23, 32, 51, 0.12),
+    0 1px 0 #c9d1db;
+}
+
+.market-feed-button:focus-visible {
+  outline: 3px solid rgba(37, 50, 72, 0.18);
+  outline-offset: 3px;
+}
+
+.market-feed-button svg {
+  width: 21px;
+  height: 21px;
+  stroke-width: 2.3;
+}
+
+.market-feed-button span {
+  color: #253248;
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
 .extension-callout {
   display: flex;
   align-items: center;

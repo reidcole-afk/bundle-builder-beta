@@ -12,11 +12,12 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.20");
+  assert.equal(health.body.version, "0.1.21");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
+  assert.equal(health.body.coingeckoChartWorkflowCache, true);
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
   assert.equal(health.body.betaScope, "invite-only Base beta by default");
@@ -49,6 +50,11 @@ global.fetch = async (url) => {
   assert.equal(allowedProxy.statusCode, 200);
   assert.deepEqual(allowedProxy.body.prices, [[1, 1], [2, 1.1]]);
 
+  const workflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance&force=true");
+  assert.equal(workflowChart.statusCode, 200);
+  assert.equal(workflowChart.body.ok, true);
+  assert.deepEqual(workflowChart.body.prices, [1, 1.1]);
+
   const submittedBundle = await postJson("/api/v1/submitted-bundles", {
     bundleName: "Test Bundle",
     network: "Base",
@@ -69,9 +75,16 @@ global.fetch = async (url) => {
 
   global.fetch = async (url) => {
     const target = String(url);
+    if (target.includes("/api/v3/coins/aerodrome-finance/market_chart")) throw new Error("simulated CoinGecko chart outage");
     if (target.includes("/vs2/api/coins")) throw new Error("simulated ViciSwap API outage");
     return { ok: true, json: async () => ({}) };
   };
+
+  const staleWorkflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance&force=true");
+  assert.equal(staleWorkflowChart.statusCode, 200);
+  assert.equal(staleWorkflowChart.body.ok, true);
+  assert.equal(staleWorkflowChart.body.stale, true);
+  assert.deepEqual(staleWorkflowChart.body.prices, [1, 1.1]);
 
   const strictTokens = await getJson("/api/v1/tokens?network=base");
   assert.equal(strictTokens.statusCode, 503);

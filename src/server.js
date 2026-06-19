@@ -13,6 +13,13 @@ const SUBMISSION_STORE_PATH = path.resolve(
   process.env.BUNDLE_BUILDER_SUBMISSION_FILE
     || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || path.join(os.tmpdir(), "bundle-builder-beta"), "submitted-bundles.json"),
 );
+const COINGECKO_CHART_STORE_PATH = path.resolve(
+  process.env.BUNDLE_BUILDER_CHART_CACHE_FILE
+    || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || path.join(os.tmpdir(), "bundle-builder-beta"), "coingecko-charts.json"),
+);
+const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 15);
+const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 24);
+const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
 
 const server = createServer();
 
@@ -41,6 +48,7 @@ async function handleRequest(request, response) {
         liquidityEndpointFailsClosed: true,
         tokensEndpointFailsClosed: true,
         friendlyPortErrors: true,
+        coingeckoChartWorkflowCache: true,
         homepage: {
           enabled: true,
           publicDirExists: fs.existsSync(PUBLIC_DIR),
@@ -48,6 +56,44 @@ async function handleRequest(request, response) {
         },
         betaScope: "invite-only Base beta by default",
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v1/coingecko-chart") {
+      const id = String(url.searchParams.get("id") || "").trim().toLowerCase();
+      if (!isAllowedCoinGeckoId(id)) {
+        sendJson(response, 400, {
+          ok: false,
+          error: "Unsupported CoinGecko coin id",
+        });
+        return;
+      }
+
+      try {
+        const chart = await getCoinGeckoChartWorkflow(id, {
+          force: isTruthy(url.searchParams.get("force")),
+        });
+        sendJson(response, 200, {
+          ok: true,
+          id,
+          source: "coingecko-chart-workflow",
+          cacheStatus: chart.cacheStatus,
+          stale: chart.cacheStatus === "stale-cache",
+          updatedAt: chart.updatedAt,
+          cachedAt: chart.cachedAt ? new Date(chart.cachedAt).toISOString() : null,
+          warning: chart.warning || null,
+          prices: chart.prices,
+          totalVolumes: chart.totalVolumes,
+          marketCaps: chart.marketCaps,
+        });
+      } catch (error) {
+        sendJson(response, 502, {
+          ok: false,
+          id,
+          source: "coingecko-chart-workflow",
+          error: `CoinGecko chart unavailable: ${error.message || "upstream request failed"}`,
+        });
+      }
       return;
     }
 
@@ -182,7 +228,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/coingecko-chart", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -421,6 +467,117 @@ async function fetchMarketProxyJson(targetUrl) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function getCoinGeckoChartWorkflow(id, options = {}) {
+  const store = readCoinGeckoChartStore();
+  const existing = sanitizeStoredCoinGeckoChart(store[id]);
+  const now = Date.now();
+  if (!options.force && existing && now - existing.cachedAt < COINGECKO_CHART_CACHE_MS) {
+    return { ...existing, cacheStatus: "fresh-cache" };
+  }
+
+  try {
+    const chart = await fetchCoinGeckoChartWithRetries(id);
+    const record = sanitizeStoredCoinGeckoChart({
+      id,
+      prices: chart.prices,
+      totalVolumes: chart.totalVolumes,
+      marketCaps: chart.marketCaps,
+      updatedAt: chart.updatedAt,
+      cachedAt: now,
+    });
+    if (!record) throw new Error("CoinGecko chart response did not contain enough price points");
+    store[id] = record;
+    writeCoinGeckoChartStore(store);
+    return { ...record, cacheStatus: "refreshed" };
+  } catch (error) {
+    if (existing && now - existing.cachedAt < COINGECKO_CHART_STALE_MS) {
+      return {
+        ...existing,
+        cacheStatus: "stale-cache",
+        warning: error.message || "CoinGecko refresh failed; using last good chart",
+      };
+    }
+    throw error;
+  }
+}
+
+async function fetchCoinGeckoChartWithRetries(id) {
+  const targetUrl = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=1`;
+  let lastError = null;
+  const attempts = Math.max(1, COINGECKO_CHART_RETRIES + 1);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const payload = await fetchMarketProxyJson(targetUrl);
+      const prices = normalizeChartRows(payload.prices);
+      if (prices.length < 2) throw new Error("CoinGecko returned an empty chart");
+      return {
+        prices,
+        totalVolumes: normalizeChartRows(payload.total_volumes),
+        marketCaps: normalizeChartRows(payload.market_caps),
+        updatedAt: timestampFromChartRows(payload.prices) || new Date().toISOString(),
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await wait(250 * (attempt + 1));
+    }
+  }
+  throw lastError || new Error("CoinGecko chart request failed");
+}
+
+function readCoinGeckoChartStore() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(COINGECKO_CHART_STORE_PATH, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed;
+  } catch (error) {
+    if (error.code === "ENOENT") return {};
+    throw error;
+  }
+}
+
+function writeCoinGeckoChartStore(store) {
+  fs.mkdirSync(path.dirname(COINGECKO_CHART_STORE_PATH), { recursive: true });
+  fs.writeFileSync(COINGECKO_CHART_STORE_PATH, JSON.stringify(store, null, 2));
+}
+
+function sanitizeStoredCoinGeckoChart(input = {}) {
+  const id = String(input.id || "").trim().toLowerCase();
+  const prices = normalizePriceList(input.prices);
+  if (!isAllowedCoinGeckoId(id) || prices.length < 2) return null;
+  return {
+    id,
+    prices,
+    totalVolumes: normalizePriceList(input.totalVolumes),
+    marketCaps: normalizePriceList(input.marketCaps),
+    updatedAt: safeText(input.updatedAt, 40) || new Date().toISOString(),
+    cachedAt: finiteNumber(input.cachedAt) || Date.now(),
+  };
+}
+
+function normalizeChartRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return normalizePriceList(rows.map((row) => (Array.isArray(row) ? row[1] : row)));
+}
+
+function normalizePriceList(values) {
+  if (!Array.isArray(values)) return [];
+  return values.map((value) => Number(value)).filter(Number.isFinite);
+}
+
+function timestampFromChartRows(rows) {
+  const latestTimestamp = Array.isArray(rows) ? finiteNumber(rows.at(-1)?.[0]) : null;
+  if (!latestTimestamp) return "";
+  return new Date(latestTimestamp).toISOString();
+}
+
+function isAllowedCoinGeckoId(id) {
+  return /^[a-z0-9-]{2,120}$/.test(String(id || ""));
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isAllowedMarketProxyUrl(targetUrl) {
