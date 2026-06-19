@@ -495,8 +495,9 @@ const TERMS_ACK_VERSION = "beta-v1";
 const BUILDER_TOKEN_UNIVERSE_MESSAGE = "VICI_TOKEN_UNIVERSE";
 const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
-const MARKET_CHART_CACHE_MS = 1000 * 60 * 4;
-const MARKET_CHART_STALE_MS = 1000 * 60 * 60;
+const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
+const MARKET_CHART_CACHE_MS = 1000 * 60 * 5;
+const MARKET_CHART_STALE_MS = 1000 * 60 * 15;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
 const MARKET_PULSE_TIMEOUT_MS = 18000;
 const MARKET_STATS_TIMEOUT_MS = 9000;
@@ -851,7 +852,7 @@ let currentFavorite = fallbackPulse;
 let currentFavorites = fallbackPulseDeck;
 let currentFavoriteIndex = 0;
 let currentBundle = null;
-let pulseChartCache = new Map();
+let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
@@ -1094,6 +1095,52 @@ function storeApiTokenUniverse(tokenUniverse) {
     localStorage.setItem(VICI_API_TOKEN_UNIVERSE_LOCAL_STORAGE_KEY, JSON.stringify(tokenUniverse));
   } catch {
     // The API can still render without cached token metadata.
+  }
+}
+
+function readStoredPulseChartCache() {
+  try {
+    const saved = localStorage.getItem(PULSE_CHART_CACHE_LOCAL_STORAGE_KEY);
+    const parsed = saved ? JSON.parse(saved) : null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+    const now = Date.now();
+    return new Map(Object.entries(parsed)
+      .map(([key, value]) => [key, normalizePulseChartCacheRecord(value)])
+      .filter(([, value]) => value && now - value.cachedAt < MARKET_CHART_STALE_MS));
+  } catch {
+    return new Map();
+  }
+}
+
+function normalizePulseChartCacheRecord(value = {}) {
+  const prices = normalizePriceSeries(value.prices);
+  if (prices.length < 2) return null;
+  return {
+    prices,
+    cachedAt: finiteOrNull(value.cachedAt) || Date.now(),
+    updatedAt: value.updatedAt || new Date().toISOString(),
+    stale: Boolean(value.stale),
+  };
+}
+
+function setPulseChartCache(key, value = {}) {
+  const cacheKey = String(key || "").trim();
+  const record = normalizePulseChartCacheRecord({ ...value, cachedAt: value.cachedAt || Date.now() });
+  if (!cacheKey || !record) return;
+  pulseChartCache.set(cacheKey, record);
+  writeStoredPulseChartCache();
+}
+
+function writeStoredPulseChartCache() {
+  try {
+    const now = Date.now();
+    const entries = [...pulseChartCache.entries()]
+      .filter(([, value]) => value && now - value.cachedAt < MARKET_CHART_STALE_MS)
+      .sort((a, b) => (b[1].cachedAt || 0) - (a[1].cachedAt || 0))
+      .slice(0, 80);
+    localStorage.setItem(PULSE_CHART_CACHE_LOCAL_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // Chart cache is a speed boost only; the market pulse can still fetch live data.
   }
 }
 
@@ -3190,7 +3237,7 @@ async function fetchCoinGeckoChartRow(meta) {
   const updatedAt = chartData.updatedAt || new Date().toISOString();
   const volumeSeries = normalizePriceSeries(chartData.totalVolumes || []);
   const marketCapSeries = normalizePriceSeries(chartData.marketCaps || []);
-  pulseChartCache.set(meta.id, { prices, cachedAt: Date.now(), updatedAt, stale: chartData.stale });
+  setPulseChartCache(meta.id, { prices, cachedAt: Date.now(), updatedAt, stale: chartData.stale });
   return {
     id: meta.id,
     current_price: currentPrice,
@@ -3206,8 +3253,9 @@ async function fetchCoinGeckoChartRow(meta) {
   };
 }
 
-async function fetchBackendCoinGeckoChart(coinGeckoId) {
-  const payload = await fetchJsonUrl(`/api/v1/coingecko-chart?id=${encodeURIComponent(coinGeckoId)}`);
+async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false } = {}) {
+  const forceParam = force ? "&force=true" : "";
+  const payload = await fetchJsonUrl(`/api/v1/coingecko-chart?id=${encodeURIComponent(coinGeckoId)}${forceParam}`);
   const prices = normalizePriceSeries(payload.prices);
   if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
   return {
@@ -4422,8 +4470,31 @@ async function loadPulseChart(candidate) {
   const canUseCoinGeckoChart = ["CoinGecko", "DEX Screener", "ViciSwap scan", "ViciSwap list"].includes(candidate.source);
   if (!canUseCoinGeckoChart) return candidate;
   const cached = pulseChartCache.get(candidate.id);
-  if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
-    return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, cached.stale);
+  if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
+    const isStale = cached.stale || Date.now() - cached.cachedAt >= MARKET_CHART_CACHE_MS;
+    if (isStale) refreshPulseChartInBackground(candidate);
+    return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, isStale);
+  }
+
+  if (candidate.source === "DEX Screener" && candidate.pairAddress) {
+    try {
+      return await Promise.any([
+        getPulseChartData(candidate.id).then(({ prices, updatedAt, stale }) => (
+          withCoinGeckoChart(candidate, prices, updatedAt, stale)
+        )),
+        getGeckoTerminalPulseChartData(candidate).then(({ prices, updatedAt }) => ({
+          ...candidate,
+          prices,
+          chartSource: "GeckoTerminal pool chart",
+          updatedAt,
+        })),
+      ]);
+    } catch {
+      if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
+        return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, true);
+      }
+      return candidate;
+    }
   }
 
   try {
@@ -4440,36 +4511,28 @@ async function loadPulseChart(candidate) {
   }
 }
 
-async function loadGeckoTerminalPulseChart(candidate) {
-  const chainId = normalizeDexChainId(candidate.chainId || dexScreenerChainIds[normalizeNetwork(candidate.network)]);
-  const pairAddress = normalizeContractAddress(candidate.pairAddress);
-  if (!chainId || !pairAddress) return candidate;
-  const cacheKey = `geckoterminal:${chainId}:${pairAddress}`;
-  const cached = pulseChartCache.get(cacheKey);
-  if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
-    return {
-      ...candidate,
-      prices: cached.prices,
-      chartSource: "GeckoTerminal pool chart",
-      updatedAt: cached.updatedAt || candidate.updatedAt,
-    };
-  }
+function refreshPulseChartInBackground(candidate) {
+  if (!candidate?.id || pendingPulseChartLoads.has(candidate.id)) return;
+  const refresh = fetchBackendCoinGeckoChart(candidate.id, { force: true })
+    .then((chartData) => {
+      const prices = normalizePriceSeries(chartData.prices);
+      if (prices.length < 2) return null;
+      setPulseChartCache(candidate.id, {
+        prices,
+        cachedAt: Date.now(),
+        updatedAt: chartData.updatedAt || new Date().toISOString(),
+        stale: Boolean(chartData.stale),
+      });
+      return chartData;
+    })
+    .catch(() => null)
+    .finally(() => pendingPulseChartLoads.delete(candidate.id));
+  pendingPulseChartLoads.set(candidate.id, refresh);
+}
 
+async function loadGeckoTerminalPulseChart(candidate) {
   try {
-    const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/minute?aggregate=15&limit=96&currency=usd`;
-    const payload = await withTimeout(
-      fetchGeckoTerminalJson(chartUrl),
-      MARKET_CHART_TIMEOUT_MS,
-      "GeckoTerminal chart timed out",
-    );
-    const rows = Array.isArray(payload?.data?.attributes?.ohlcv_list) ? payload.data.attributes.ohlcv_list : [];
-    const sortedRows = rows
-      .slice()
-      .sort((a, b) => Number(a?.[0]) - Number(b?.[0]));
-    const prices = normalizePriceSeries(sortedRows.map((row) => row?.[4]));
-    if (prices.length < 2) throw new Error("GeckoTerminal chart data empty");
-    const updatedAt = sortedRows.at(-1)?.[0] ? new Date(Number(sortedRows.at(-1)[0]) * 1000).toISOString() : new Date().toISOString();
-    pulseChartCache.set(cacheKey, { prices, cachedAt: Date.now(), updatedAt });
+    const { prices, updatedAt } = await getGeckoTerminalPulseChartData(candidate);
     return {
       ...candidate,
       prices,
@@ -4479,6 +4542,33 @@ async function loadGeckoTerminalPulseChart(candidate) {
   } catch {
     return candidate;
   }
+}
+
+async function getGeckoTerminalPulseChartData(candidate) {
+  const chainId = normalizeDexChainId(candidate.chainId || dexScreenerChainIds[normalizeNetwork(candidate.network)]);
+  const pairAddress = normalizeContractAddress(candidate.pairAddress);
+  if (!chainId || !pairAddress) throw new Error("Missing GeckoTerminal pool address");
+  const cacheKey = `geckoterminal:${chainId}:${pairAddress}`;
+  const cached = pulseChartCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
+    return { prices: cached.prices, updatedAt: cached.updatedAt || candidate.updatedAt };
+  }
+
+  const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/minute?aggregate=15&limit=96&currency=usd`;
+  const payload = await withTimeout(
+    fetchGeckoTerminalJson(chartUrl),
+    MARKET_CHART_TIMEOUT_MS,
+    "GeckoTerminal chart timed out",
+  );
+  const rows = Array.isArray(payload?.data?.attributes?.ohlcv_list) ? payload.data.attributes.ohlcv_list : [];
+  const sortedRows = rows
+    .slice()
+    .sort((a, b) => Number(a?.[0]) - Number(b?.[0]));
+  const prices = normalizePriceSeries(sortedRows.map((row) => row?.[4]));
+  if (prices.length < 2) throw new Error("GeckoTerminal chart data empty");
+  const updatedAt = sortedRows.at(-1)?.[0] ? new Date(Number(sortedRows.at(-1)[0]) * 1000).toISOString() : new Date().toISOString();
+  setPulseChartCache(cacheKey, { prices, cachedAt: Date.now(), updatedAt });
+  return { prices, updatedAt };
 }
 
 async function getPulseChartData(coinGeckoId) {
@@ -4497,7 +4587,7 @@ async function getPulseChartData(coinGeckoId) {
     const prices = normalizePriceSeries(chartData.prices);
     if (prices.length < 2) throw new Error("Chart data empty");
     const updatedAt = chartData.updatedAt || new Date().toISOString();
-    pulseChartCache.set(coinGeckoId, { prices, cachedAt: Date.now(), updatedAt, stale: chartData.stale });
+    setPulseChartCache(coinGeckoId, { prices, cachedAt: Date.now(), updatedAt, stale: chartData.stale });
     return { prices, updatedAt, stale: Boolean(chartData.stale) };
   })();
   pendingPulseChartLoads.set(coinGeckoId, request);
@@ -4568,7 +4658,7 @@ async function loadBinancePulseChart(candidate) {
     const rows = await fetchBinanceJson(chartUrl);
     const prices = normalizePriceSeries((Array.isArray(rows) ? rows : []).map((row) => row?.[4]));
     if (prices.length < 2) throw new Error("Binance chart data empty");
-    pulseChartCache.set(cacheKey, { prices, cachedAt: Date.now() });
+    setPulseChartCache(cacheKey, { prices, cachedAt: Date.now() });
     return { ...candidate, prices, chartSource: `Binance ${candidate.marketSymbol} 24h chart` };
   } catch {
     return { ...candidate, chartSource: `Binance ${candidate.marketSymbol} price only` };
@@ -4598,7 +4688,7 @@ async function loadCoinbasePulseChart(candidate) {
       .sort((a, b) => Number(a?.[0]) - Number(b?.[0]))
       .map((row) => row?.[4]));
     if (prices.length < 2) throw new Error("Coinbase chart data empty");
-    pulseChartCache.set(cacheKey, { prices, cachedAt: Date.now() });
+    setPulseChartCache(cacheKey, { prices, cachedAt: Date.now() });
     return { ...candidate, prices, chartSource: `Coinbase ${candidate.productId} 24h chart` };
   } catch {
     return { ...candidate, chartSource: `Coinbase ${candidate.productId} price only` };
@@ -4624,7 +4714,7 @@ async function loadCryptoComparePulseChart(candidate) {
     const rows = payload?.Data?.Data || [];
     const prices = normalizePriceSeries(rows.map((row) => row.close));
     if (prices.length < 2) throw new Error("CryptoCompare chart data empty");
-    pulseChartCache.set(cacheKey, { prices, cachedAt: Date.now() });
+    setPulseChartCache(cacheKey, { prices, cachedAt: Date.now() });
     return { ...candidate, prices, chartSource: `CryptoCompare ${candidate.cryptoCompareSymbol}-USD 24h chart` };
   } catch {
     return { ...candidate, chartSource: `CryptoCompare ${candidate.cryptoCompareSymbol}-USD price only` };

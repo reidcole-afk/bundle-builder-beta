@@ -17,8 +17,8 @@ const COINGECKO_CHART_STORE_PATH = path.resolve(
   process.env.BUNDLE_BUILDER_CHART_CACHE_FILE
     || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || path.join(os.tmpdir(), "bundle-builder-beta"), "coingecko-charts.json"),
 );
-const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 15);
-const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 24);
+const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 5);
+const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 20);
 const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
 const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 5);
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 750);
@@ -54,6 +54,7 @@ const coingeckoChartPreloadState = {
   lastResult: null,
 };
 let coingeckoChartPreloadTimer = null;
+const pendingCoinGeckoChartRefreshes = new Map();
 
 const server = createServer();
 
@@ -535,6 +536,10 @@ async function getCoinGeckoChartWorkflow(id, options = {}) {
   if (!options.force && existing && now - existing.cachedAt < COINGECKO_CHART_CACHE_MS) {
     return { ...existing, cacheStatus: "fresh-cache" };
   }
+  if (!options.force && existing && now - existing.cachedAt < COINGECKO_CHART_STALE_MS) {
+    refreshCoinGeckoChartInBackground(id);
+    return { ...existing, cacheStatus: "stale-cache", warning: "Serving cached chart while a background refresh runs" };
+  }
 
   try {
     const chart = await fetchCoinGeckoChartWithRetries(id);
@@ -560,6 +565,34 @@ async function getCoinGeckoChartWorkflow(id, options = {}) {
     }
     throw error;
   }
+}
+
+function refreshCoinGeckoChartInBackground(id) {
+  if (pendingCoinGeckoChartRefreshes.has(id)) return pendingCoinGeckoChartRefreshes.get(id);
+  const refresh = (async () => {
+    try {
+      const chart = await fetchCoinGeckoChartWithRetries(id);
+      const store = readCoinGeckoChartStore();
+      const record = sanitizeStoredCoinGeckoChart({
+        id,
+        prices: chart.prices,
+        totalVolumes: chart.totalVolumes,
+        marketCaps: chart.marketCaps,
+        updatedAt: chart.updatedAt,
+        cachedAt: Date.now(),
+      });
+      if (record) {
+        store[id] = record;
+        writeCoinGeckoChartStore(store);
+      }
+      return record;
+    } finally {
+      pendingCoinGeckoChartRefreshes.delete(id);
+    }
+  })();
+  pendingCoinGeckoChartRefreshes.set(id, refresh);
+  refresh.catch(() => {});
+  return refresh;
 }
 
 function startCoinGeckoChartPreloader() {
