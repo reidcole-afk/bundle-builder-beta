@@ -705,6 +705,7 @@ function isAllowedMarketProxyUrl(targetUrl) {
         || parsed.pathname.startsWith("/token-pairs/v1/")
         || parsed.pathname.startsWith("/tokens/v1/");
     }
+    if (parsed.origin === "https://api.geckoterminal.com") return parsed.pathname.startsWith("/api/v2/");
     if (parsed.origin === "https://office.viciswap.io") return parsed.pathname.startsWith("/vs2/api/coins");
     if (parsed.origin === "https://api.binance.com") return parsed.pathname.startsWith("/api/v3/");
     if (parsed.origin === "https://api.exchange.coinbase.com") return parsed.pathname.startsWith("/products/");

@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.22");
+  assert.equal(health.body.version, "0.1.23");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -43,6 +43,9 @@ global.fetch = async (url) => {
     if (target.includes("/api/v3/coins/aerodrome-finance/market_chart")) {
       return { ok: true, json: async () => ({ prices: [[1, 1], [2, 1.1]] }) };
     }
+    if (target.includes("/api/v2/networks/base/pools/0x0000000000000000000000000000000000000001/ohlcv/minute")) {
+      return { ok: true, json: async () => ({ data: { attributes: { ohlcv_list: [[2, 1, 1, 1, 1.1, 100], [1, 1, 1, 1, 1, 100]] } } }) };
+    }
     if (target.includes("/vs2/api/coins")) throw new Error("simulated ViciSwap API outage");
     return { ok: true, json: async () => ({}) };
   };
@@ -50,6 +53,10 @@ global.fetch = async (url) => {
   const allowedProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fapi.coingecko.com%2Fapi%2Fv3%2Fcoins%2Faerodrome-finance%2Fmarket_chart%3Fvs_currency%3Dusd%26days%3D1");
   assert.equal(allowedProxy.statusCode, 200);
   assert.deepEqual(allowedProxy.body.prices, [[1, 1], [2, 1.1]]);
+
+  const geckoTerminalProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fapi.geckoterminal.com%2Fapi%2Fv2%2Fnetworks%2Fbase%2Fpools%2F0x0000000000000000000000000000000000000001%2Fohlcv%2Fminute%3Faggregate%3D15%26limit%3D96%26currency%3Dusd");
+  assert.equal(geckoTerminalProxy.statusCode, 200);
+  assert.equal(geckoTerminalProxy.body.data.attributes.ohlcv_list.length, 2);
 
   const chartStatus = await getJson("/api/v1/coingecko-chart/status");
   assert.equal(chartStatus.statusCode, 200);

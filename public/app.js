@@ -3585,6 +3585,19 @@ async function fetchDexScreenerJson(url) {
   }
 }
 
+async function fetchGeckoTerminalJson(url) {
+  if (!isAllowedGeckoTerminalUrl(url)) throw new Error("Unsupported GeckoTerminal URL");
+  try {
+    return await firstSuccessfulMarketJson([
+      fetchJsonUrl(url),
+      fetchMarketJsonViaAssistant(url),
+      wait(900).then(() => fetchMarketJsonViaProxy(url)),
+    ]);
+  } catch (error) {
+    throw new Error(`GeckoTerminal chart unavailable: ${error?.message || String(error)}`);
+  }
+}
+
 function marketProxyUrls(url) {
   const encodedUrl = encodeURIComponent(url);
   return [
@@ -3600,9 +3613,19 @@ function isAllowedMarketUrl(url) {
     return (
       (parsed.origin === "https://api.coingecko.com" && parsed.pathname.startsWith("/api/v3/"))
       || isAllowedDexScreenerUrl(url)
+      || isAllowedGeckoTerminalUrl(url)
       || isAllowedViciCoinsApiUrl(url)
       || isAllowedGdeltNewsUrl(url)
     );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedGeckoTerminalUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.origin === "https://api.geckoterminal.com" && parsed.pathname.startsWith("/api/v2/");
   } catch {
     return false;
   }
@@ -4288,6 +4311,8 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
     currentPrice: finiteOrNull(market.current_price),
     volume24h: finiteOrNull(market.total_volume),
     liquidityUsd: finiteOrNull(market.liquidityUsd),
+    chainId: market.chainId || dexScreenerChainIds[normalizeNetwork(network)] || "",
+    pairAddress: market.pairAddress || "",
     pairUrl: market.pairUrl || "",
   };
 }
@@ -4409,6 +4434,49 @@ async function loadPulseChart(candidate) {
     if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
       return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, true);
     }
+    const geckoTerminalCandidate = await loadGeckoTerminalPulseChart(candidate);
+    if (normalizePriceSeries(geckoTerminalCandidate.prices).length >= 2) return geckoTerminalCandidate;
+    return candidate;
+  }
+}
+
+async function loadGeckoTerminalPulseChart(candidate) {
+  const chainId = normalizeDexChainId(candidate.chainId || dexScreenerChainIds[normalizeNetwork(candidate.network)]);
+  const pairAddress = normalizeContractAddress(candidate.pairAddress);
+  if (!chainId || !pairAddress) return candidate;
+  const cacheKey = `geckoterminal:${chainId}:${pairAddress}`;
+  const cached = pulseChartCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
+    return {
+      ...candidate,
+      prices: cached.prices,
+      chartSource: "GeckoTerminal pool chart",
+      updatedAt: cached.updatedAt || candidate.updatedAt,
+    };
+  }
+
+  try {
+    const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/minute?aggregate=15&limit=96&currency=usd`;
+    const payload = await withTimeout(
+      fetchGeckoTerminalJson(chartUrl),
+      MARKET_CHART_TIMEOUT_MS,
+      "GeckoTerminal chart timed out",
+    );
+    const rows = Array.isArray(payload?.data?.attributes?.ohlcv_list) ? payload.data.attributes.ohlcv_list : [];
+    const sortedRows = rows
+      .slice()
+      .sort((a, b) => Number(a?.[0]) - Number(b?.[0]));
+    const prices = normalizePriceSeries(sortedRows.map((row) => row?.[4]));
+    if (prices.length < 2) throw new Error("GeckoTerminal chart data empty");
+    const updatedAt = sortedRows.at(-1)?.[0] ? new Date(Number(sortedRows.at(-1)[0]) * 1000).toISOString() : new Date().toISOString();
+    pulseChartCache.set(cacheKey, { prices, cachedAt: Date.now(), updatedAt });
+    return {
+      ...candidate,
+      prices,
+      chartSource: "GeckoTerminal pool chart",
+      updatedAt,
+    };
+  } catch {
     return candidate;
   }
 }
