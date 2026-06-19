@@ -20,6 +20,40 @@ const COINGECKO_CHART_STORE_PATH = path.resolve(
 const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 15);
 const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 24);
 const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
+const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 5);
+const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 750);
+const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED !== "false";
+const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
+  "aerodrome-finance",
+  "morpho",
+  "layerzero",
+  "based-brett",
+  "degen-base",
+  "virtual-protocol",
+  "coinbase-wrapped-btc",
+  "coinbase-wrapped-staked-eth",
+  "toshi",
+  "zora",
+  "aixbt-by-virtuals",
+  "kaito",
+  "weth",
+  "wrapped-bitcoin",
+  "aave",
+  "chainlink",
+  "renzo-restaked-eth",
+];
+const COINGECKO_CHART_PRELOAD_IDS = parseCoinGeckoPreloadIds(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_IDS);
+const coingeckoChartPreloadState = {
+  enabled: COINGECKO_CHART_PRELOAD_ENABLED,
+  running: false,
+  cycle: 0,
+  idCount: COINGECKO_CHART_PRELOAD_IDS.length,
+  lastStartedAt: null,
+  lastCompletedAt: null,
+  lastError: null,
+  lastResult: null,
+};
+let coingeckoChartPreloadTimer = null;
 
 const server = createServer();
 
@@ -49,12 +83,28 @@ async function handleRequest(request, response) {
         tokensEndpointFailsClosed: true,
         friendlyPortErrors: true,
         coingeckoChartWorkflowCache: true,
+        coingeckoChartBackgroundPreload: {
+          enabled: COINGECKO_CHART_PRELOAD_ENABLED,
+          intervalMs: COINGECKO_CHART_PRELOAD_INTERVAL_MS,
+          idCount: COINGECKO_CHART_PRELOAD_IDS.length,
+        },
         homepage: {
           enabled: true,
           publicDirExists: fs.existsSync(PUBLIC_DIR),
           indexExists: fs.existsSync(path.join(PUBLIC_DIR, "index.html")),
         },
         betaScope: "invite-only Base beta by default",
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v1/coingecko-chart/status") {
+      sendJson(response, 200, {
+        ok: true,
+        cacheFile: COINGECKO_CHART_STORE_PATH,
+        cacheMs: COINGECKO_CHART_CACHE_MS,
+        staleMs: COINGECKO_CHART_STALE_MS,
+        preload: coingeckoChartPreloadState,
       });
       return;
     }
@@ -242,6 +292,7 @@ function startServer(serverInstance = server) {
   serverInstance.on("error", handleServerError);
   serverInstance.listen(PORT, HOST, () => {
     console.log(`Bundle Builder API listening on http://${HOST}:${PORT}`);
+    startCoinGeckoChartPreloader();
   });
 }
 
@@ -372,6 +423,14 @@ function storageDescriptor() {
   };
 }
 
+function parseCoinGeckoPreloadIds(value) {
+  const ids = String(value || "")
+    .split(",")
+    .map((id) => id.trim().toLowerCase())
+    .filter(isAllowedCoinGeckoId);
+  return ids.length ? [...new Set(ids)] : DEFAULT_COINGECKO_CHART_PRELOAD_IDS;
+}
+
 function sanitizeObject(input, maxKeys = 20) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   return Object.fromEntries(
@@ -500,6 +559,62 @@ async function getCoinGeckoChartWorkflow(id, options = {}) {
       };
     }
     throw error;
+  }
+}
+
+function startCoinGeckoChartPreloader() {
+  if (!COINGECKO_CHART_PRELOAD_ENABLED || coingeckoChartPreloadTimer) return;
+  setTimeout(() => {
+    runCoinGeckoChartPreloadCycle("startup").catch((error) => {
+      coingeckoChartPreloadState.lastError = error.message || "CoinGecko preload startup failed";
+    });
+  }, 1000).unref?.();
+  coingeckoChartPreloadTimer = setInterval(() => {
+    runCoinGeckoChartPreloadCycle("interval").catch((error) => {
+      coingeckoChartPreloadState.lastError = error.message || "CoinGecko preload interval failed";
+    });
+  }, COINGECKO_CHART_PRELOAD_INTERVAL_MS);
+  coingeckoChartPreloadTimer.unref?.();
+}
+
+async function runCoinGeckoChartPreloadCycle(trigger = "manual") {
+  if (coingeckoChartPreloadState.running) {
+    coingeckoChartPreloadState.lastError = "Previous CoinGecko preload cycle is still running";
+    return coingeckoChartPreloadState.lastResult;
+  }
+  coingeckoChartPreloadState.running = true;
+  coingeckoChartPreloadState.cycle += 1;
+  coingeckoChartPreloadState.lastStartedAt = new Date().toISOString();
+  coingeckoChartPreloadState.lastError = null;
+
+  const result = {
+    trigger,
+    refreshed: 0,
+    freshCache: 0,
+    staleCache: 0,
+    failed: 0,
+    failedIds: [],
+  };
+
+  try {
+    for (const id of COINGECKO_CHART_PRELOAD_IDS) {
+      try {
+        const chart = await getCoinGeckoChartWorkflow(id);
+        if (chart.cacheStatus === "refreshed") result.refreshed += 1;
+        else if (chart.cacheStatus === "fresh-cache") result.freshCache += 1;
+        else if (chart.cacheStatus === "stale-cache") result.staleCache += 1;
+      } catch (error) {
+        result.failed += 1;
+        result.failedIds.push({ id, error: error.message || "chart preload failed" });
+      }
+      if (COINGECKO_CHART_PRELOAD_STAGGER_MS > 0) await wait(COINGECKO_CHART_PRELOAD_STAGGER_MS);
+    }
+    coingeckoChartPreloadState.lastResult = result;
+    coingeckoChartPreloadState.lastCompletedAt = new Date().toISOString();
+    coingeckoChartPreloadState.lastError = result.failed ? `${result.failed} CoinGecko chart preload requests failed` : null;
+    return result;
+  } finally {
+    coingeckoChartPreloadState.running = false;
   }
 }
 

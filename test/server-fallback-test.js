@@ -12,12 +12,13 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.21");
+  assert.equal(health.body.version, "0.1.22");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
   assert.equal(health.body.coingeckoChartWorkflowCache, true);
+  assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
   assert.equal(health.body.betaScope, "invite-only Base beta by default");
@@ -49,6 +50,11 @@ global.fetch = async (url) => {
   const allowedProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fapi.coingecko.com%2Fapi%2Fv3%2Fcoins%2Faerodrome-finance%2Fmarket_chart%3Fvs_currency%3Dusd%26days%3D1");
   assert.equal(allowedProxy.statusCode, 200);
   assert.deepEqual(allowedProxy.body.prices, [[1, 1], [2, 1.1]]);
+
+  const chartStatus = await getJson("/api/v1/coingecko-chart/status");
+  assert.equal(chartStatus.statusCode, 200);
+  assert.equal(chartStatus.body.ok, true);
+  assert.equal(chartStatus.body.preload.enabled, true);
 
   const workflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance&force=true");
   assert.equal(workflowChart.statusCode, 200);
