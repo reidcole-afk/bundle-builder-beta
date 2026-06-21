@@ -487,81 +487,6 @@ const tokenThesisProfiles = {
   },
 };
 
-const catalystNarrativeProfiles = {
-  AERO: {
-    driver: "launch / upgrade",
-    title: "Aerodrome is being watched for Base DEX growth, liquidity incentives, and its predictive allocation / expansion narrative.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "AERO has a known Base DEX catalyst lane: ecosystem activity, liquidity incentives, and upgrade or expansion narratives can feed directly into demand for the token.",
-    watch: "The catalyst is strongest when AERO has elevated volume and Base DEX activity. If volume fades, the move can become a chase.",
-    minVolume: 1_500_000,
-    minAbsChange: 2,
-  },
-  MORPHO: {
-    driver: "DeFi lending growth",
-    title: "Morpho is being watched for Base lending growth, vault adoption, and institutional DeFi credit demand.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "MORPHO has a Base DeFi lending catalyst lane: stronger borrowing, collateral, and vault activity can make the token more relevant than a generic DeFi pick.",
-    watch: "The catalyst is strongest when lending narratives line up with volume and route depth, not just price movement.",
-    minVolume: 750_000,
-    minAbsChange: 1.5,
-  },
-  VIRTUAL: {
-    driver: "AI-agent attention",
-    title: "Virtuals Protocol is being watched for AI-agent narrative momentum and attention-driven Base activity.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "VIRTUAL has an AI-agent catalyst lane: when market attention rotates back into AI infrastructure, it can move faster than core assets.",
-    watch: "AI-agent tokens are reflexive; the catalyst needs volume confirmation because attention can cool quickly.",
-    minVolume: 1_000_000,
-    minAbsChange: 2,
-  },
-  DEGEN: {
-    driver: "Base community momentum",
-    title: "DEGEN is being watched for Base community momentum and high-beta social participation.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "DEGEN has a community catalyst lane: it can work when Base-native social risk appetite is active, but it needs strong confirmation.",
-    watch: "Community catalysts can reverse fast. The machine should size it carefully unless volume and route depth stay strong.",
-    minVolume: 700_000,
-    minAbsChange: 2.5,
-  },
-  BRETT: {
-    driver: "Base meme momentum",
-    title: "BRETT is being watched for recognizable Base meme momentum and social beta.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "BRETT has a Base meme catalyst lane: it can benefit when attention and risk appetite rotate into Base community assets.",
-    watch: "Meme catalysts are fragile; this only deserves conviction when volume confirms the move.",
-    minVolume: 700_000,
-    minAbsChange: 2.5,
-  },
-  ZRO: {
-    driver: "interoperability infrastructure",
-    title: "LayerZero is being watched for interoperability, omnichain infrastructure, and cross-chain activity narratives.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "ZRO has an interoperability catalyst lane: it becomes more compelling when cross-chain infrastructure is in favor and live market data confirms interest.",
-    watch: "Infrastructure narratives can take time. Short-term conviction should still depend on volume and chart setup.",
-    minVolume: 1_000_000,
-    minAbsChange: 1.5,
-  },
-  KAITO: {
-    driver: "InfoFi / AI attention",
-    title: "KAITO is being watched for InfoFi, AI attention markets, and crypto intelligence narratives.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "KAITO has an InfoFi catalyst lane: it can benefit when market attention favors data, AI, and crypto intelligence products.",
-    watch: "Newer narrative assets need clear volume confirmation before the machine should treat them as durable.",
-    minVolume: 600_000,
-    minAbsChange: 2,
-  },
-  ZORA: {
-    driver: "creator economy activity",
-    title: "ZORA is being watched for creator economy momentum and Base-native consumer crypto activity.",
-    source: "Bundle Builder catalyst watchlist",
-    summary: "ZORA has a creator-economy catalyst lane: it gets more interesting when Base consumer activity and creator narratives are active.",
-    watch: "Creator-economy tokens can be sentiment-heavy; volume and trend quality matter a lot.",
-    minVolume: 600_000,
-    minAbsChange: 2,
-  },
-};
-
 const viciNetworks = ["Base", "Arbitrum", "Polygon", "Optimism"];
 const TOKEN_UNIVERSE_LOCAL_STORAGE_KEY = "viciBundleBuilderTokenUniverse";
 const VICI_API_TOKEN_UNIVERSE_LOCAL_STORAGE_KEY = "viciBundleBuilderApiTokenUniverse";
@@ -912,10 +837,8 @@ const pulseWindowNext = document.getElementById("pulseWindowNext");
 const favoriteCoinChange = document.getElementById("favoriteCoinChange");
 const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
 const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
-const favoriteCoinSetup = document.getElementById("favoriteCoinSetup");
 const favoriteCoinReason = document.getElementById("favoriteCoinReason");
 const favoriteCoinInsights = document.getElementById("favoriteCoinInsights");
-const pulseAiSummarySlot = document.getElementById("pulseAiSummarySlot");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
@@ -933,7 +856,6 @@ let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
-let pulseChartWarmSeq = 0;
 let pulseLoadingActive = false;
 let marketPulseReady = false;
 let selectedPulseWindow = "24h";
@@ -1072,9 +994,8 @@ function getSupportedTickersForNetwork(network) {
 
 function supportSourceForNetwork(network) {
   const normalized = normalizeNetwork(network);
-  if (getTokenUniverseNetwork(apiViciTokenUniverse, normalized) && getTokenUniverseNetwork(scannedViciTokenUniverse, normalized)) return "ViciSwap API + live scan";
-  if (getTokenUniverseNetwork(apiViciTokenUniverse, normalized)) return "ViciSwap API + confirmed scan";
-  if (getTokenUniverseNetwork(scannedViciTokenUniverse, normalized)) return "live ViciSwap scan + confirmed scan";
+  if (getTokenUniverseNetwork(apiViciTokenUniverse, normalized)) return "ViciSwap API";
+  if (getTokenUniverseNetwork(scannedViciTokenUniverse, normalized)) return "live ViciSwap scan";
   return confirmedViciNetworkTokens[normalized]?.length ? "confirmed starter scan" : "network not scanned yet";
 }
 
@@ -1083,11 +1004,11 @@ function getActiveNetworkSupport() {
   viciNetworks.forEach((network) => {
     const apiGroup = getTokenUniverseNetwork(apiViciTokenUniverse, network);
     const scannedGroup = getTokenUniverseNetwork(scannedViciTokenUniverse, network);
-    const tickers = [
-      ...(confirmedViciNetworkTokens[network] || []),
-      ...(scannedGroup?.tokens?.map((token) => token.ticker) || []),
-      ...(apiGroup?.tokens?.map((token) => token.ticker) || []),
-    ];
+    const tickers = apiGroup?.tokens?.length
+      ? apiGroup.tokens.map((token) => token.ticker)
+      : scannedGroup?.tokens?.length
+        ? scannedGroup.tokens.map((token) => token.ticker)
+        : confirmedViciNetworkTokens[network] || [];
 
     tickers.forEach((rawTicker) => {
       const ticker = normalizeTicker(rawTicker);
@@ -2628,53 +2549,7 @@ pulseWindowNext?.addEventListener("click", () => stepPulseWindow(1));
 pulsePrev?.addEventListener("click", () => movePulseCandidate(-1));
 pulseNext?.addEventListener("click", () => movePulseCandidate(1));
 
-function closeEntryCautionPopovers() {
-  document.querySelectorAll(".pulse-entry-flag[aria-expanded='true']").forEach((button) => {
-    const wrapper = button.closest(".pulse-entry-warning");
-    const panel = wrapper?.querySelector(".pulse-entry-popover");
-    button.setAttribute("aria-expanded", "false");
-    if (panel) panel.hidden = true;
-  });
-}
-
-function closePulseSummaryPopovers() {
-  document.querySelectorAll(".pulse-ai-trigger[aria-expanded='true']").forEach((button) => {
-    const wrapper = button.closest(".pulse-ai-summary");
-    const panel = wrapper?.querySelector(".pulse-ai-popover");
-    button.setAttribute("aria-expanded", "false");
-    if (panel) panel.hidden = true;
-  });
-}
-
 document.body.addEventListener("click", (event) => {
-  const entryFlag = event.target.closest(".pulse-entry-flag");
-  if (entryFlag) {
-    event.preventDefault();
-    event.stopPropagation();
-    const wrapper = entryFlag.closest(".pulse-entry-warning");
-    const panel = wrapper?.querySelector(".pulse-entry-popover");
-    const willOpen = entryFlag.getAttribute("aria-expanded") !== "true";
-    closeEntryCautionPopovers();
-    entryFlag.setAttribute("aria-expanded", String(willOpen));
-    if (panel) panel.hidden = !willOpen;
-    return;
-  }
-  const summaryButton = event.target.closest(".pulse-ai-trigger");
-  if (summaryButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    const wrapper = summaryButton.closest(".pulse-ai-summary");
-    const panel = wrapper?.querySelector(".pulse-ai-popover");
-    const willOpen = summaryButton.getAttribute("aria-expanded") !== "true";
-    closeEntryCautionPopovers();
-    closePulseSummaryPopovers();
-    summaryButton.setAttribute("aria-expanded", String(willOpen));
-    if (panel) panel.hidden = !willOpen;
-    return;
-  }
-  if (!event.target.closest(".pulse-entry-warning")) closeEntryCautionPopovers();
-  if (!event.target.closest(".pulse-ai-summary")) closePulseSummaryPopovers();
-
   const copyButton = event.target.closest("[data-copy]");
   const riskButton = event.target.closest("[data-risk]");
   const viciButton = event.target.closest("[data-open-viciswap]");
@@ -2691,10 +2566,6 @@ document.body.addEventListener("click", (event) => {
     targetNetwork.value = networkButton.dataset.networkSelect;
     targetNetwork.dispatchEvent(new Event("change", { bubbles: true }));
   }
-});
-
-document.body.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeEntryCautionPopovers();
 });
 
 document.body.addEventListener("mouseover", (event) => {
@@ -2793,12 +2664,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
       currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
       marketPulseReady = true;
     }
-    if (render) {
-      pulseChartWarmSeq += 1;
-      renderMarketPulse(currentFavorite, currentFavorites);
-      loadVisiblePulseChartInBackground(refreshId);
-      warmPulseChartsAround(currentFavoriteIndex);
-    }
+    if (render) renderMarketPulse(currentFavorite, currentFavorites);
     if (render) renderCoinRows();
     if (render && currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) {
       buildBundle({ scroll: false });
@@ -2871,110 +2737,11 @@ function normalizePulseDeck(deck, sourceName = "") {
   return (deck || [])
     .filter(Boolean)
     .slice(0, MARKET_PULSE_DECK_SIZE)
-    .map((candidate, index) => preparePulseCandidateForDisplay({
+    .map((candidate, index) => ({
       ...candidate,
+      rank: index + 1,
       source: candidate.source || sourceName,
-    }, index + 1));
-}
-
-function basePulseReason(reason) {
-  return String(reason || "")
-    .split(/\s+(?:Near-term chart read:|Data edge:|Setup read:)/)[0]
-    .trim();
-}
-
-function preparePulseCandidateForDisplay(candidate, rank = candidate?.rank || 1) {
-  if (!candidate) return candidate;
-  const nextRank = rank || candidate.rank || 1;
-  const prices = normalizePriceSeries(candidate.prices);
-  const edge = marketEdgeSignal(candidate, candidate, prices);
-  const setup = marketSetupSignal(candidate, candidate, prices);
-  const reasonBase = rewritePulseRankLabel(basePulseReason(candidate.reason), nextRank);
-  const reason = appendSetupNote(
-    appendMarketEdgeNote(appendTrajectoryNote(reasonBase, prices), edge),
-    setup,
-  );
-  return {
-    ...candidate,
-    rank: nextRank,
-    marketEdge: edge,
-    marketSetup: setup,
-    trajectory: chartTrajectoryLabel(prices),
-    reason,
-  };
-}
-
-function finalizePulseDeck(deck, limit = MARKET_PULSE_DECK_SIZE) {
-  return (deck || [])
-    .filter(Boolean)
-    .slice(0, limit)
-    .map((candidate, index) => preparePulseCandidateForDisplay(candidate, index + 1));
-}
-
-function hasLivePulseChart(candidate = {}) {
-  const source = String(candidate.chartSource || "");
-  const prices = normalizePriceSeries(candidate.prices);
-  return prices.length >= 2 && !/signal line|confirmed receive token|chart loading|price only|no live chart/i.test(source);
-}
-
-function applyLoadedPulseCandidate(loadedCandidate) {
-  if (!loadedCandidate?.ticker) return null;
-  const existing = currentFavorites.find((candidate) => candidate.ticker === loadedCandidate.ticker);
-  const rank = existing?.rank || loadedCandidate.rank || 1;
-  const prepared = preparePulseCandidateForDisplay(loadedCandidate, rank);
-  currentFavorites = currentFavorites.map((candidate) => (
-    candidate.ticker === prepared.ticker ? prepared : candidate
-  ));
-  if (currentFavorite?.ticker === prepared.ticker) {
-    currentFavorite = prepared;
-    currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === prepared.ticker));
-  }
-  return prepared;
-}
-
-function loadVisiblePulseChartInBackground(refreshId = marketPulseRefreshSeq) {
-  const selected = currentFavorite;
-  if (!selected?.ticker || selected.ticker === "--" || hasLivePulseChart(selected)) return;
-  const selectionId = pulseSelectionSeq;
-  startPulseLoading(pulseLoadingLabel(selected), { lockControls: !marketPulseReady });
-  loadPulseChart(selected)
-    .then((loaded) => {
-      if (refreshId !== marketPulseRefreshSeq || selectionId !== pulseSelectionSeq) return;
-      const prepared = applyLoadedPulseCandidate(loaded);
-      if (prepared && currentFavorite?.ticker === prepared.ticker) renderMarketPulse(prepared, currentFavorites);
-    })
-    .catch(() => null)
-    .finally(() => {
-      if (refreshId === marketPulseRefreshSeq && selectionId === pulseSelectionSeq) stopPulseLoading();
-    });
-}
-
-function warmPulseChartsAround(index = currentFavoriteIndex) {
-  const deck = [...(currentFavorites || [])];
-  if (!deck.length) return;
-  const warmId = ++pulseChartWarmSeq;
-  const order = [];
-  for (let distance = 1; distance < deck.length; distance += 1) {
-    const forward = (index + distance) % deck.length;
-    const backward = (index - distance + deck.length) % deck.length;
-    if (!order.includes(forward)) order.push(forward);
-    if (!order.includes(backward)) order.push(backward);
-  }
-
-  (async () => {
-    for (const nextIndex of order) {
-      if (warmId !== pulseChartWarmSeq) return;
-      const candidate = currentFavorites[nextIndex];
-      if (!candidate || hasLivePulseChart(candidate)) continue;
-      try {
-        const loaded = await loadPulseChart(candidate);
-        if (warmId !== pulseChartWarmSeq) return;
-        applyLoadedPulseCandidate(loaded);
-      } catch {
-        // Keep the existing candidate; this is only a background cache warmer.
-      }
-    }
-  })();
+    }));
 }
 
 async function enrichPulseDeckWithCatalysts(deck, network) {
@@ -3025,150 +2792,48 @@ async function fetchNewsCatalystSignal(candidate, network) {
   const cacheKey = `${normalizeNetwork(network)}:${candidate.ticker}`;
   const cached = newsCatalystCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < NEWS_CATALYST_CACHE_MS) return cached.value;
-  const curated = curatedCatalystSignal(candidate, network);
 
-  let payload = null;
-  try {
-    payload = await fetchMarketJson(makeGdeltNewsUrl(candidate, network));
-  } catch (error) {
-    if (curated) {
-      newsCatalystCache.set(cacheKey, { value: curated, cachedAt: Date.now() });
-      return curated;
-    }
-    throw error;
-  }
+  const payload = await fetchMarketJson(makeGdeltNewsUrl(candidate, network));
   const articles = Array.isArray(payload?.articles) ? payload.articles : [];
   const relevant = articles
     .filter((article) => article?.title || article?.seendate)
-    .map((article) => normalizeNewsArticle(article))
-    .filter((article) => article.title)
     .slice(0, 8);
-  if (!relevant.length) {
-    if (curated) newsCatalystCache.set(cacheKey, { value: curated, cachedAt: Date.now() });
-    return curated;
-  }
+  if (!relevant.length) return null;
 
   const recentCount = relevant.filter((article) => isRecentNewsDate(article.seendate)).length;
   const trustedCount = relevant.filter((article) => isKnownCryptoNewsDomain(article.domain || article.url)).length;
   const titleText = relevant.map((article) => article.title || "").join(" ").toLowerCase();
-  const catalystWords = ["launch", "upgrade", "partnership", "integration", "mainnet", "airdrop", "listing", "funding", "proposal", "growth", "record", "surge", "incentive", "liquidity", "accumulation", "whale"];
-  const riskWords = ["hack", "exploit", "lawsuit", "probe", "outage", "depeg", "delist", "warning", "sec", "investigation"];
+  const catalystWords = ["launch", "upgrade", "partnership", "integration", "mainnet", "airdrop", "listing", "funding", "proposal", "growth", "record", "surge"];
+  const riskWords = ["hack", "exploit", "lawsuit", "probe", "outage", "depeg", "delist", "warning", "SEC".toLowerCase()];
   const positiveHits = catalystWords.filter((word) => titleText.includes(word)).length;
   const riskHits = riskWords.filter((word) => titleText.includes(word)).length;
   const score = clamp(recentCount * 0.8 + trustedCount * 0.6 + positiveHits * 1.2 - riskHits * 1.8, -5, 8);
   if (score <= 0 && !recentCount) return null;
-  const topArticle = relevant[0] || {};
-  const topTitle = topArticle.title || `${candidate.ticker} has recent market coverage`;
-  const driver = catalystDriverFromText(titleText, candidate);
-  const riskDriver = riskHits > 0 ? riskDriverFromText(titleText) : "";
+  const topTitle = relevant[0]?.title || `${candidate.ticker} has recent market coverage`;
   const value = {
     source: "GDELT news scan",
     score: roundTo(score, 1),
     articleCount: relevant.length,
-    driver,
-    riskDriver,
-    topTitle,
-    topSource: topArticle.domain || "",
-    articles: relevant.slice(0, 3),
     summary: riskHits > 0
-      ? `${candidate.ticker} has fresh ${riskDriver.toLowerCase()} risk coverage; verify catalyst quality before using it.`
-      : `${candidate.ticker} has fresh ${driver.toLowerCase()} coverage: ${shortenText(topTitle, 90)}${topArticle.domain ? ` (${topArticle.domain})` : ""}`,
+      ? `Recent news includes risk words; verify catalyst quality before using it.`
+      : `${candidate.ticker} has recent catalyst coverage: ${topTitle.slice(0, 90)}${topTitle.length > 90 ? "..." : ""}`,
     updatedAt: new Date().toISOString(),
   };
-  const selected = curated && curated.score > value.score ? curated : value;
-  newsCatalystCache.set(cacheKey, { value: selected, cachedAt: Date.now() });
-  return selected;
-}
-
-function curatedCatalystSignal(candidate = {}, network = "") {
-  const ticker = normalizeTicker(candidate.ticker);
-  const profile = catalystNarrativeProfiles[ticker];
-  if (!profile) return null;
-  const change = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h) || 0;
-  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
-  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
-  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
-  const hasMarketConfirmation = Math.abs(change) >= (profile.minAbsChange || 2)
-    || volume >= (profile.minVolume || 1_000_000)
-    || (setup?.score || 0) >= 3.5;
-  if (!hasMarketConfirmation) return null;
-  const depthBonus = volume >= (profile.minVolume || 1_000_000) ? 1.5 : 0;
-  const setupBonus = (setup?.score || 0) >= 5 ? 1.2 : 0;
-  const changeBonus = Math.min(2, Math.abs(change) / 6);
-  const score = clamp(2.8 + depthBonus + setupBonus + changeBonus, 2.5, 7.5);
-  return {
-    source: profile.source,
-    score: roundTo(score, 1),
-    articleCount: 0,
-    driver: profile.driver,
-    riskDriver: "",
-    topTitle: profile.title,
-    topSource: profile.source,
-    articles: [{
-      title: profile.title,
-      domain: profile.source,
-      url: "",
-      seendate: "",
-    }],
-    summary: `${ticker} has a confirmed catalyst lane: ${profile.summary}`,
-    watch: profile.watch,
-    network: normalizeNetwork(network),
-    updatedAt: new Date().toISOString(),
-  };
+  newsCatalystCache.set(cacheKey, { value, cachedAt: Date.now() });
+  return value;
 }
 
 function makeGdeltNewsUrl(candidate, network) {
-  const ticker = normalizeTicker(candidate.ticker);
-  const name = String(candidate.name || ticker).replace(/[^\w\s.-]/g, " ").trim();
-  const networkName = normalizeNetwork(network);
-  const query = `"${name}" OR "${ticker} crypto" OR "${ticker} ${networkName}"`;
+  const query = `"${candidate.ticker}" crypto OR "${candidate.name}"`;
   const params = new URLSearchParams({
     query,
     mode: "artlist",
     format: "json",
     maxrecords: "10",
-    timespan: "3d",
+    timespan: "1d",
     sort: "hybridrel",
   });
   return `https://api.gdeltproject.org/api/v2/doc/doc?${params.toString()}`;
-}
-
-function normalizeNewsArticle(article = {}) {
-  return {
-    title: String(article.title || "").replace(/\s+/g, " ").trim(),
-    url: article.url || "",
-    domain: article.domain || domainFromUrl(article.url),
-    seendate: article.seendate || article.seenDate || "",
-  };
-}
-
-function domainFromUrl(url) {
-  try {
-    return new URL(String(url || "")).hostname.replace(/^www\./, "");
-  } catch {
-    return "";
-  }
-}
-
-function catalystDriverFromText(text, candidate = {}) {
-  const value = String(text || "").toLowerCase();
-  if (/mainnet|launch|upgrade|release|roadmap/.test(value)) return "launch / upgrade";
-  if (/partnership|integration|collaboration|ecosystem/.test(value)) return "partnership / integration";
-  if (/listing|exchange|market|trading pair/.test(value)) return "listing / market access";
-  if (/whale|accumulat|holder|inflow|buying pressure/.test(value)) return "accumulation";
-  if (/incentive|reward|liquidity|volume|fee|revenue/.test(value)) return "liquidity / usage";
-  if (/proposal|governance|vote/.test(value)) return "governance";
-  const theme = roleForTicker(candidate.ticker) || candidate.theme || "market";
-  return `${String(theme).toLowerCase()} catalyst`;
-}
-
-function riskDriverFromText(text) {
-  const value = String(text || "").toLowerCase();
-  if (/hack|exploit|attack/.test(value)) return "security";
-  if (/lawsuit|sec|probe|investigation/.test(value)) return "regulatory";
-  if (/outage|halt|downtime/.test(value)) return "operational";
-  if (/depeg|liquidation|delist/.test(value)) return "market structure";
-  return "headline";
 }
 
 function isRecentNewsDate(value) {
@@ -3194,18 +2859,8 @@ function appendCatalystNote(reason, catalyst) {
 function marketPulseCandidates(eligibleCandidates, network = getPreferences().network) {
   return [...(eligibleCandidates || [])]
     .filter((coin) => coin?.ticker && isTickerOnNetwork(coin.ticker, network))
-    .filter((coin) => isPulseUpsideCandidate(coin))
     .sort((a, b) => b.baseScore - a.baseScore)
     .slice(0, MARKET_PULSE_CANDIDATE_LIMIT);
-}
-
-function isPulseUpsideCandidate(candidate = {}) {
-  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
-  if (!ticker) return false;
-  if (isStableOrCashTicker(ticker)) return false;
-  if (isCoreWrappedTicker(ticker)) return false;
-  if (ticker === "VCNT") return false;
-  return true;
 }
 
 async function getCoinGeckoPulseDeck(eligibleCandidates, network) {
@@ -3220,7 +2875,7 @@ async function getCoinGeckoPulseDeck(eligibleCandidates, network) {
       return buildPulseCandidate(meta, market, "CoinGecko", index + 1, network);
     })
     .filter(Boolean);
-  return finalizePulseDeck(favoriteDeck, MARKET_PULSE_DECK_SIZE);
+  return Promise.all(favoriteDeck.map(loadPulseChart));
 }
 
 async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
@@ -3229,13 +2884,13 @@ async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
   updateLatestPrices(markets);
   const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE);
   if (!favoriteMarkets.length) throw new Error("No CoinGecko chart candidates ranked");
-  return finalizePulseDeck(favoriteMarkets
+  return favoriteMarkets
     .map((market, index) => {
       const meta = findMarketCandidateById(market.id, network);
       if (!meta) return null;
       return buildPulseCandidate(meta, market, "CoinGecko chart", index + 1, network);
     })
-    .filter(Boolean), MARKET_PULSE_DECK_SIZE);
+    .filter(Boolean);
 }
 
 async function getDexScreenerPulseDeck(eligibleCandidates, network) {
@@ -3250,7 +2905,7 @@ async function getDexScreenerPulseDeck(eligibleCandidates, network) {
       return buildDexScreenerPulseCandidate(meta, market, network, index + 1);
     })
     .filter(Boolean);
-  return finalizePulseDeck(favoriteDeck, MARKET_PULSE_DECK_SIZE);
+  return loadPulseChartsAndRerank(favoriteDeck, MARKET_PULSE_DECK_SIZE);
 }
 
 async function getViciSwapScanPulseDeck(eligibleCandidates, network) {
@@ -3281,7 +2936,9 @@ function getLocalViciPulseDeck(eligibleCandidates, network, { updateSignals = tr
 
 async function getLocalViciPulseDeckWithCharts(eligibleCandidates, network, options = {}) {
   const deck = getLocalViciPulseDeck(eligibleCandidates, network, options);
-  return finalizePulseDeck(deck, MARKET_PULSE_DECK_SIZE);
+  return Promise.all(deck.map((candidate) => (
+    withTimeout(loadPulseChart(candidate), 6000, "ViciSwap scan chart timed out").catch(() => candidate)
+  )));
 }
 
 function updateLatestSignalsFromViciSwapScan(scoredMarkets) {
@@ -3387,7 +3044,7 @@ async function getBinancePulseDeck(eligibleCandidates, network) {
   if (!scored.length) throw new Error("No Binance-backed candidates ranked");
   updateLatestPricesFromBinance(scored.map((item) => item));
   const deck = scored.map((item, index) => buildBinancePulseCandidate(item.meta, item.ticker, item.marketSymbol, network, index + 1));
-  return finalizePulseDeck(deck, deck.length);
+  return Promise.all(deck.map(loadPulseChart));
 }
 
 async function getCoinbasePulseDeck(eligibleCandidates, network) {
@@ -3423,7 +3080,7 @@ async function getCoinbasePulseDeck(eligibleCandidates, network) {
   if (!scored.length) throw new Error("No Coinbase-backed candidates ranked");
   updateLatestPricesFromCoinbase(scored);
   const deck = scored.map((item, index) => buildCoinbasePulseCandidate(item.meta, item.stats, item.productId, network, index + 1));
-  return finalizePulseDeck(deck, deck.length);
+  return Promise.all(deck.map(loadPulseChart));
 }
 
 async function getCryptoComparePulseDeck(eligibleCandidates, network) {
@@ -3453,7 +3110,7 @@ async function getCryptoComparePulseDeck(eligibleCandidates, network) {
   if (!scored.length) throw new Error("No CryptoCompare-backed candidates ranked");
   updateLatestPricesFromCryptoCompare(scored);
   const deck = scored.map((item, index) => buildCryptoComparePulseCandidate(item.meta, item.market, item.symbol, network, index + 1));
-  return finalizePulseDeck(deck, deck.length);
+  return Promise.all(deck.map(loadPulseChart));
 }
 
 function makeCoinGeckoMarketsUrl(ids) {
@@ -4340,10 +3997,9 @@ function finiteOrNull(value) {
 
 function getFallbackPulseDeckForNetwork(network) {
   const targetSize = MARKET_PULSE_DECK_SIZE;
-  const baseDeck = fallbackPulseDeck.filter((candidate) => isTickerOnNetwork(candidate.ticker, network) && isPulseUpsideCandidate(candidate));
+  const baseDeck = fallbackPulseDeck.filter((candidate) => isTickerOnNetwork(candidate.ticker, network));
   const fillDeck = getViciMarketCandidates(network)
     .filter((candidate) => !baseDeck.some((fallback) => fallback.ticker === candidate.ticker))
-    .filter((candidate) => isPulseUpsideCandidate(candidate))
     .slice(0, Math.max(0, targetSize - baseDeck.length))
     .map((candidate) => ({
       id: candidate.id,
@@ -4361,7 +4017,6 @@ function getFallbackPulseDeckForNetwork(network) {
 
   const genericDeck = getSupportedTickersForNetwork(network)
     .filter((ticker) => !baseDeck.some((fallback) => fallback.ticker === ticker) && !fillDeck.some((fallback) => fallback.ticker === ticker))
-    .filter((ticker) => !isStableOrCashTicker(ticker))
     .slice(0, Math.max(0, targetSize - baseDeck.length - fillDeck.length))
     .map((ticker) => {
       const meta = coinMetaForTicker(ticker);
@@ -4416,11 +4071,9 @@ function selectFavoriteMarkets(markets, limit = 3) {
     .map((market) => {
       const meta = findMarketCandidateForMarket(market, network);
       if (!meta) return null;
-      if (!isPulseUpsideCandidate(meta)) return null;
       const edge = marketEdgeSignal(meta, market, market.sparkline_in_7d?.price);
-      const setup = marketSetupSignal(meta, market, market.sparkline_in_7d?.price);
       const score = marketConvictionScore(meta, market, market.sparkline_in_7d?.price, edge);
-      return { ...market, pulseScore: score, marketEdge: edge, marketSetup: setup };
+      return { ...market, pulseScore: score, marketEdge: edge };
     })
     .filter(Boolean)
     .sort((a, b) => b.pulseScore - a.pulseScore);
@@ -4432,13 +4085,11 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
   return loaded
     .map((candidate) => {
       const edge = marketEdgeSignal(candidate, candidate, candidate.prices);
-      const setup = marketSetupSignal(candidate, candidate, candidate.prices);
       return {
         ...candidate,
         pulseScore: marketConvictionScore(candidate, candidate, candidate.prices, edge),
         trajectory: chartTrajectoryLabel(candidate.prices),
         marketEdge: edge,
-        marketSetup: setup,
       };
     })
     .sort((a, b) => b.pulseScore - a.pulseScore)
@@ -4448,10 +4099,7 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
       return {
         ...candidate,
         rank,
-        reason: appendSetupNote(
-          appendMarketEdgeNote(appendTrajectoryNote(rewritePulseRankLabel(candidate.reason, rank), candidate.prices), candidate.marketEdge),
-          candidate.marketSetup,
-        ),
+        reason: appendMarketEdgeNote(appendTrajectoryNote(rewritePulseRankLabel(candidate.reason, rank), candidate.prices), candidate.marketEdge),
       };
     });
 }
@@ -4469,7 +4117,6 @@ function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
     + (Number.isFinite(change30d) ? clamp(change30d, -60, 95) * 0.11 : 0)
   );
   const trajectory = chartTrajectoryScore(prices);
-  const setup = marketSetupSignal(meta, market, prices);
   const pullback = pullbackQualityScore(prices, { volume24h, liquidityUsd });
   const theme = durableThemeScore(meta, { change24h, volume24h, liquidityUsd });
   const speculativePenalty = speculativePulsePenalty(meta, { volume24h, liquidityUsd });
@@ -4481,323 +4128,9 @@ function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
     + liquidityQuality * 2.05
     + trajectory * 1.05
     + pullback
-    + setup.score * 0.65
     + theme
     + edgeScore * 0.22
     - speculativePenalty;
-}
-
-function marketSetupSignal(meta, market = {}, prices = []) {
-  const change24h = finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h ?? market.change24h) ?? 0;
-  const change7d = finiteOrNull(market.price_change_percentage_7d_in_currency ?? market.change7d);
-  const volume24h = finiteOrNull(market.total_volume ?? market.volume24h) || 0;
-  const liquidityUsd = finiteOrNull(market.liquidityUsd) || 0;
-  const stats = chartTrajectoryStats(prices);
-  const hasVolume = volume24h >= 1_000_000;
-  const strongVolume = volume24h >= 4_000_000;
-  const hasDepth = liquidityUsd >= 750_000;
-  const deepRoute = liquidityUsd >= 2_500_000;
-  const extended = change24h >= 10 || (Number.isFinite(change7d) && change7d >= 28);
-  const fading = stats && (stats.recentReturn <= -1.4 || (stats.pullbackFromHigh >= 0.08 && stats.recentReturn < 0));
-  const constructive = stats && stats.recentReturn >= 1.2 && stats.consistency >= 0.5;
-  const boughtPullback = stats && stats.pullbackFromHigh >= 0.06 && stats.pullbackFromHigh <= 0.26 && stats.reboundFromLow >= 2.5 && stats.reboundSlope >= 0.28;
-
-  let score = 0;
-  const reasons = [];
-  let label = "Mixed setup";
-
-  if (hasVolume) {
-    score += 1.5;
-    reasons.push(`${formatCompactUsd(volume24h)} 24h volume`);
-  }
-  if (strongVolume) score += 1.2;
-  if (hasDepth) {
-    score += 1.5;
-    reasons.push(`${formatCompactUsd(liquidityUsd)} liquidity`);
-  }
-  if (deepRoute) score += 1.1;
-  if (constructive) {
-    score += 2.2;
-    reasons.push("constructive recent slope");
-  }
-  if (boughtPullback) {
-    score += hasVolume && hasDepth ? 3 : 1.4;
-    reasons.push("pullback is being bought");
-  }
-  if (extended && !fading && hasVolume) {
-    score += 0.8;
-    reasons.push("breakout still has activity behind it");
-  }
-  if (extended && fading) {
-    score -= 3.2;
-    reasons.push("extended move is fading");
-  }
-  if (change24h < -2 && !boughtPullback) score -= 1.8;
-  if (!hasVolume) score -= 1.6;
-  if (!hasDepth && liquidityUsd > 0) score -= 1.2;
-
-  score = clamp(score, -8, 9);
-  if (score >= 5.5) label = boughtPullback ? "Pullback rebound setup" : "Confirmed momentum setup";
-  else if (score >= 2.5) label = "Constructive setup";
-  else if (score <= -3) label = "Caution setup";
-  else if (fading) label = "Cooling setup";
-
-  return {
-    label,
-    score: roundTo(score, 1),
-    reasons,
-    extended,
-    fading: Boolean(fading),
-    constructive: Boolean(constructive),
-    boughtPullback: Boolean(boughtPullback),
-    hasVolume,
-    hasDepth,
-  };
-}
-
-function setupReadRating(setup) {
-  if (!setup || typeof setup !== "object") return null;
-  const rawScore = finiteOrNull(setup.score);
-  if (rawScore === null) return null;
-  const score = roundTo(clamp(((rawScore + 8) / 17) * 10, 0, 10), 1);
-  let tone = "neutral";
-  let label = setup.label || "Mixed setup";
-  if (score >= 7.5) tone = "strong";
-  else if (score <= 3.5) tone = "weak";
-  if (setup.extended && setup.fading) {
-    tone = "caution";
-    label = "Extended and cooling";
-  } else if (setup.extended && score >= 6.5) {
-    tone = "caution";
-    label = "Strong but extended";
-  } else if (setup.boughtPullback) {
-    label = "Bought pullback";
-  } else if (setup.constructive && setup.hasVolume) {
-    label = "Constructive";
-  }
-  const notes = Array.isArray(setup.reasons) && setup.reasons.length
-    ? setup.reasons.join(" • ")
-    : "Setup score uses chart position, slope, volume, and liquidity depth.";
-  return {
-    score: score.toFixed(1),
-    label,
-    tone,
-    title: notes,
-  };
-}
-
-function entryCautionFlag(favorite = {}) {
-  const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
-  const trajectory = chartTrajectoryLabel(favorite.prices);
-  const note = entryTimingSignal(favorite, setup, trajectory);
-  if (!note) return "";
-  const panelId = `pulse-entry-caution-${normalizeTicker(favorite.ticker) || "coin"}`;
-  const tone = entryFlagTone(note.label);
-  return `
-    <div class="pulse-entry-warning ${escapeHtml(tone)}">
-      <button class="pulse-entry-flag ${escapeHtml(tone)}" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(`${note.label}: ${note.text}`)}">
-        ${entryFlagIcon(tone)}
-        <span>${escapeHtml(note.label)}</span>
-      </button>
-      <div class="pulse-entry-popover ${escapeHtml(tone)}" id="${escapeHtml(panelId)}" hidden>
-        <strong>${escapeHtml(note.label)}</strong>
-        <p>${escapeHtml(note.text)}</p>
-      </div>
-    </div>
-  `;
-}
-
-function pulseSummaryButton(favorite = {}) {
-  if (!favorite?.ticker || favorite.ticker === "--" || favorite.source === "Market data unavailable") return "";
-  const summary = buildPulseAiSummary(favorite);
-  const panelId = `pulse-ai-summary-${normalizeTicker(favorite.ticker) || "coin"}`;
-  const buttonText = pulseSummaryButtonText(favorite);
-  return `
-    <div class="pulse-ai-summary">
-      <button class="pulse-ai-trigger" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(buttonText)}">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M13 2 4 14h7l-1 8 10-13h-7l0-7Z" />
-        </svg>
-        <span>${escapeHtml(buttonText)}</span>
-      </button>
-      <div class="pulse-ai-popover" id="${escapeHtml(panelId)}" hidden>
-        <div class="pulse-ai-head">
-          <span>TLDR</span>
-          <strong>${escapeHtml(summary.headline)}</strong>
-        </div>
-        <ol class="pulse-ai-points">
-          ${summary.points.map((point) => `
-            <li>
-              <span>${escapeHtml(point.label)}</span>
-              <p>${escapeHtml(point.text)}</p>
-            </li>
-          `).join("")}
-        </ol>
-      </div>
-    </div>
-  `;
-}
-
-function pulseSummaryButtonText(favorite = {}) {
-  const ticker = normalizeTicker(favorite.ticker) || "coin";
-  const change = finiteOrNull(favorite.change24h);
-  if (Number.isFinite(change) && change < -0.35) return `Why is ${ticker} down?`;
-  if (Number.isFinite(change) && change > 0.35) return `Why is ${ticker} up?`;
-  return `Why is ${ticker} moving?`;
-}
-
-function buildPulseAiSummary(favorite = {}) {
-  const ticker = normalizeTicker(favorite.ticker) || "This coin";
-  const name = favorite.name || ticker;
-  const change = finiteOrNull(favorite.change24h);
-  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume);
-  const liquidity = finiteOrNull(favorite.liquidityUsd);
-  const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
-  const edge = favorite.marketEdge || marketEdgeSignal(favorite, favorite, favorite.prices);
-  const trajectory = chartTrajectoryLabel(favorite.prices);
-  const entry = entryTimingSignal(favorite, setup, trajectory);
-  const catalyst = favorite.newsCatalyst;
-  const theme = String(favorite.theme || "market").toUpperCase();
-  const thesis = tokenThesisForTicker(ticker);
-  const direction = Number.isFinite(change)
-    ? change > 1 ? "up" : change < -1 ? "down" : "mostly flat"
-    : "moving";
-  const changeText = Number.isFinite(change) ? ` ${formatPercent(change)} over 24h` : "";
-  const volumeText = volume ? ` with ${formatCompactUsd(volume)} 24h volume` : "";
-  const liquidityText = liquidity ? ` and ${formatCompactUsd(liquidity)} liquidity` : "";
-  const catalystPhrase = catalyst?.driver ? `, with fresh ${catalyst.driver.toLowerCase()} context` : "";
-  const headline = `${name} is ${direction}${changeText}${volumeText}${liquidityText}${catalystPhrase}. ${setup?.label ? `Setup: ${setup.label.toLowerCase()}.` : ""}`;
-  const primaryText = pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, change, volume, liquidity });
-  const secondaryText = pulseSecondarySignal({ ticker, thesis, edge, setup, trajectory, change, volume, liquidity });
-  const outlookText = pulseNearTermOutlook({ favorite, ticker, thesis, entry, edge, trajectory, setup, catalyst, volume });
-  return {
-    headline,
-    points: [
-      { label: "Primary reason", text: primaryText },
-      { label: "Secondary reasons", text: secondaryText },
-      { label: "Near-term outlook", text: outlookText },
-    ],
-  };
-}
-
-function pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, change, volume, liquidity }) {
-  const role = thesis?.role || roleForTicker(ticker) || `${theme} candidate`;
-  const source = catalystArticleSource(catalyst);
-  const articleTitle = catalyst?.topTitle || catalyst?.articles?.[0]?.title || "";
-  if (catalyst?.riskDriver) {
-    return `Fresh headlines include ${catalyst.riskDriver.toLowerCase()} risk language${source}. The machine keeps ${ticker} on the board only if the ViciSwap route, liquidity, and market depth still justify the risk.`;
-  }
-  if (catalyst?.source === "Bundle Builder catalyst watchlist") {
-    const catalystSummary = cleanCuratedCatalystSummary(catalyst.summary, ticker);
-    return `The machine recognizes a known ${catalyst.driver.toLowerCase()} catalyst lane for ${ticker}: ${catalystSummary} This is being activated because live market data is confirming enough movement or volume to make the narrative relevant right now.`;
-  }
-  if (catalyst?.driver && articleTitle) {
-    return `Fresh market coverage is pointing to a ${catalyst.driver.toLowerCase()} catalyst: "${shortenText(articleTitle, 150)}"${source}. For ${ticker}, that matters because ${thesis?.why || coinInsightForTheme(favorite.theme, ticker)}`;
-  }
-  if (setup?.boughtPullback && Number.isFinite(volume) && volume >= 1_000_000) {
-    return `${ticker} is being read as a bought-pullback setup: price cooled off, then buyers stepped back in with ${formatCompactUsd(volume)} 24h volume. That is more useful than a simple green candle because it hints at demand returning after weakness.`;
-  }
-  if (setup?.extended && Number.isFinite(change) && change > 6) {
-    return `${ticker} is moving because its current trend is still strong, but it is also extended. The machine likes the momentum, then tempers conviction because buying near a recent high can turn into chasing.`;
-  }
-  if (Number.isFinite(volume) && Number.isFinite(liquidity) && volume >= 1_000_000 && liquidity >= 1_000_000) {
-    return `No fresh article-level catalyst was confirmed, so the read is market-structure driven: ${ticker} has active trading volume, usable liquidity, and a ${role.toLowerCase()} role inside the selected Base token set.`;
-  }
-  return `No fresh article-level catalyst was confirmed. The machine is treating ${ticker} as a ${role.toLowerCase()} because it fits the selected network and theme, but conviction depends on route quality, volume confirmation, and liquidity.`;
-}
-
-function cleanCuratedCatalystSummary(summary = "", ticker = "") {
-  return String(summary || "")
-    .replace(new RegExp(`^${ticker}\\s+has\\s+(?:a\\s+)?(?:confirmed|known)\\s+[^:]+catalyst lane:\\s*`, "i"), "")
-    .trim();
-}
-
-function pulseSecondarySignal({ ticker, thesis, edge, setup, trajectory, change, volume, liquidity }) {
-  const details = [];
-  if (Number.isFinite(volume)) details.push(`${formatCompactUsd(volume)} 24h volume`);
-  if (Number.isFinite(liquidity)) details.push(`${formatCompactUsd(liquidity)} liquidity`);
-  if (Number.isFinite(change)) details.push(`${formatPercent(change)} 24h move`);
-  if (setup?.label) details.push(`${setup.label.toLowerCase()}`);
-  if (trajectory?.label) details.push(`${trajectory.label.toLowerCase()}`);
-  if (edge?.label) details.push(`${edge.label.toLowerCase()}`);
-  const thesisText = thesis?.marketRead || "";
-  if (details.length) {
-    return `${details.join("; ")}. ${thesisText || `${ticker} is being judged by whether the move is supported by real participation instead of a thin spike.`}`;
-  }
-  return thesisText || plainMarketRead(ticker, change, volume, liquidity, setup);
-}
-
-function pulseNearTermOutlook({ favorite, ticker, thesis, entry, edge, trajectory, setup, catalyst, volume }) {
-  const watch = plainWatchRead(favorite, edge, trajectory, setup);
-  if (setup?.extended) {
-    return `${entry?.text || `${ticker} is near the high end of its recent range.`} Watch whether volume stays elevated; if volume fades, waiting for a cooloff or confirmation may be smarter than chasing.`;
-  }
-  if (setup?.boughtPullback) {
-    return `${entry?.text || `${ticker} is trying to rebound from a pullback.`} The cleaner follow-through is a higher low plus steady volume, not just one bounce candle.`;
-  }
-  if (catalyst?.driver) {
-    return `${entry?.text || watch} ${catalyst.watch || "The catalyst read helps explain the move, but the next check is whether price action and route depth keep confirming it."}`;
-  }
-  if (Number.isFinite(volume) && volume < 1_000_000) {
-    return `${ticker} needs more participation before the signal deserves high conviction. ${thesis?.watch || watch}`;
-  }
-  return entry?.text || watch;
-}
-
-function catalystArticleSource(catalyst) {
-  const source = catalyst?.topSource || catalyst?.articles?.[0]?.domain || "";
-  return source ? ` (${source})` : "";
-}
-
-function shortenText(value, limit = 120) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, Math.max(0, limit - 3)).trim()}...`;
-}
-
-function entryFlagIcon(tone = "neutral") {
-  if (tone === "neutral") {
-    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>`;
-  }
-  if (tone === "positive") {
-    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>`;
-  }
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V5" /><path d="M5 5h12l-2 4 2 4H5" /></svg>`;
-}
-
-function entryFlagTone(label = "") {
-  const normalized = String(label).toLowerCase();
-  if (/falling|entry caution|wait|high-zone|liquidity/.test(normalized)) return "caution";
-  if (/pullback|momentum confirmed/.test(normalized)) return "positive";
-  if (/balanced|watch/.test(normalized)) return "neutral";
-  return "neutral";
-}
-
-function entryCautionText(favorite = {}, setup = {}) {
-  const ticker = normalizeTicker(favorite.ticker) || "This coin";
-  const stats = chartTrajectoryStats(favorite.prices);
-  const change24h = finiteOrNull(favorite.change24h) || 0;
-  const extendedByPrice = stats?.pullbackFromHigh <= 0.035 && (change24h >= 8 || stats?.recentReturn >= 2.5);
-  if (setup?.extended && setup?.fading) {
-    return {
-      label: "Entry caution",
-      detail: `${ticker} looks extended and is cooling. A cleaner setup may depend on stabilization or renewed volume confirmation.`,
-    };
-  }
-  if (setup?.extended || extendedByPrice) {
-    const window = change24h >= 12 ? "6-12h" : "3-6h";
-    return {
-      label: "High-zone caution",
-      detail: `${ticker} is near a recent high after a sharp move. Momentum is strong, but a ${window} cooloff or fresh volume confirmation may offer a cleaner entry.`,
-    };
-  }
-  if (setup?.boughtPullback && setup?.hasVolume) {
-    return {
-      label: "Confirm rebound",
-      detail: `${ticker} is rebounding from a pullback. Watch whether volume holds up instead of fading after the bounce.`,
-    };
-  }
-  return null;
 }
 
 function durableThemeScore(meta, { change24h = 0, volume24h = 0, liquidityUsd = 0 } = {}) {
@@ -4808,7 +4141,8 @@ function durableThemeScore(meta, { change24h = 0, volume24h = 0, liquidityUsd = 
   if (theme.includes("defi")) score += 2.7;
   if (theme.includes("rwa")) score += 1.8;
   if (theme.includes("ai")) score += 1.2;
-  if (["AERO", "MORPHO", "VIRTUAL", "ZRO", "KAITO", "AIXBT"].includes(ticker)) score += 1.6;
+  if (theme.includes("core")) score += 1.1;
+  if (["AERO", "MORPHO", "VIRTUAL", "ZRO", "CBBTC", "CBETH"].includes(ticker)) score += 1.6;
   if (liquidityUsd >= 5_000_000 && volume24h >= 1_000_000) score += 1.6;
   if (change24h < -4 && score > 0) score *= 0.65;
   return score;
@@ -4888,19 +4222,6 @@ function appendMarketEdgeNote(reason, edge) {
   if (!edge || edge.label === "Neutral data edge") return reason;
   const detail = (edge.details || []).find((item) => !/slope|fading|chart|entry/i.test(item));
   return `${reason} Data edge: ${edge.label.toLowerCase()} (${edge.score}).${detail ? ` ${detail}` : ""}`;
-}
-
-function appendSetupNote(reason, setup) {
-  if (!setup || !setup.label || setup.label === "Mixed setup") return reason;
-  const reasons = Array.isArray(setup.reasons) && setup.reasons.length ? setup.reasons.join(", ") : "improving confirmation";
-  const rating = setupReadRating(setup);
-  const prefix = rating ? `Setup read: ${rating.score}/10, ${rating.label.toLowerCase()}` : "Setup read";
-  if (setup.boughtPullback) return `${reason} ${prefix}; pullback is being bought with ${reasons}.`;
-  if (setup.extended && setup.fading) return `${reason} ${prefix}; move is extended and cooling, so the machine is cautious about chasing.`;
-  if (setup.extended) return `${reason} ${prefix}; momentum is strong, but the coin is near an elevated short-term zone.`;
-  if (setup.constructive && setup.hasVolume) return `${reason} ${prefix}; constructive price action with volume support.`;
-  if (setup.label === "Caution setup") return `${reason} ${prefix}; caution flag because confirmation is weak or the move is fading.`;
-  return `${reason} ${prefix}.`;
 }
 
 function appendTrajectoryNote(reason, prices) {
@@ -5405,21 +4726,18 @@ async function selectPulseCandidate(ticker) {
   if (!selected || selected.ticker === currentFavorite?.ticker) return;
 
   const selectionId = ++pulseSelectionSeq;
-  pulseChartWarmSeq += 1;
   animatePulseSlide();
   currentFavorite = selected;
   currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === selected.ticker));
   renderMarketPulse(currentFavorite, currentFavorites);
   startPulseLoading(pulseLoadingLabel(selected), { lockControls: false });
-  try {
-    const loadedFavorite = await loadPulseChart(selected);
-    if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
-    const prepared = applyLoadedPulseCandidate(loadedFavorite);
-    if (prepared) renderMarketPulse(prepared, currentFavorites);
-    warmPulseChartsAround(currentFavoriteIndex);
-  } finally {
-    if (selectionId === pulseSelectionSeq) stopPulseLoading();
-  }
+  const loadedFavorite = await loadPulseChart(selected);
+  currentFavorites = currentFavorites.map((candidate) => (candidate.ticker === loadedFavorite.ticker ? loadedFavorite : candidate));
+  if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
+  currentFavorite = loadedFavorite;
+  currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
+  renderMarketPulse(currentFavorite, currentFavorites);
+  stopPulseLoading();
 }
 
 function movePulseCandidate(direction) {
@@ -5505,14 +4823,6 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
     favoriteCoinEdge.className = "pulse-edge-chip";
     favoriteCoinEdge.title = favorite.marketEdge?.details?.join(" • ") || "";
   }
-  if (favoriteCoinSetup) {
-    const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
-    const setupRating = setupReadRating(setup);
-    favoriteCoinSetup.hidden = !setupRating;
-    favoriteCoinSetup.textContent = setupRating ? `Setup ${setupRating.score}/10 · ${setupRating.label}` : "";
-    favoriteCoinSetup.className = `pulse-setup-chip ${setupRating?.tone || ""}`.trim();
-    favoriteCoinSetup.title = setupRating?.title || "";
-  }
   favoriteCoinUpdated.title = lastMarketPulseError || "";
   favoriteCoinReason.textContent = rewritePulseRankLabel(favorite.reason, favorite.rank || 1);
   renderPulseInsights(favorite);
@@ -5523,8 +4833,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       ? `Retry market pulse. Last error: ${lastMarketPulseError}`
       : "Refresh market pulse";
   }
-  pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeSparkline(favorite.prices, favorite.change24h)}`;
-  if (pulseAiSummarySlot) pulseAiSummarySlot.innerHTML = pulseSummaryButton(favorite);
+  pulseChart.innerHTML = makeSparkline(favorite.prices, favorite.change24h);
   currentFavoriteIndex = Math.max(0, (favorites || []).findIndex((candidate) => candidate.ticker === favorite.ticker));
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
@@ -5625,7 +4934,7 @@ function stopPulseLoading() {
 
 function renderPulseInsights(favorite) {
   if (!favoriteCoinInsights) return;
-  const insights = buildPulseInsights(favorite).slice(0, 5);
+  const insights = buildPulseInsights(favorite).slice(0, 3);
   favoriteCoinInsights.innerHTML = insights.map((insight) => `
     <div class="pulse-insight">
       <span>${escapeHtml(insight.label)}</span>
@@ -5647,24 +4956,11 @@ function buildPulseInsights(favorite = {}) {
   const liquidity = finiteOrNull(favorite.liquidityUsd);
   const change = finiteOrNull(favorite.change24h);
   const edge = favorite.marketEdge;
-  const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
   const trajectory = chartTrajectoryLabel(favorite.prices);
-  const entry = entryTimingSignal(favorite, setup, trajectory);
-  const hold = holdWindowSignal(favorite, setup, trajectory);
 
   insights.push({
     label: "Market read",
-    text: plainMarketRead(favorite.ticker, change, volume, liquidity, setup),
-  });
-
-  insights.push({
-    label: "Entry timing",
-    text: entry.text,
-  });
-
-  insights.push({
-    label: "Hold window",
-    text: hold.text,
+    text: plainMarketRead(favorite.ticker, change, volume, liquidity),
   });
 
   insights.push({
@@ -5680,12 +4976,12 @@ function buildPulseInsights(favorite = {}) {
   } else if (edge?.details?.length) {
     insights.push({
       label: "What to watch",
-      text: plainWatchRead(favorite, edge, trajectory, setup),
+      text: plainWatchRead(favorite, edge, trajectory),
     });
   } else if (trajectory?.text) {
     insights.push({
       label: "What to watch",
-      text: plainWatchRead(favorite, edge, trajectory, setup),
+      text: plainWatchRead(favorite, edge, trajectory),
     });
   } else {
     insights.push({
@@ -5697,26 +4993,11 @@ function buildPulseInsights(favorite = {}) {
   return insights;
 }
 
-function plainMarketRead(ticker, change, volume, liquidity, setup = null) {
+function plainMarketRead(ticker, change, volume, liquidity) {
   const thesis = tokenThesisForTicker(ticker);
   const hasChange = Number.isFinite(change);
   const hasSolidVolume = Number.isFinite(volume) && volume >= 1_000_000;
   const hasSolidLiquidity = Number.isFinite(liquidity) && liquidity >= 1_000_000;
-  if (setup?.boughtPullback && setup?.hasVolume && setup?.hasDepth) {
-    return thesis?.marketRead
-      ? `${thesis.marketRead} The extra setup read is that the recent pullback is being bought with enough volume and depth to deserve attention.`
-      : `${ticker} is showing a bought-pullback setup: the move cooled off, then buyers stepped back in with enough volume and depth to deserve attention.`;
-  }
-  if (setup?.extended && setup?.fading) {
-    return thesis?.marketRead
-      ? `${thesis.marketRead} The move looks extended and is starting to fade, so the machine treats this as a watchlist setup rather than a clean chase.`
-      : `${ticker} looks extended and is starting to fade, so the machine treats this as a watchlist setup rather than a clean chase.`;
-  }
-  if (setup?.constructive && setup?.hasVolume) {
-    return thesis?.marketRead
-      ? `${thesis.marketRead} The near-term setup is constructive because price action is still supported by active trading.`
-      : `${ticker} has a constructive near-term setup because price action is still supported by active trading.`;
-  }
   if (hasChange && change > 6 && hasSolidVolume && hasSolidLiquidity) {
     return thesis?.marketRead
       ? `${thesis.marketRead} Today's move also has enough activity behind it to look like more than a thin one-off spike.`
@@ -5740,145 +5021,13 @@ function plainMarketRead(ticker, change, volume, liquidity, setup = null) {
   return thesis?.marketRead || `${ticker} is being ranked from the latest available market signal, but users should still verify the route.`;
 }
 
-function entryTimingSignal(favorite = {}, setup = {}, trajectory = null) {
-  const ticker = normalizeTicker(favorite.ticker) || "This coin";
-  const stats = chartTrajectoryStats(favorite.prices);
-  const change24h = finiteOrNull(favorite.change24h) || 0;
-  const change1h = pulseChangeForWindow(favorite, "1h");
-  const change3h = pulseChangeForWindow(favorite, "3h");
-  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
-  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
-  const hasDepth = volume >= 1_000_000 && liquidity >= 750_000;
-  const nearHigh = stats?.pullbackFromHigh <= 0.035;
-  const sharpMove = change24h >= 8 || stats?.recentReturn >= 2.5;
-  const shortCooling = (Number.isFinite(change1h) && change1h < -0.6) || (Number.isFinite(change3h) && change3h < -1.2);
-
-  if (setup?.extended && setup?.fading) {
-    return {
-      label: "Entry caution",
-      text: `${ticker} looks extended and is already cooling. Waiting for stabilization or renewed volume confirmation is cleaner than chasing the fade.`,
-    };
-  }
-  if ((setup?.extended || (nearHigh && sharpMove)) && shortCooling) {
-    return {
-      label: "Wait for cooloff",
-      text: `${ticker} is near a high but short-term momentum is cooling. A 6-12h cooloff or a fresh volume push would give a cleaner entry read.`,
-    };
-  }
-  if (setup?.extended || (nearHigh && sharpMove)) {
-    return {
-      label: "High-zone caution",
-      text: `${ticker} still has momentum, but it is being priced near the top of its recent range. Entering smaller or waiting for confirmation may be smarter.`,
-    };
-  }
-  if (setup?.boughtPullback && setup?.hasVolume && setup?.hasDepth) {
-    return {
-      label: "Pullback setup",
-      text: `${ticker} has cooled off and started rebounding with usable depth. That is usually a cleaner setup than buying a vertical spike.`,
-    };
-  }
-  if (trajectory?.tone === "bearish" || (change24h <= -4 && !setup?.boughtPullback)) {
-    return {
-      label: "Falling-knife caution",
-      text: `${ticker} is dropping without enough rebound confirmation yet. The machine wants proof of buyer support before treating the dip as attractive.`,
-    };
-  }
-  if (setup?.constructive && hasDepth) {
-    return {
-      label: "Momentum confirmed",
-      text: `${ticker} has constructive price action with volume and route depth behind it. The setup is cleaner if those conditions hold through the quote.`,
-    };
-  }
-  if (setup?.hasVolume && !setup?.hasDepth) {
-    return {
-      label: "Liquidity check",
-      text: `${ticker} has activity, but depth looks less convincing. Keep size modest until the route, slippage, and exit path are reviewed.`,
-    };
-  }
-  return {
-    label: "Balanced signal",
-    text: `${ticker} has no obvious entry warning right now. The signal is neutral, so it may still fit the bundle while waiting for stronger confirmation.`,
-  };
-}
-
-function holdWindowSignal(favorite = {}, setup = {}, trajectory = null) {
-  const ticker = normalizeTicker(favorite.ticker) || "This coin";
-  const theme = String(favorite.theme || "").toLowerCase();
-  const change24h = finiteOrNull(favorite.change24h) || 0;
-  const change12h = pulseChangeForWindow(favorite, "12h");
-  const change6h = pulseChangeForWindow(favorite, "6h");
-  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
-  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
-  const highBeta = theme.includes("meme") || theme.includes("ai") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "VIRTUAL"].includes(ticker);
-  const coreOrDeep = theme.includes("core") || ["ETH", "WETH", "CBBTC", "WBTC", "CBETH", "LINK", "AAVE"].includes(ticker) || liquidity >= 5_000_000;
-  const strongDepth = volume >= 3_000_000 && liquidity >= 2_000_000;
-  const intradayMomentum = (Number.isFinite(change12h) && change12h >= 3) || (Number.isFinite(change6h) && change6h >= 2);
-
-  if (setup?.extended && setup?.fading) {
-    return {
-      label: "Watch-only",
-      text: `${ticker} is better treated as watch-only until the fade stabilizes. The hold clock should start after confirmation, not during the cooloff.`,
-    };
-  }
-  if (highBeta && (intradayMomentum || change24h >= 6)) {
-    return {
-      label: "Short-term trade",
-      text: `${ticker} looks best suited for a 1-3 day window because the signal is mostly momentum, attention, and fast-moving risk appetite.`,
-    };
-  }
-  if (setup?.boughtPullback && strongDepth) {
-    return {
-      label: "Swing setup",
-      text: `${ticker} looks better for a 3-10 day swing if the rebound keeps volume. The idea is to let the recovery breathe, not scalp one candle.`,
-    };
-  }
-  if (setup?.constructive && strongDepth) {
-    return {
-      label: "Swing setup",
-      text: `${ticker} fits a 1-3 week hold better than a quick flip because the setup has both market activity and enough depth to support continuation.`,
-    };
-  }
-  if (coreOrDeep) {
-    return {
-      label: "Longer conviction",
-      text: `${ticker} can support a 2-6 week hold more comfortably than thin tokens because the thesis is less dependent on one short-term spike.`,
-    };
-  }
-  if (!setup?.hasVolume || !setup?.hasDepth) {
-    return {
-      label: "Small test size",
-      text: `${ticker} should be treated as a small, short hold until volume and liquidity improve. Review the route before assigning real conviction.`,
-    };
-  }
-  if (trajectory?.tone === "constructive") {
-    return {
-      label: "Short swing",
-      text: `${ticker} looks like a 3-7 day setup: enough trend to matter, but still dependent on near-term confirmation.`,
-    };
-  }
-  return {
-    label: "Flexible hold",
-    text: `${ticker} does not show a clear time edge yet. Treat it as a flexible 3-10 day candidate and reassess if volume or trend changes.`,
-  };
-}
-
 function plainCatalystRead(catalyst) {
   const summary = String(catalyst?.summary || "").replace(/^Recent news includes risk words; /, "Recent headlines include risk language. ");
   return summary.length > 150 ? `${summary.slice(0, 147)}...` : summary;
 }
 
-function plainWatchRead(favorite, edge, trajectory, setup = null) {
+function plainWatchRead(favorite, edge, trajectory) {
   const thesis = tokenThesisForTicker(favorite.ticker);
-  if (setup?.boughtPullback) {
-    return thesis?.watch
-      ? `${thesis.watch} For this setup, the key confirmation is whether the rebound keeps its volume instead of rolling back over.`
-      : "For this setup, the key confirmation is whether the rebound keeps its volume instead of rolling back over.";
-  }
-  if (setup?.extended && setup?.fading) {
-    return thesis?.watch
-      ? `${thesis.watch} The move is extended and cooling, so the main risk is chasing after the easy part of the move has already happened.`
-      : "The move is extended and cooling, so the main risk is chasing after the easy part of the move has already happened.";
-  }
   if (trajectory?.tone === "bearish" || trajectory?.tone === "softening") {
     return thesis?.watch
       ? `${thesis.watch} The chart is also losing short-term strength, so a better entry may depend on stabilization rather than chasing.`
