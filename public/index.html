@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Bundle Builder Beta</title>
-    <link rel="stylesheet" href="./styles.css?v=60" />
+    <link rel="stylesheet" href="./styles.css?v=82" />
   </head>
   <body>
     <header class="app-header">
@@ -82,8 +82,10 @@
                           </button>
                           <span id="favoriteCoinChange">--</span>
                         </label>
+                        <span class="pulse-ai-slot" id="pulseAiSummarySlot"></span>
                         <span id="favoriteCoinUpdated">Updated --</span>
                         <span id="favoriteCoinEdge" hidden>Edge --</span>
+                        <span id="favoriteCoinSetup" hidden>Setup --</span>
                       </div>
                       <p id="favoriteCoinReason">The builder is checking ViciSwap-supported candidate coins and looking for a current market signal.</p>
                       <div class="pulse-insights" id="favoriteCoinInsights" aria-label="Coin signal notes"></div>
@@ -394,6 +396,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=65"></script>
+    <script src="./app.js?v=82"></script>
   </body>
 </html>
