@@ -18,6 +18,7 @@ global.fetch = async (url) => {
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
   assert.equal(health.body.coingeckoChartWorkflowCache, true);
+  assert.equal(health.body.catalystIntelligenceEndpoint, true);
   assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
@@ -37,6 +38,14 @@ global.fetch = async (url) => {
   const blockedProxy = await getJson("/api/v1/market-proxy?url=https%3A%2F%2Fexample.com%2Fbad.json");
   assert.equal(blockedProxy.statusCode, 400);
   assert.equal(blockedProxy.body.ok, false);
+
+  const catalystFallback = await getJson("/api/v1/catalyst?network=base&ticker=AERO&name=Aerodrome%20Finance");
+  assert.equal(catalystFallback.statusCode, 200);
+  assert.equal(catalystFallback.body.ok, true);
+  assert.equal(catalystFallback.body.ticker, "AERO");
+  assert.equal(catalystFallback.body.source, "Bundle Builder catalyst watchlist");
+  assert(catalystFallback.body.socialWatch.includes("Monitor"));
+  assert(catalystFallback.body.searches.xSearch.includes("x.com/search"));
 
   global.fetch = async (url) => {
     const target = String(url);

@@ -43,6 +43,8 @@ const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
   "renzo-restaked-eth",
 ];
 const COINGECKO_CHART_PRELOAD_IDS = parseCoinGeckoPreloadIds(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_IDS);
+const CATALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_CATALYST_CACHE_MS || 1000 * 60 * 10);
+const CATALYST_FETCH_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_CATALYST_TIMEOUT_MS || 2200);
 const coingeckoChartPreloadState = {
   enabled: COINGECKO_CHART_PRELOAD_ENABLED,
   running: false,
@@ -55,6 +57,73 @@ const coingeckoChartPreloadState = {
 };
 let coingeckoChartPreloadTimer = null;
 const pendingCoinGeckoChartRefreshes = new Map();
+const catalystCache = new Map();
+const catalystProfiles = {
+  AERO: {
+    driver: "Base DEX expansion",
+    title: "Aerodrome is watched for Base DEX volume, incentive changes, mainnet expansion, and protocol upgrade narratives.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "AERO gets more interesting when Base trading activity, liquidity incentives, protocol expansion, or DEX-volume headlines are active.",
+    watch: "Watch for Base volume, emissions or incentive changes, mainnet expansion headlines, and whether volume confirms the move.",
+    socialWatch: "Monitor X, Discord, Telegram, Base ecosystem feeds, and protocol channels for Aerodrome expansion notes, reward updates, fee-growth claims, or Base DEX-volume narratives.",
+  },
+  MORPHO: {
+    driver: "Base lending growth",
+    title: "Morpho is watched for lending growth, vault launches, institutional DeFi, and Base yield narratives.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "MORPHO gets more interesting when lending demand, vault growth, institutional DeFi, or Base yield narratives are active.",
+    watch: "Watch whether lending deposits, vault launches, and Base DeFi activity keep confirming the story.",
+    socialWatch: "Monitor Morpho governance, protocol announcements, DeFi researcher chatter, and Base lending threads for vault launches or institutional integrations.",
+  },
+  VIRTUAL: {
+    driver: "AI-agent attention",
+    title: "Virtuals is watched for AI-agent platform growth, launch activity, and attention-market narratives.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "VIRTUAL gets more interesting when AI-agent launches and Base AI narratives attract volume.",
+    watch: "Watch whether AI attention is broad-based or just one short-term social spike.",
+    socialWatch: "Monitor X, creator channels, Base AI projects, and Virtuals launch activity for agent launches, platform usage, or attention-cycle acceleration.",
+  },
+  DEGEN: {
+    driver: "Base community momentum",
+    title: "Degen is watched for Base community activity, social momentum, and Farcaster-adjacent narratives.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "DEGEN gets more interesting when Base social activity and community momentum are leading the market.",
+    watch: "Community tokens can reverse quickly; watch liquidity and volume quality closely.",
+    socialWatch: "Monitor Farcaster, X, Telegram, and Base community threads for social momentum, reward campaigns, or sudden attention spikes.",
+  },
+  BRETT: {
+    driver: "Base meme liquidity",
+    title: "Brett is watched for Base meme liquidity, social attention, and high-beta community momentum.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "BRETT gets more interesting when Base meme liquidity and social attention are expanding together.",
+    watch: "Meme moves need volume confirmation and careful sizing because they can fade quickly.",
+    socialWatch: "Monitor Base meme feeds, X trend chatter, whale-wallet discussion, and community channels for attention surges or liquidity shifts.",
+  },
+  ZRO: {
+    driver: "interoperability activity",
+    title: "LayerZero is watched for interoperability demand, integrations, and cross-chain infrastructure narratives.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "ZRO gets more interesting when cross-chain infrastructure and interoperability narratives are active.",
+    watch: "Watch whether integrations and bridge activity are strong enough to support the move.",
+    socialWatch: "Monitor LayerZero announcements, integration posts, governance updates, and cross-chain infrastructure commentary.",
+  },
+  KAITO: {
+    driver: "InfoFi / AI attention",
+    title: "Kaito is watched for InfoFi, AI attention markets, and crypto-data narrative growth.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "KAITO gets more interesting when InfoFi, AI attention, and crypto-data narratives are active.",
+    watch: "Attention-data tokens can become crowded quickly; watch whether volume confirms the narrative.",
+    socialWatch: "Monitor InfoFi discussion, AI-agent market commentary, creator incentives, and Kaito product or ecosystem updates.",
+  },
+  ZORA: {
+    driver: "creator economy activity",
+    title: "Zora is watched for creator economy momentum, mint activity, and Base-native consumer crypto growth.",
+    source: "Bundle Builder catalyst watchlist",
+    summary: "ZORA gets more interesting when creator launches and Base consumer activity are visible.",
+    watch: "Creator-economy tokens can be sentiment-heavy; watch volume and trend quality.",
+    socialWatch: "Monitor creator launches, mint activity, Base consumer-app chatter, and creator-economy headlines.",
+  },
+};
 
 const server = createServer();
 
@@ -84,6 +153,7 @@ async function handleRequest(request, response) {
         tokensEndpointFailsClosed: true,
         friendlyPortErrors: true,
         coingeckoChartWorkflowCache: true,
+        catalystIntelligenceEndpoint: true,
         coingeckoChartBackgroundPreload: {
           enabled: COINGECKO_CHART_PRELOAD_ENABLED,
           intervalMs: COINGECKO_CHART_PRELOAD_INTERVAL_MS,
@@ -145,6 +215,24 @@ async function handleRequest(request, response) {
           error: `CoinGecko chart unavailable: ${error.message || "upstream request failed"}`,
         });
       }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v1/catalyst") {
+      const ticker = safeTicker(url.searchParams.get("ticker"));
+      if (!ticker) {
+        sendJson(response, 400, {
+          ok: false,
+          error: "Missing or invalid ticker",
+        });
+        return;
+      }
+
+      const network = normalizeNetwork(url.searchParams.get("network") || "base");
+      const name = safeText(url.searchParams.get("name"), 120) || ticker;
+      const force = isTruthy(url.searchParams.get("force"));
+      const payload = await getCatalystIntelligence({ ticker, name, network: network.name }, { force });
+      sendJson(response, 200, payload);
       return;
     }
 
@@ -279,7 +367,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/coingecko-chart", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -446,9 +534,18 @@ function safeText(value, maxLength = 200) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
+function safeTicker(value) {
+  const ticker = safeText(value, 20).toUpperCase();
+  return /^[A-Z0-9.]{2,16}$/.test(ticker) ? ticker : "";
+}
+
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function clampInteger(value, min, max, fallback) {
@@ -508,6 +605,205 @@ function contentTypeForPath(filePath) {
     ".zip": "application/zip",
   };
   return types[extension] || "application/octet-stream";
+}
+
+async function getCatalystIntelligence({ ticker, name, network }, options = {}) {
+  const normalizedTicker = safeTicker(ticker);
+  const normalizedNetwork = normalizeNetwork(network?.name || network).name;
+  const cacheKey = `${normalizedNetwork}:${normalizedTicker}:${safeText(name, 120).toLowerCase()}`;
+  const cached = catalystCache.get(cacheKey);
+  if (!options.force && cached && Date.now() - cached.cachedAt < CATALYST_CACHE_MS) return cached.value;
+
+  const profile = catalystProfiles[normalizedTicker] || null;
+  const query = catalystSearchQuery({ ticker: normalizedTicker, name, network: normalizedNetwork, profile });
+  const searches = catalystSearchLinks({ ticker: normalizedTicker, name, network: normalizedNetwork, profile, query });
+  let articles = [];
+  let fetchError = null;
+
+  try {
+    const payload = await fetchJsonWithTimeout(makeGdeltNewsUrl(query), CATALYST_FETCH_TIMEOUT_MS);
+    articles = normalizeCatalystArticles(payload?.articles)
+      .map((article) => ({ ...article, score: scoreCatalystArticle(article, normalizedTicker, profile) }))
+      .filter((article) => article.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  } catch (error) {
+    fetchError = error.message || "news search failed";
+  }
+
+  const topArticle = articles[0] || null;
+  const source = topArticle ? "GDELT news scan" : profile ? profile.source : "No catalyst source";
+  const confidence = topArticle ? "article-signal" : profile ? "watchlist-signal" : "unconfirmed";
+  const driver = topArticle ? catalystDriverFromText(topArticle.title, profile) : profile?.driver || "market catalyst";
+  const riskDriver = topArticle ? riskDriverFromText(topArticle.title) : "";
+  const summary = topArticle
+    ? `${normalizedTicker} has fresh ${driver.toLowerCase()} coverage: ${shortenText(topArticle.title, 130)}${topArticle.domain ? ` (${topArticle.domain})` : ""}.`
+    : profile
+      ? `${normalizedTicker} has a catalyst watchlist lane: ${profile.summary}`
+      : `No article-level catalyst was confirmed for ${normalizedTicker}.`;
+
+  const value = {
+    ok: true,
+    ticker: normalizedTicker,
+    name: safeText(name, 120) || normalizedTicker,
+    network: normalizedNetwork,
+    source,
+    confidence,
+    driver,
+    riskDriver,
+    score: topArticle ? clamp(2.5 + topArticle.score, 2.5, 8) : profile ? 3.5 : 0,
+    articleCount: articles.length,
+    topTitle: topArticle?.title || profile?.title || "",
+    topSource: topArticle?.domain || profile?.source || "",
+    articles,
+    summary,
+    watch: profile?.watch || "Watch whether volume, route depth, and chart structure keep confirming the move.",
+    socialWatch: profile?.socialWatch || "No dedicated social watchlist is attached yet.",
+    searches,
+    updatedAt: new Date().toISOString(),
+    warning: fetchError && !topArticle ? `Live catalyst search unavailable: ${fetchError}` : null,
+  };
+  catalystCache.set(cacheKey, { value, cachedAt: Date.now() });
+  return value;
+}
+
+function catalystSearchQuery({ ticker, name, network, profile }) {
+  const cleanName = safeText(name, 120).replace(/[^\w\s.-]/g, " ").trim();
+  const driverTerms = profile?.driver ? profile.driver.replace(/[^\w\s.-]/g, " ") : "";
+  const terms = [
+    `"${cleanName || ticker}"`,
+    `"${ticker} crypto"`,
+    `"${ticker} ${network}"`,
+    profile ? `"${cleanName || ticker}" "${profile.driver}"` : "",
+    driverTerms ? `"${ticker}" ${driverTerms}` : "",
+  ].filter(Boolean);
+  return terms.join(" OR ");
+}
+
+function catalystSearchLinks({ ticker, name, network, profile, query }) {
+  const cleanName = safeText(name, 120) || ticker;
+  const socialQuery = `${cleanName} ${ticker} ${network} ${profile?.driver || "crypto"} catalyst`;
+  return {
+    gdelt: makeGdeltNewsUrl(query),
+    googleNews: `https://news.google.com/search?q=${encodeURIComponent(socialQuery)}`,
+    xSearch: `https://x.com/search?q=${encodeURIComponent(socialQuery)}&src=typed_query&f=live`,
+  };
+}
+
+function makeGdeltNewsUrl(query) {
+  const params = new URLSearchParams({
+    query,
+    mode: "artlist",
+    format: "json",
+    maxrecords: "15",
+    timespan: "3d",
+    sort: "hybridrel",
+  });
+  return `https://api.gdeltproject.org/api/v2/doc/doc?${params.toString()}`;
+}
+
+function normalizeCatalystArticles(articles) {
+  if (!Array.isArray(articles)) return [];
+  return articles
+    .map((article) => ({
+      title: safeText(article?.title, 220),
+      url: safeText(article?.url, 500),
+      domain: safeText(article?.domain || domainFromUrl(article?.url), 120),
+      seendate: safeText(article?.seendate || article?.seenDate, 80),
+    }))
+    .filter((article) => article.title);
+}
+
+function scoreCatalystArticle(article, ticker, profile) {
+  const text = `${article.title} ${article.domain}`.toLowerCase();
+  const normalizedTicker = ticker.toLowerCase();
+  const profileDriver = String(profile?.driver || "").toLowerCase();
+  const catalystWords = ["launch", "upgrade", "mainnet", "expansion", "incentive", "reward", "liquidity", "volume", "integration", "partnership", "proposal", "governance", "vault", "growth", "surge", "whale", "accumulation", "fee", "revenue"];
+  const riskWords = ["hack", "exploit", "lawsuit", "probe", "investigation", "outage", "depeg", "delist", "warning"];
+  let score = 0;
+  if (text.includes(normalizedTicker)) score += 1.1;
+  if (profileDriver && profileDriver.split(/\s+/).some((word) => word.length > 3 && text.includes(word))) score += 1.4;
+  score += catalystWords.filter((word) => text.includes(word)).length * 0.75;
+  score -= riskWords.filter((word) => text.includes(word)).length * 1.2;
+  if (isRecentCatalystDate(article.seendate)) score += 0.8;
+  if (isKnownCryptoNewsDomain(article.domain || article.url)) score += 0.6;
+  return clamp(score, -4, 6);
+}
+
+function catalystDriverFromText(text, profile = null) {
+  const value = String(text || "").toLowerCase();
+  if (/mainnet|launch|upgrade|release|roadmap|expansion/.test(value)) return "launch / upgrade";
+  if (/partnership|integration|collaboration|ecosystem/.test(value)) return "partnership / integration";
+  if (/listing|exchange|market|trading pair/.test(value)) return "listing / market access";
+  if (/whale|accumulat|holder|inflow|buying pressure/.test(value)) return "accumulation";
+  if (/incentive|reward|liquidity|volume|fee|revenue/.test(value)) return "liquidity / usage";
+  if (/proposal|governance|vote/.test(value)) return "governance";
+  return profile?.driver || "market catalyst";
+}
+
+function riskDriverFromText(text) {
+  const value = String(text || "").toLowerCase();
+  if (/hack|exploit|attack/.test(value)) return "security";
+  if (/lawsuit|sec|probe|investigation/.test(value)) return "regulatory";
+  if (/outage|halt|downtime/.test(value)) return "operational";
+  if (/depeg|liquidation|delist/.test(value)) return "market structure";
+  return "";
+}
+
+function isRecentCatalystDate(value) {
+  const text = String(value || "");
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})?(\d{2})?/);
+  if (!compact) return false;
+  const date = new Date(Date.UTC(
+    Number(compact[1]),
+    Number(compact[2]) - 1,
+    Number(compact[3]),
+    Number(compact[4] || 0),
+    Number(compact[5] || 0),
+  ));
+  return Number.isFinite(date.getTime()) && Date.now() - date.getTime() < 1000 * 60 * 60 * 72;
+}
+
+function isKnownCryptoNewsDomain(value) {
+  const domain = domainFromUrl(value || "").toLowerCase() || String(value || "").toLowerCase();
+  return [
+    "cointelegraph.com",
+    "coindesk.com",
+    "theblock.co",
+    "decrypt.co",
+    "blockworks.co",
+    "coinmarketcap.com",
+    "coingecko.com",
+    "defillama.com",
+    "beincrypto.com",
+  ].some((known) => domain.includes(known));
+}
+
+function domainFromUrl(value) {
+  try {
+    return new URL(String(value || "")).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+async function fetchJsonWithTimeout(targetUrl, timeoutMs) {
+  if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(targetUrl, {
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+        "user-agent": "Vici-Bundle-Builder-Beta/0.1",
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function fetchMarketProxyJson(targetUrl) {

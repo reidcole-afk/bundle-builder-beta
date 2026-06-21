@@ -494,6 +494,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "AERO has a known Base DEX catalyst lane: ecosystem activity, liquidity incentives, and upgrade or expansion narratives can feed directly into demand for the token.",
     watch: "The catalyst is strongest when AERO has elevated volume and Base DEX activity. If volume fades, the move can become a chase.",
+    socialWatch: "Watch X, Discord, Telegram, and Base ecosystem chatter for Aerodrome expansion notes, liquidity incentive changes, reward updates, and DEX-volume narratives.",
     minVolume: 1_500_000,
     minAbsChange: 2,
   },
@@ -503,6 +504,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "MORPHO has a Base DeFi lending catalyst lane: stronger borrowing, collateral, and vault activity can make the token more relevant than a generic DeFi pick.",
     watch: "The catalyst is strongest when lending narratives line up with volume and route depth, not just price movement.",
+    socialWatch: "Watch for vault growth, collateral demand, institutional DeFi mentions, and lending-rate narratives that show real usage rather than just price movement.",
     minVolume: 750_000,
     minAbsChange: 1.5,
   },
@@ -512,6 +514,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "VIRTUAL has an AI-agent catalyst lane: when market attention rotates back into AI infrastructure, it can move faster than core assets.",
     watch: "AI-agent tokens are reflexive; the catalyst needs volume confirmation because attention can cool quickly.",
+    socialWatch: "Watch for AI-agent launches, ecosystem integrations, mindshare spikes, and creator/developer activity that confirms the attention cycle is still live.",
     minVolume: 1_000_000,
     minAbsChange: 2,
   },
@@ -521,6 +524,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "DEGEN has a community catalyst lane: it can work when Base-native social risk appetite is active, but it needs strong confirmation.",
     watch: "Community catalysts can reverse fast. The machine should size it carefully unless volume and route depth stay strong.",
+    socialWatch: "Watch for Base community memes, tipping/payment activity, creator mentions, and sudden social-volume bursts that explain why risk appetite is rotating into DEGEN.",
     minVolume: 700_000,
     minAbsChange: 2.5,
   },
@@ -530,6 +534,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "BRETT has a Base meme catalyst lane: it can benefit when attention and risk appetite rotate into Base community assets.",
     watch: "Meme catalysts are fragile; this only deserves conviction when volume confirms the move.",
+    socialWatch: "Watch social platforms for Base meme rotation, whale posts, exchange chatter, and community-led campaigns; these can move BRETT faster than fundamentals.",
     minVolume: 700_000,
     minAbsChange: 2.5,
   },
@@ -539,6 +544,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "ZRO has an interoperability catalyst lane: it becomes more compelling when cross-chain infrastructure is in favor and live market data confirms interest.",
     watch: "Infrastructure narratives can take time. Short-term conviction should still depend on volume and chart setup.",
+    socialWatch: "Watch for LayerZero ecosystem launches, bridge/integration announcements, token utility discussions, and cross-chain usage headlines.",
     minVolume: 1_000_000,
     minAbsChange: 1.5,
   },
@@ -548,6 +554,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "KAITO has an InfoFi catalyst lane: it can benefit when market attention favors data, AI, and crypto intelligence products.",
     watch: "Newer narrative assets need clear volume confirmation before the machine should treat them as durable.",
+    socialWatch: "Watch for attention-market narratives, AI/data product updates, creator rewards, and InfoFi mindshare increases.",
     minVolume: 600_000,
     minAbsChange: 2,
   },
@@ -557,6 +564,7 @@ const catalystNarrativeProfiles = {
     source: "Bundle Builder catalyst watchlist",
     summary: "ZORA has a creator-economy catalyst lane: it gets more interesting when Base consumer activity and creator narratives are active.",
     watch: "Creator-economy tokens can be sentiment-heavy; volume and trend quality matter a lot.",
+    socialWatch: "Watch for creator launches, mint activity, Base consumer-app chatter, and creator-economy headlines that point to real usage.",
     minVolume: 600_000,
     minAbsChange: 2,
   },
@@ -567,6 +575,7 @@ const TOKEN_UNIVERSE_LOCAL_STORAGE_KEY = "viciBundleBuilderTokenUniverse";
 const VICI_API_TOKEN_UNIVERSE_LOCAL_STORAGE_KEY = "viciBundleBuilderApiTokenUniverse";
 const TERMS_ACK_STORAGE_KEY = "bundleBuilderBetaTermsAccepted";
 const TERMS_ACK_VERSION = "beta-v1";
+const THEME_STORAGE_KEY = "bundleBuilderTheme";
 const BUILDER_TOKEN_UNIVERSE_MESSAGE = "VICI_TOKEN_UNIVERSE";
 const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
@@ -891,6 +900,7 @@ const submittedBundlesDialog = document.getElementById("submittedBundlesDialog")
 const submittedBundlesList = document.getElementById("submittedBundlesList");
 const submittedBundlesRefresh = document.getElementById("submittedBundlesRefresh");
 const submittedBundlesClose = document.getElementById("submittedBundlesClose");
+const themeToggle = document.getElementById("themeToggle");
 const termsDialog = document.getElementById("termsDialog");
 const termsAcknowledge = document.getElementById("termsAcknowledge");
 const termsAccept = document.getElementById("termsAccept");
@@ -2527,6 +2537,37 @@ function acceptTermsGate() {
   }
 }
 
+function applyThemePreference(theme) {
+  const normalized = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = normalized;
+  if (!themeToggle) return;
+  const isDark = normalized === "dark";
+  themeToggle.setAttribute("aria-pressed", String(isDark));
+  themeToggle.setAttribute("aria-label", isDark ? "Turn dark mode off" : "Turn dark mode on");
+  const text = themeToggle.querySelector(".theme-toggle-text");
+  const iconNode = themeToggle.querySelector(".theme-toggle-icon");
+  if (text) text.textContent = isDark ? "Light" : "Dark";
+  if (iconNode) iconNode.textContent = isDark ? "☼" : "◐";
+}
+
+function readThemePreference() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function toggleThemePreference() {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyThemePreference(next);
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  } catch {
+    // Theme still applies for the current session if browser storage is blocked.
+  }
+}
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   openAmountDialog();
@@ -2582,6 +2623,7 @@ termsAcknowledge?.addEventListener("change", () => {
   termsAccept.disabled = !termsAcknowledge.checked;
 });
 termsAccept?.addEventListener("click", acceptTermsGate);
+themeToggle?.addEventListener("click", toggleThemePreference);
 coinSearch.addEventListener("input", renderCoinRows);
 diversityToggle.addEventListener("change", () => {
   coinCount.disabled = !diversityToggle.checked;
@@ -2724,6 +2766,7 @@ window.addEventListener("message", (event) => {
   }
 });
 
+applyThemePreference(readThemePreference());
 renderNetworkGroups();
 renderCoinPreferenceChips();
 updateCoinPreferenceAvailability();
@@ -3027,6 +3070,13 @@ async function fetchNewsCatalystSignal(candidate, network) {
   if (cached && Date.now() - cached.cachedAt < NEWS_CATALYST_CACHE_MS) return cached.value;
   const curated = curatedCatalystSignal(candidate, network);
 
+  const serverCatalyst = await fetchServerCatalystSignal(candidate, network).catch(() => null);
+  if (serverCatalyst) {
+    const selected = curated && curated.score > serverCatalyst.score ? curated : serverCatalyst;
+    newsCatalystCache.set(cacheKey, { value: selected, cachedAt: Date.now() });
+    return selected;
+  }
+
   let payload = null;
   try {
     payload = await fetchMarketJson(makeGdeltNewsUrl(candidate, network));
@@ -3080,6 +3130,38 @@ async function fetchNewsCatalystSignal(candidate, network) {
   return selected;
 }
 
+async function fetchServerCatalystSignal(candidate, network) {
+  if (!/^https?:$/.test(window.location.protocol)) return null;
+  const ticker = normalizeTicker(candidate.ticker);
+  if (!ticker) return null;
+  const params = new URLSearchParams({
+    ticker,
+    name: candidate.name || ticker,
+    network: normalizeNetwork(network),
+  });
+  const payload = await fetchJsonUrl(`/api/v1/catalyst?${params.toString()}`);
+  if (!payload?.ok) return null;
+  const score = finiteOrNull(payload.score) || 0;
+  if (score <= 0 && !payload.summary) return null;
+  return {
+    source: payload.source || "Bundle Builder catalyst service",
+    score: roundTo(score, 1),
+    articleCount: finiteOrNull(payload.articleCount) || 0,
+    driver: payload.driver || "market catalyst",
+    riskDriver: payload.riskDriver || "",
+    topTitle: payload.topTitle || "",
+    topSource: payload.topSource || "",
+    articles: Array.isArray(payload.articles) ? payload.articles.slice(0, 3).map(normalizeNewsArticle) : [],
+    summary: payload.summary || "",
+    watch: payload.watch || "",
+    socialWatch: payload.socialWatch || "",
+    searches: payload.searches || null,
+    confidence: payload.confidence || "",
+    updatedAt: payload.updatedAt || new Date().toISOString(),
+    warning: payload.warning || "",
+  };
+}
+
 function curatedCatalystSignal(candidate = {}, network = "") {
   const ticker = normalizeTicker(candidate.ticker);
   const profile = catalystNarrativeProfiles[ticker];
@@ -3112,6 +3194,7 @@ function curatedCatalystSignal(candidate = {}, network = "") {
     }],
     summary: `${ticker} has a confirmed catalyst lane: ${profile.summary}`,
     watch: profile.watch,
+    socialWatch: profile.socialWatch,
     network: normalizeNetwork(network),
     updatedAt: new Date().toISOString(),
   };
@@ -4621,10 +4704,7 @@ function pulseSummaryButton(favorite = {}) {
         <span>${escapeHtml(buttonText)}</span>
       </button>
       <div class="pulse-ai-popover" id="${escapeHtml(panelId)}" hidden>
-        <div class="pulse-ai-head">
-          <span>TLDR</span>
-          <strong>${escapeHtml(summary.headline)}</strong>
-        </div>
+        ${renderPulseNewsFound(summary.news)}
         <ol class="pulse-ai-points">
           ${summary.points.map((point) => `
             <li>
@@ -4656,7 +4736,7 @@ function buildPulseAiSummary(favorite = {}) {
   const edge = favorite.marketEdge || marketEdgeSignal(favorite, favorite, favorite.prices);
   const trajectory = chartTrajectoryLabel(favorite.prices);
   const entry = entryTimingSignal(favorite, setup, trajectory);
-  const catalyst = favorite.newsCatalyst;
+  const catalyst = favorite.newsCatalyst || curatedCatalystSignal(favorite, getPreferences().network);
   const theme = String(favorite.theme || "market").toUpperCase();
   const thesis = tokenThesisForTicker(ticker);
   const direction = Number.isFinite(change)
@@ -4665,19 +4745,120 @@ function buildPulseAiSummary(favorite = {}) {
   const changeText = Number.isFinite(change) ? ` ${formatPercent(change)} over 24h` : "";
   const volumeText = volume ? ` with ${formatCompactUsd(volume)} 24h volume` : "";
   const liquidityText = liquidity ? ` and ${formatCompactUsd(liquidity)} liquidity` : "";
-  const catalystPhrase = catalyst?.driver ? `, with fresh ${catalyst.driver.toLowerCase()} context` : "";
+  const catalystPhrase = catalyst?.driver
+    ? catalyst.source === "Bundle Builder catalyst watchlist"
+      ? `, with a ${catalyst.driver.toLowerCase()} catalyst lane under watch`
+      : `, with fresh ${catalyst.driver.toLowerCase()} context`
+    : "";
   const headline = `${name} is ${direction}${changeText}${volumeText}${liquidityText}${catalystPhrase}. ${setup?.label ? `Setup: ${setup.label.toLowerCase()}.` : ""}`;
   const primaryText = pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, change, volume, liquidity });
   const secondaryText = pulseSecondarySignal({ ticker, thesis, edge, setup, trajectory, change, volume, liquidity });
+  const catalystText = pulseCatalystWatchText(favorite, catalyst);
   const outlookText = pulseNearTermOutlook({ favorite, ticker, thesis, entry, edge, trajectory, setup, catalyst, volume });
   return {
     headline,
+    news: pulseNewsFoundSummary(favorite, catalyst, headline),
     points: [
       { label: "Primary reason", text: primaryText },
-      { label: "Secondary reasons", text: secondaryText },
+      { label: "Catalyst / social read", text: catalystText },
+      { label: "Market confirmation", text: secondaryText },
       { label: "Near-term outlook", text: outlookText },
     ],
   };
+}
+
+function renderPulseNewsFound(news = {}) {
+  const items = Array.isArray(news.items) ? news.items : [];
+  const searches = Array.isArray(news.searches) ? news.searches : [];
+  return `
+    <div class="pulse-ai-news">
+      <span>${escapeHtml(news.label || "News found")}</span>
+      <strong>${escapeHtml(news.lead || "No fresh article-level catalyst was confirmed yet.")}</strong>
+      ${items.length ? `
+        <ul class="pulse-ai-news-list">
+          ${items.map((item) => `
+            <li>
+              ${item.url ? `<a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.title)}</a>` : `<b>${escapeHtml(item.title)}</b>`}
+              ${item.meta ? `<small>${escapeHtml(item.meta)}</small>` : ""}
+            </li>
+          `).join("")}
+        </ul>
+      ` : ""}
+      ${searches.length ? `
+        <div class="pulse-ai-search-links" aria-label="Manual catalyst research links">
+          ${searches.map((item) => `<a href="${escapeAttribute(item.url)}" target="_blank" rel="noreferrer">${escapeHtml(item.label)}</a>`).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function pulseNewsFoundSummary(favorite = {}, catalyst = null, fallbackHeadline = "") {
+  const ticker = normalizeTicker(favorite.ticker) || "coin";
+  const articles = Array.isArray(catalyst?.articles)
+    ? catalyst.articles
+        .map((article) => normalizeNewsArticle(article))
+        .filter((article) => article.title)
+        .slice(0, 4)
+    : [];
+  const searchLinks = catalystSearchLinkList(catalyst, ticker);
+  if (articles.length) {
+    const first = articles[0];
+    const source = first.domain || catalyst?.topSource || catalyst?.source || "news scan";
+    return {
+      label: "News found",
+      lead: `${ticker} has ${articles.length} catalyst item${articles.length === 1 ? "" : "s"} in the latest scan. Top signal: ${first.title}${source ? ` (${source})` : ""}.`,
+      items: articles.map((article) => ({
+        title: shortenText(article.title, 150),
+        url: safeExternalUrl(article.url),
+        meta: [article.domain, formatNewsDate(article.seendate)].filter(Boolean).join(" · "),
+      })),
+      searches: searchLinks,
+    };
+  }
+  if (catalyst?.source === "Bundle Builder catalyst watchlist") {
+    return {
+      label: "Catalyst watchlist",
+      lead: `${ticker} has a known catalyst lane under watch, but the live article scan did not confirm a fresh headline in this refresh.`,
+      items: catalyst.summary ? [{
+        title: cleanCuratedCatalystSummary(catalyst.summary, ticker),
+        url: "",
+        meta: catalyst.source,
+      }] : [],
+      searches: searchLinks,
+    };
+  }
+  return {
+    label: "News found",
+    lead: `No fresh article-level catalyst was confirmed for ${ticker} yet. The market read below is based on price action, volume, liquidity, route depth, and narrative fit.`,
+    items: fallbackHeadline ? [{ title: fallbackHeadline, url: "", meta: "market-data read" }] : [],
+    searches: searchLinks,
+  };
+}
+
+function catalystSearchLinkList(catalyst = null, ticker = "coin") {
+  const searches = catalyst?.searches || {};
+  return [
+    searches.googleNews ? { label: "Google News", url: safeExternalUrl(searches.googleNews) } : null,
+    searches.xSearch ? { label: "X search", url: safeExternalUrl(searches.xSearch) } : null,
+    searches.gdelt ? { label: "GDELT scan", url: safeExternalUrl(searches.gdelt) } : null,
+  ].filter((item) => item?.url);
+}
+
+function safeExternalUrl(value) {
+  const text = String(value || "").trim();
+  if (!/^https?:\/\//i.test(text)) return "";
+  return text;
+}
+
+function formatNewsDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})/);
+  if (compact) return `${compact[2]}/${compact[3]}/${compact[1]}`;
+  const date = new Date(text);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, change, volume, liquidity }) {
@@ -4689,7 +4870,7 @@ function pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, 
   }
   if (catalyst?.source === "Bundle Builder catalyst watchlist") {
     const catalystSummary = cleanCuratedCatalystSummary(catalyst.summary, ticker);
-    return `The machine recognizes a known ${catalyst.driver.toLowerCase()} catalyst lane for ${ticker}: ${catalystSummary} This is being activated because live market data is confirming enough movement or volume to make the narrative relevant right now.`;
+    return `${ticker} is moving inside a known ${catalyst.driver.toLowerCase()} catalyst lane: ${catalystSummary} The app is not claiming a fresh X/article confirmation here; it is saying the current volume, liquidity, and chart action line up with a narrative the machine is watching.`;
   }
   if (catalyst?.driver && articleTitle) {
     return `Fresh market coverage is pointing to a ${catalyst.driver.toLowerCase()} catalyst: "${shortenText(articleTitle, 150)}"${source}. For ${ticker}, that matters because ${thesis?.why || coinInsightForTheme(favorite.theme, ticker)}`;
@@ -4742,6 +4923,26 @@ function pulseNearTermOutlook({ favorite, ticker, thesis, entry, edge, trajector
     return `${ticker} needs more participation before the signal deserves high conviction. ${thesis?.watch || watch}`;
   }
   return entry?.text || watch;
+}
+
+function pulseCatalystWatchText(favorite = {}, catalyst = null) {
+  const ticker = normalizeTicker(favorite.ticker) || "This coin";
+  const profile = catalystNarrativeProfiles[ticker];
+  const article = catalyst?.articles?.[0];
+  if (catalyst?.source === "GDELT news scan" && article?.title) {
+    return `Article scan found a possible ${catalyst.driver.toLowerCase()} signal: "${shortenText(article.title, 140)}"${article.domain ? ` (${article.domain})` : ""}. The next step is confirming that the headline matches real volume and route depth instead of a one-off spike.`;
+  }
+  const socialWatch = catalyst?.socialWatch || profile?.socialWatch;
+  if (socialWatch) {
+    const searchNote = catalyst?.searches?.xSearch
+      ? " The server also prepares a live X/news search trail for manual verification."
+      : "";
+    return `${socialWatch} This is a catalyst watchlist read backed by live market confirmation, not a guaranteed social signal.${searchNote}`;
+  }
+  if (catalyst?.summary) {
+    return `${plainCatalystRead(catalyst)} Watch whether the market keeps confirming the story through volume, liquidity, and cleaner price structure.`;
+  }
+  return `No confirmed catalyst source is attached yet. A smarter social layer would check X, Discord, Telegram, protocol blogs, and news headlines for fresh reasons behind ${ticker}'s move.`;
 }
 
 function catalystArticleSource(catalyst) {
