@@ -2539,15 +2539,18 @@ function acceptTermsGate() {
 
 function applyThemePreference(theme) {
   const normalized = theme === "dark" ? "dark" : "light";
+  document.documentElement.classList.add("theme-is-transitioning");
+  window.clearTimeout(applyThemePreference.transitionTimer);
   document.documentElement.dataset.theme = normalized;
+  applyThemePreference.transitionTimer = window.setTimeout(() => {
+    document.documentElement.classList.remove("theme-is-transitioning");
+  }, 420);
   if (!themeToggle) return;
   const isDark = normalized === "dark";
   themeToggle.setAttribute("aria-pressed", String(isDark));
   themeToggle.setAttribute("aria-label", isDark ? "Turn dark mode off" : "Turn dark mode on");
   const text = themeToggle.querySelector(".theme-toggle-text");
-  const iconNode = themeToggle.querySelector(".theme-toggle-icon");
-  if (text) text.textContent = isDark ? "Light" : "Dark";
-  if (iconNode) iconNode.textContent = isDark ? "☼" : "◐";
+  if (text) text.textContent = isDark ? "Light Mode" : "Dark Mode";
 }
 
 function readThemePreference() {
@@ -4694,14 +4697,14 @@ function pulseSummaryButton(favorite = {}) {
   if (!favorite?.ticker || favorite.ticker === "--" || favorite.source === "Market data unavailable") return "";
   const summary = buildPulseAiSummary(favorite);
   const panelId = `pulse-ai-summary-${normalizeTicker(favorite.ticker) || "coin"}`;
-  const buttonText = pulseSummaryButtonText(favorite);
+  const buttonLabel = pulseSummaryButtonText(favorite);
   return `
     <div class="pulse-ai-summary">
-      <button class="pulse-ai-trigger" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(buttonText)}">
+      <button class="pulse-ai-trigger" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(buttonLabel)}">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M13 2 4 14h7l-1 8 10-13h-7l0-7Z" />
         </svg>
-        <span>${escapeHtml(buttonText)}</span>
+        <span>AI Market Scan</span>
       </button>
       <div class="pulse-ai-popover" id="${escapeHtml(panelId)}" hidden>
         ${renderPulseNewsFound(summary.news)}
