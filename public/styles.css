@@ -578,7 +578,8 @@ svg {
 .builder-copy {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  align-self: start;
   min-height: 360px;
   max-width: 760px;
 }
@@ -965,6 +966,15 @@ svg {
   stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.pulse-entry-flag .entry-fire-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .pulse-entry-flag.positive {
@@ -3376,34 +3386,75 @@ input[type="range"] {
   line-height: 1.3;
 }
 
+.profile-bundle-read,
 .profile-favorite-read {
   display: grid;
-  gap: 3px;
+  gap: 7px;
   margin-top: 7px;
-  padding: 8px 9px;
+  padding: 10px 11px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
 }
 
+.profile-bundle-read b,
 .profile-favorite-read b {
   color: var(--teal);
   font-size: 0.76rem;
   text-transform: uppercase;
 }
 
+.profile-read-meta,
+.profile-favorite-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.profile-read-meta span,
+.profile-favorite-meta span {
+  width: fit-content;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.profile-bundle-read.positive,
 .profile-favorite-read.positive {
   border-color: rgba(31, 138, 95, 0.28);
   background: rgba(238, 246, 240, 0.72);
 }
 
+.profile-bundle-read.caution,
 .profile-favorite-read.caution {
   border-color: rgba(200, 80, 62, 0.28);
   background: rgba(250, 236, 233, 0.72);
 }
 
+.profile-bundle-read.caution b,
 .profile-favorite-read.caution b {
   color: var(--coral);
+}
+
+.profile-bundle-card button {
+  width: fit-content;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  color: var(--ink);
+  background: var(--surface);
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.profile-bundle-card button:hover {
+  border-color: var(--teal);
+  color: var(--teal);
 }
 
 .profile-favorite-card button {

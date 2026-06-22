@@ -2906,15 +2906,91 @@ function favoriteActionSignal(favorite = {}, setup = null, entry = null, hold = 
   };
 }
 
-function favoriteStoredRead(coin = {}) {
-  if (coin.actionLabel || coin.actionText) {
+function favoriteHoldEstimate(favorite = {}, hold = null) {
+  const ticker = normalizeTicker(favorite.ticker) || "This coin";
+  const label = String(hold?.label || favorite.holdLabel || "").toLowerCase();
+  const text = String(hold?.text || favorite.holdText || "");
+  const change = finiteOrNull(favorite.change24h);
+  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
+  const volume = finiteOrNull(favorite.volume24h) || 0;
+
+  if (/watch-only/.test(label)) {
     return {
-      label: coin.actionLabel || "Hold / watch",
-      tone: coin.actionTone || "neutral",
-      text: coin.actionText || coin.note || "Saved from Live Market Pulse.",
+      label: "Recheck in 6-12h",
+      text: `${ticker} is better as a watch-only hold until the fade stabilizes. Current holders should look for renewed volume before adding.`,
     };
   }
-  return favoriteActionSignal(coin);
+  if (/short-term|quick/.test(label) || (Number.isFinite(change) && change >= 8)) {
+    return {
+      label: "1-3 days",
+      text: `${ticker} looks like a shorter momentum hold. Current holders should review it daily and be ready to trim if the 24h move cools without volume.`,
+    };
+  }
+  if (/1-3 week/.test(text)) {
+    return {
+      label: "1-3 weeks",
+      text: `${ticker} has enough market activity for a longer swing hold, as long as route depth and volume stay healthy.`,
+    };
+  }
+  if (/swing/.test(label) || /3-10 day/.test(text)) {
+    return {
+      label: "3-10 days",
+      text: `${ticker} fits a swing-style hold. Current holders can give it a few days, but should reassess if volume fades or the setup turns defensive.`,
+    };
+  }
+  if (/longer/.test(label) || liquidity >= 5_000_000) {
+    return {
+      label: "2-6 weeks",
+      text: `${ticker} can support a longer conviction hold because the thesis is less dependent on one short-term spike.`,
+    };
+  }
+  if (/small|flexible/.test(label) || volume < 1_000_000) {
+    return {
+      label: "12h-3 days",
+      text: `${ticker} should be reviewed sooner because the machine does not have enough depth or confirmation for a lazy hold.`,
+    };
+  }
+  return {
+    label: "3-10 days",
+    text: `${ticker} is a flexible hold. Let the setup prove itself, then reassess after a few sessions or if the 24h trend changes sharply.`,
+  };
+}
+
+function favoriteMachineSummary(favorite = {}, action = {}, holdEstimate = {}) {
+  const ticker = normalizeTicker(favorite.ticker) || "This coin";
+  const change = finiteOrNull(favorite.change24h);
+  const volume = finiteOrNull(favorite.volume24h);
+  const liquidity = finiteOrNull(favorite.liquidityUsd);
+  const setup = favorite.setupLabel || "mixed setup";
+  const edge = favorite.edgeLabel || "machine signal";
+  const changeText = Number.isFinite(change) ? `24h move is ${formatPercent(change)}` : "24h move is unavailable";
+  const volumeText = Number.isFinite(volume) ? `${formatCompactUsd(volume)} volume` : "volume is still being checked";
+  const liquidityText = Number.isFinite(liquidity) ? `${formatCompactUsd(liquidity)} liquidity` : "liquidity still needs a route check";
+
+  if (action.tone === "positive") {
+    return `Machine read: ${ticker} has a ${setup.toLowerCase()} with ${edge.toLowerCase()}. ${changeText}, with ${volumeText} and ${liquidityText}. For current holders, the estimated hold window is ${holdEstimate.label}; stay with it only while volume and route depth keep confirming.`;
+  }
+  if (action.tone === "caution") {
+    return `Machine read: ${ticker} needs caution. ${changeText}, with ${volumeText} and ${liquidityText}. For current holders, this is a review-now setup: consider trimming, waiting for stabilization, or avoiding adds until the chart confirms again.`;
+  }
+  return `Machine read: ${ticker} is not flashing a clean buy or sell. ${changeText}, with ${volumeText} and ${liquidityText}. For current holders, the estimated hold window is ${holdEstimate.label}; keep watching volume, route quality, and chart direction.`;
+}
+
+function favoriteStoredRead(coin = {}) {
+  const action = favoriteActionSignal(coin);
+  const storedAction = {
+    label: coin.actionLabel || action.label,
+    tone: coin.actionTone || action.tone,
+    text: coin.actionText || action.text,
+  };
+  const hold = favoriteHoldEstimate(coin);
+  return {
+    ...storedAction,
+    changeLabel: Number.isFinite(finiteOrNull(coin.change24h)) ? `24h ${formatPercent(coin.change24h)}` : "24h --",
+    holdLabel: `Hold ${hold.label}`,
+    holderText: hold.text,
+    text: favoriteMachineSummary(coin, storedAction, hold),
+  };
 }
 
 function favoriteCoinRecord(candidate = currentFavorite) {
@@ -2928,6 +3004,7 @@ function favoriteCoinRecord(candidate = currentFavorite) {
   const entry = entryTimingSignal(candidate, setup, trajectory);
   const hold = holdWindowSignal(candidate, setup, trajectory);
   const action = favoriteActionSignal(candidate, setup, entry, hold);
+  const holdEstimate = favoriteHoldEstimate(candidate, hold);
   return {
     key: favoriteCoinKey(ticker, network),
     ticker,
@@ -2945,9 +3022,10 @@ function favoriteCoinRecord(candidate = currentFavorite) {
     entryText: entry?.text || "",
     holdLabel: hold?.label || "",
     holdText: hold?.text || "",
+    holdEstimate: holdEstimate.label,
     actionLabel: action.label,
     actionTone: action.tone,
-    actionText: action.text,
+    actionText: favoriteMachineSummary(candidate, action, holdEstimate),
     note: thesis?.why || candidate?.reason || row?.[4] || "",
   };
 }
@@ -2981,6 +3059,116 @@ function bundleReviewDelay(preferences = safePreferences()) {
   return { quick: 1, swing: 7, trend: 14, position: 30 }[preferences.targetHorizon] || 7;
 }
 
+function allocationSignalSnapshot(ticker, preferences = safePreferences()) {
+  const signal = marketSignalForTicker(ticker);
+  const bestFor = bestHorizonForTicker(ticker, preferences);
+  return {
+    change24h: finiteOrNull(signal?.change24h),
+    change7d: finiteOrNull(signal?.change7d),
+    change30d: finiteOrNull(signal?.change30d),
+    volume24h: finiteOrNull(signal?.volume24h),
+    volatility: finiteOrNull(signal?.volatility),
+    drawdown: finiteOrNull(signal?.drawdown),
+    bestHorizon: bestFor.key,
+    bestHorizonLabel: bestFor.label,
+    dataScore: scoreForTicker(ticker, preferences),
+  };
+}
+
+function bundleHoldWindowLabel(bundle = {}, weighted = {}) {
+  const horizon = normalizeTargetHorizon(bundle.targetHorizon);
+  const avg24h = finiteOrNull(weighted.change24h) || 0;
+  const avg7d = finiteOrNull(weighted.change7d) || 0;
+  const volatility = finiteOrNull(weighted.volatility) || 0;
+  const highRisk = /high/.test(String(bundle.risk || "").toLowerCase());
+
+  if (avg24h <= -5 || weighted.weakWeight >= 35) return "Review now / 6-24h";
+  if (horizon === "quick" || (highRisk && avg24h >= 4) || volatility >= 0.035) return "1-3 days";
+  if (horizon === "trend" || avg7d >= 6) return "1-3 weeks";
+  if (horizon === "position" || weighted.coreWeight >= 45) return "2-6 weeks";
+  return "3-10 days";
+}
+
+function bundleWeightedRead(bundle = {}) {
+  const allocation = Array.isArray(bundle.allocation) ? bundle.allocation : [];
+  const totalWeight = allocation.reduce((sum, coin) => sum + (finiteOrNull(coin.weight) || 0), 0) || 100;
+  const weighted = allocation.reduce((acc, coin) => {
+    const weight = (finiteOrNull(coin.weight) || 0) / totalWeight;
+    const live = marketSignalForTicker(coin.ticker);
+    const change24h = finiteOrNull(live?.change24h ?? coin.change24h);
+    const change7d = finiteOrNull(live?.change7d ?? coin.change7d);
+    const change30d = finiteOrNull(live?.change30d ?? coin.change30d);
+    const volume24h = finiteOrNull(live?.volume24h ?? coin.volume24h);
+    const volatility = finiteOrNull(live?.volatility ?? coin.volatility);
+    const dataScore = finiteOrNull(coin.dataScore);
+    const ticker = normalizeTicker(coin.ticker);
+    acc.change24h += (change24h || 0) * weight;
+    acc.change7d += (change7d || 0) * weight;
+    acc.change30d += (change30d || 0) * weight;
+    acc.volume24h += (volume24h || 0) * weight;
+    acc.volatility += (volatility || 0) * weight;
+    acc.dataScore += (dataScore || scoreForTicker(ticker, bundle)) * weight;
+    if (Number.isFinite(change24h)) acc.signalWeight += weight * 100;
+    if (Number.isFinite(change24h) && change24h <= -4) acc.weakWeight += weight * 100;
+    if (Number.isFinite(change24h) && change24h >= 3) acc.strongWeight += weight * 100;
+    if (isStableOrCashTicker(ticker) || isCoreWrappedTicker(ticker)) acc.coreWeight += weight * 100;
+    return acc;
+  }, { change24h: 0, change7d: 0, change30d: 0, volume24h: 0, volatility: 0, dataScore: 0, signalWeight: 0, weakWeight: 0, strongWeight: 0, coreWeight: 0 });
+  const holdWindow = bundle.holdWindow || bundleHoldWindowLabel(bundle, weighted);
+  const hasSignal = weighted.signalWeight > 0;
+  const action = weighted.change24h <= -4 || weighted.weakWeight >= 35
+    ? { label: "Review / rebalance", tone: "caution" }
+    : hasSignal && weighted.change24h >= 2 && weighted.strongWeight >= 35
+      ? { label: "Hold with momentum", tone: "positive" }
+      : { label: "Hold / watch", tone: "neutral" };
+  const drivers = bundleReadDrivers(allocation);
+
+  return {
+    label: action.label,
+    tone: action.tone,
+    changeLabel: hasSignal ? `Bundle 24h ${formatPercent(weighted.change24h)}` : "Bundle 24h --",
+    holdLabel: `Hold ${holdWindow}`,
+    text: bundleMachineSummary(action, weighted, drivers),
+    holderText: `Suggested whole-bundle hold window: ${holdWindow}. Recheck sooner if the weighted 24h move drops below -4%, if a large allocation loses support, or before making another swap.`,
+  };
+}
+
+function bundleReadDrivers(allocation = []) {
+  const rows = allocation.map((coin) => {
+    const live = marketSignalForTicker(coin.ticker);
+    return {
+      ticker: normalizeTicker(coin.ticker),
+      weight: finiteOrNull(coin.weight) || 0,
+      change: finiteOrNull(live?.change24h ?? coin.change24h),
+    };
+  });
+  const weak = rows
+    .filter((coin) => Number.isFinite(coin.change) && coin.change <= -3)
+    .sort((a, b) => (b.weight * Math.abs(b.change)) - (a.weight * Math.abs(a.change)))
+    .slice(0, 2)
+    .map((coin) => `${coin.ticker} ${formatPercent(coin.change)}`);
+  if (weak.length) return `Weak spots: ${weak.join(", ")}.`;
+  const strong = rows
+    .filter((coin) => Number.isFinite(coin.change) && coin.change >= 2)
+    .sort((a, b) => (b.weight * b.change) - (a.weight * a.change))
+    .slice(0, 2)
+    .map((coin) => `${coin.ticker} ${formatPercent(coin.change)}`);
+  return strong.length ? `Current support: ${strong.join(", ")}.` : "No single coin is carrying the whole read right now.";
+}
+
+function bundleMachineSummary(action, weighted = {}, drivers = "") {
+  if (!weighted.signalWeight) {
+    return `Machine read: this bundle is saved, but the live 24h signal is still refreshing. Current holders should use the hold window as a reminder to recheck route quality, volume, and allocation before adding or exiting. ${drivers}`;
+  }
+  if (action.tone === "caution") {
+    return `Machine read: this bundle needs a near-term review. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders should check whether to trim, rebalance, or wait for stabilization before adding. ${drivers}`;
+  }
+  if (action.tone === "positive") {
+    return `Machine read: this bundle still has constructive momentum. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders can stay with the setup while volume and the main positions keep confirming. ${drivers}`;
+  }
+  return `Machine read: this bundle is balanced, not a clean add or exit. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders should watch the next session before changing size. ${drivers}`;
+}
+
 function bundleSnapshot(bundleId) {
   const bundle = currentBundle?.id === bundleId
     ? currentBundle
@@ -2988,6 +3176,19 @@ function bundleSnapshot(bundleId) {
   if (!bundle) return null;
   const preferences = getPreferences();
   const allocation = getAdjustedAllocation(bundle, preferences.network, preferences);
+  const allocationPlan = getAllocationPlan(allocation, preferences.bundleAmount);
+  const allocationSnapshot = allocationPlan.map(({ ticker, weight, amount, dataScore }) => ({
+    ticker,
+    weight,
+    amountUsd: Number(amount.toFixed(2)),
+    dataScore,
+    ...allocationSignalSnapshot(ticker, preferences),
+  }));
+  const read = bundleWeightedRead({
+    risk: preferences.risk,
+    targetHorizon: preferences.targetHorizon,
+    allocation: allocationSnapshot,
+  });
   return {
     id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     bundleId: bundle.id,
@@ -2997,12 +3198,12 @@ function bundleSnapshot(bundleId) {
     risk: preferences.risk,
     focus: preferences.theme,
     targetHorizon: preferences.targetHorizon,
+    actionLabel: read.label,
+    actionTone: read.tone,
+    actionText: read.text,
+    holdWindow: read.holdLabel.replace(/^Hold\s+/, ""),
     createdAt: new Date().toISOString(),
-    allocation: getAllocationPlan(allocation, preferences.bundleAmount).map(({ ticker, weight, amount }) => ({
-      ticker,
-      weight,
-      amountUsd: Number(amount.toFixed(2)),
-    })),
+    allocation: allocationSnapshot,
   };
 }
 
@@ -3086,7 +3287,12 @@ function renderProfile() {
             <small>${escapeHtml(context || coin.note || "Saved from Live Market Pulse.")}</small>
             <div class="profile-favorite-read ${escapeAttribute(read.tone)}">
               <b>${escapeHtml(read.label)}</b>
+              <div class="profile-favorite-meta">
+                <span>${escapeHtml(read.changeLabel)}</span>
+                <span>${escapeHtml(read.holdLabel)}</span>
+              </div>
               <small>${escapeHtml(read.text)}</small>
+              <small>${escapeHtml(read.holderText)}</small>
             </div>
           </div>
           <button type="button" data-remove-favorite-coin="${escapeAttribute(ticker)}" data-remove-favorite-network="${escapeAttribute(network)}">Remove</button>
@@ -3098,6 +3304,7 @@ function renderProfile() {
     <article class="profile-bundle-card">
       <header><div><strong>${escapeHtml(bundle.name)}</strong><span>${escapeHtml(bundle.network)} · ${formatDateTime(bundle.createdAt)}</span></div><b>${formatCurrency(bundle.amountUsd || 0)}</b></header>
       <div class="profile-allocation">${(bundle.allocation || []).map((coin) => `<span>${escapeHtml(coin.ticker)} <b>${coin.weight}%</b></span>`).join("")}</div>
+      ${renderProfileBundleRead(bundle)}
       <button type="button" data-profile-remind="${escapeAttribute(bundle.id)}" data-profile-bundle="${escapeAttribute(bundle.bundleId)}">Schedule analysis</button>
     </article>
   `).join("") : '<p class="profile-empty">Bundles appear here after you complete the ViciSwap review handoff.</p>';
@@ -3113,6 +3320,21 @@ function renderProfile() {
       </article>
     `;
   }).join("") : '<p class="profile-empty">No review reminders yet.</p>';
+}
+
+function renderProfileBundleRead(bundle = {}) {
+  const read = bundleWeightedRead(bundle);
+  return `
+    <div class="profile-bundle-read ${escapeAttribute(read.tone)}">
+      <b>${escapeHtml(read.label)}</b>
+      <div class="profile-read-meta">
+        <span>${escapeHtml(read.changeLabel)}</span>
+        <span>${escapeHtml(read.holdLabel)}</span>
+      </div>
+      <small>${escapeHtml(read.text)}</small>
+      <small>${escapeHtml(read.holderText)}</small>
+    </div>
+  `;
 }
 
 function updateReviewAlert(alertId, updater) {
@@ -5599,7 +5821,7 @@ function entryCautionFlag(favorite = {}) {
   return `
     <div class="pulse-entry-warning ${escapeHtml(tone)}">
       <button class="pulse-entry-flag ${escapeHtml(tone)}" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(`${note.label}: ${note.text}`)}">
-        ${entryFlagIcon(tone)}
+        ${entryFlagIcon(tone, note.label)}
         <span class="sr-only">${escapeHtml(note.label)}</span>
       </button>
       <div class="pulse-entry-popover ${escapeHtml(tone)}" id="${escapeHtml(panelId)}" hidden>
@@ -5887,7 +6109,10 @@ function shortenText(value, limit = 120) {
   return `${text.slice(0, Math.max(0, limit - 3)).trim()}...`;
 }
 
-function entryFlagIcon(tone = "neutral") {
+function entryFlagIcon(tone = "neutral", label = "") {
+  if (/momentum confirmed/i.test(String(label))) {
+    return `<span class="entry-fire-icon" aria-hidden="true">🔥</span>`;
+  }
   if (tone === "neutral") {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>`;
   }
