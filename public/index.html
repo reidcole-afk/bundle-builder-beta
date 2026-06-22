@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Bundle Builder Beta</title>
-    <link rel="stylesheet" href="./styles.css?v=89" />
+    <link rel="icon" href="./assets/vici-logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css?v=99" />
   </head>
   <body>
     <header class="app-header">
@@ -18,12 +19,16 @@
         </div>
       </div>
       <div class="header-actions" aria-label="Reference links">
+        <button class="profile-button" type="button" id="profileButton" aria-label="Open your Bundle Builder profile">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></svg>
+          <span class="sr-only">Profile</span>
+        </button>
         <button class="theme-toggle" type="button" id="themeToggle" aria-label="Turn dark mode on" aria-pressed="false">
-          <span class="theme-toggle-glyph" aria-hidden="true">☀</span>
+          <span class="theme-toggle-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41" /></svg></span>
           <span class="theme-toggle-switch" aria-hidden="true">
             <span class="theme-toggle-thumb"></span>
           </span>
-          <span class="theme-toggle-glyph" aria-hidden="true">☾</span>
+          <span class="theme-toggle-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2Z" /></svg></span>
           <span class="theme-toggle-text sr-only">Dark Mode</span>
         </button>
         <a class="icon-link" href="https://viciswap.io/" target="_blank" rel="noreferrer" aria-label="Open ViciSwap">
@@ -97,10 +102,16 @@
                       </div>
                       <p id="favoriteCoinReason">The builder is checking ViciSwap-supported candidate coins and looking for a current market signal.</p>
                       <div class="pulse-insights" id="favoriteCoinInsights" aria-label="Coin signal notes"></div>
-                      <button class="action-button pulse-button" type="button" id="useFavoriteCoin">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-                        Use this coin
-                      </button>
+                      <div class="pulse-action-row">
+                        <button class="action-button pulse-button" type="button" id="useFavoriteCoin">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                          Use this coin
+                        </button>
+                        <button class="action-button pulse-favorite-button" type="button" id="favoriteMarketCoin" aria-pressed="false">
+                          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" /></svg>
+                          <span>Favorite</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -110,8 +121,11 @@
 
           <form class="matcher" id="matcher" aria-label="Bundle matcher">
             <div class="form-title">
-              <p class="eyebrow">Bundle Builder</p>
-              <h2>Build My Bundle</h2>
+              <div>
+                <p class="eyebrow">Bundle Builder</p>
+                <h2>Build My Bundle</h2>
+              </div>
+              <button class="tour-help-button" type="button" id="tourHelp" aria-label="Show Bundle Builder walkthrough" title="Show walkthrough">?</button>
             </div>
             <div class="form-row">
               <label for="targetNetwork">ViciSwap network</label>
@@ -173,6 +187,30 @@
 
             <fieldset class="coin-preferences">
               <legend>Coin preferences</legend>
+              <div class="coin-picker-toolbar">
+                <label class="coin-picker-search">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
+                  <input id="coinPreferenceSearch" type="search" placeholder="Search supported coins" autocomplete="off" />
+                </label>
+                <select id="coinPreferenceCategory" aria-label="Filter coins by category">
+                  <option value="all">All categories</option>
+                  <option value="core">Core</option>
+                  <option value="defi">DeFi</option>
+                  <option value="ai">AI</option>
+                  <option value="rwa">RWA</option>
+                  <option value="base">Base</option>
+                  <option value="l2">L2</option>
+                  <option value="vici">Vici</option>
+                  <option value="community">Community</option>
+                  <option value="infrastructure">Infrastructure</option>
+                </select>
+              </div>
+              <div class="coin-picker-actions">
+                <button type="button" id="selectVisibleCoins">Select visible</button>
+                <button type="button" id="clearSelectedCoins">Clear</button>
+                <span id="coinPreferenceSummary">0 selected</span>
+              </div>
+              <div class="selected-coin-summary" id="selectedCoinSummary" aria-live="polite"></div>
               <div class="coin-chip-grid" role="group" aria-label="Coin preferences">
                 <input type="checkbox" id="coin-usdc" name="coinPrefs" value="USDC" />
                 <label for="coin-usdc">USDC</label>
@@ -402,8 +440,62 @@
       </div>
     </dialog>
 
+    <dialog class="profile-dialog" id="profileDialog" aria-labelledby="profileDialogTitle">
+      <div class="profile-dialog-card">
+        <div class="profile-head">
+          <div>
+            <p class="eyebrow">Your Bundle Builder</p>
+            <h2 id="profileDialogTitle">Profile</h2>
+            <p>Recent bundles and review reminders saved on this browser.</p>
+          </div>
+          <button class="dialog-icon-close" type="button" id="profileClose" aria-label="Close profile">&times;</button>
+        </div>
+        <div class="profile-local-note">
+          Beta profile: no login is required. Data stays on this device; cross-device sync will require a secure account or wallet profile later.
+        </div>
+        <div class="profile-identity">
+          <label for="profileDisplayName">Display name <span>(optional)</span></label>
+          <div>
+            <input id="profileDisplayName" type="text" maxlength="40" autocomplete="nickname" placeholder="How should Bundle Builder greet you?" />
+            <button type="button" id="profileSaveName">Save</button>
+          </div>
+        </div>
+        <div class="profile-section">
+          <h3>Favorite coins</h3>
+          <div class="profile-favorite-list" id="profileFavoriteList"></div>
+        </div>
+        <div class="profile-section">
+          <h3>Recent bundles</h3>
+          <div class="profile-bundle-list" id="profileBundleList"></div>
+        </div>
+        <div class="profile-section">
+          <h3>Review alerts</h3>
+          <div class="profile-alert-list" id="profileAlertList"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="tour-dialog" id="onboardingTour" aria-labelledby="tourTitle">
+      <div class="tour-card">
+        <button class="dialog-icon-close" type="button" id="tourClose" aria-label="Close walkthrough">&times;</button>
+        <div class="tour-visual" id="tourVisual" aria-hidden="true"></div>
+        <p class="eyebrow">Quick walkthrough</p>
+        <h2 id="tourTitle">Build a bundle in a few steps</h2>
+        <p id="tourBody"></p>
+        <div class="tour-footer">
+          <button class="action-button" type="button" id="tourBack">Back</button>
+          <div class="tour-dots" id="tourDots" aria-label="Walkthrough progress"></div>
+          <button class="action-button primary" type="button" id="tourNext">Next</button>
+        </div>
+      </div>
+    </dialog>
+
+    <div class="notification-center" id="notificationCenter" aria-live="polite"></div>
+
+    <div class="pulse-ai-modal-layer" id="pulseAiModalLayer" hidden></div>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-    <script src="./app.js?v=89"></script>
+    <script src="./app.js?v=99"></script>
   </body>
 </html>

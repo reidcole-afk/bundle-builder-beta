@@ -6,6 +6,7 @@ const apiRoot = path.resolve(__dirname, "..");
 
 const requiredFiles = [
   path.join(apiRoot, "src", "recommendation-engine.js"),
+  path.join(apiRoot, "src", "news-intelligence.js"),
   path.join(apiRoot, "src", "server.js"),
   path.join(apiRoot, "README.md"),
   path.join(apiRoot, "DEPLOYMENT.md"),
@@ -18,6 +19,7 @@ const requiredFiles = [
   path.join(apiRoot, "public", "assets", "bundle-builder-bg.png"),
   path.join(apiRoot, "public", "assets", "vici-logo.svg"),
   path.join(apiRoot, "test", "smoke-test.js"),
+  path.join(apiRoot, "test", "news-intelligence-test.js"),
   path.join(apiRoot, "test", "server-fallback-test.js"),
 ];
 
@@ -37,9 +39,13 @@ assert(publicIndex.includes("Bundle Builder beta"), "Public app should be includ
 
 const publicApp = fs.readFileSync(path.join(apiRoot, "public", "app.js"), "utf8");
 assert(publicApp.includes("/api/v1/catalyst"), "Public app should call the API-first catalyst endpoint");
+assert(publicApp.includes('signalType: "market-context"'), "Static catalyst context must be labeled as context, not news");
+assert(publicApp.includes('contextStrength: roundTo(score, 1)'), "Static context strength must be kept separate from ranking score");
+assert(!publicApp.includes("articles: [{\n      title: profile.title"), "Static catalyst context must not fabricate an article");
 
 const serverSource = fs.readFileSync(path.join(apiRoot, "src", "server.js"), "utf8");
 assert(serverSource.includes("/api/v1/catalyst"), "Server should expose the catalyst endpoint");
+assert(serverSource.includes("collectNewsIntelligence"), "Catalyst endpoint should use the multi-source news collector");
 assert(serverSource.includes("/api/v1/coingecko-chart"), "Server should expose the chart cache endpoint");
 
 const disallowedNestedArtifacts = [

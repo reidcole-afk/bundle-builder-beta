@@ -25,6 +25,7 @@ That means a managed host can run one Node service and expose both the browser p
 - Excludes any token that is not returned by the ViciSwap liquidity-depth list. Low risk defaults to Austin's conservative `$20` max round-trip loss cutoff.
 - Uses DEX Screener best-effort market data for price, 24h change, volume, and general market context. DEX Screener is not the primary liquidity authority.
 - Uses CoinGecko best-effort category intelligence to understand whether a token fits a hot/cooling sector, such as Meme, Smart Contract Platform, DeFi, AI, RWA, or L2.
+- Builds the AI Market Scan from independent news evidence sources: CoinGecko News, LunarCrush, official project posts on X, official GitHub releases, and GDELT. Missing credentials or a failed source never block the other sources or the existing market-data pipeline.
 - Returns a JSON recommendation with a same-network coin array, target percentages, estimated dollar amounts, estimated quantities, rationale, and risk notes.
 - Fails closed by default if the official ViciSwap coins API or simulated liquidity-depth API is temporarily unavailable, so production recommendations are not built from stale fallback data.
 - Supports `allowFallbackEligibility=true` and `allowFallbackLiquidity=true` only for local demos and engineering tests that intentionally need fallback behavior.
@@ -101,6 +102,25 @@ Content-Type: application/json
   "timeframe": "24h"
 }
 ```
+
+### Catalyst And News Intelligence
+
+```http
+GET /api/v1/catalyst?network=base&ticker=AERO&name=Aerodrome%20Finance&coinGeckoId=aerodrome-finance
+```
+
+The endpoint requests configured sources in parallel, then matches every result to the requested coin by CoinGecko ID, ticker, name, contract address, or registered official account. It rejects weak identity matches, removes duplicate coverage, scores freshness and source credibility, and reports when independent sources corroborate the same catalyst.
+
+Provider order is evidence quality, not a blocking waterfall:
+
+1. CoinGecko News aggregates multiple crypto publications when `COINGECKO_NEWS_API_KEY` is configured.
+2. Registered official X accounts and GitHub releases provide primary-source announcements.
+3. LunarCrush adds social/news context when its key and endpoint template are configured.
+4. GDELT remains the credential-free broad-news fallback.
+
+The response includes article links, provider status, confidence, corroboration, and a tightly bounded news score. News is primarily used to explain the AI Market Scan and only lightly influences ranking. The local catalyst watchlist remains display context with a score of zero when no fresh article is confirmed; it is never presented as fetched news.
+
+Optional deployment variables are documented in `.env.example`. `LUNARCRUSH_NEWS_URL_TEMPLATE` may contain `{ticker}`, `{name}`, and `{coinGeckoId}` placeholders so the deployment can use the LunarCrush news/search route included in its plan without hard-coding an unverified endpoint.
 
 ## Request Parameters
 

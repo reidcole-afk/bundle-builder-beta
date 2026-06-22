@@ -1812,6 +1812,10 @@ function normalizeTicker(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function coinGeckoIdForTicker(value) {
+  return coinGeckoIds[normalizeTicker(value)] || "";
+}
+
 function slugifyCategory(value) {
   return String(value || "")
     .toLowerCase()
@@ -1878,5 +1882,6 @@ module.exports = {
   normalizeNetwork,
   isNetworkAllowedForBeta,
   liquidityCheckForCandidate,
+  coinGeckoIdForTicker,
   API_VERSION,
 };

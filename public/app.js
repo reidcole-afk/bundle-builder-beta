@@ -914,6 +914,7 @@ const allocationMode = document.getElementById("allocationMode");
 const strategyUniverse = document.getElementById("strategyUniverse");
 const recommendation = document.getElementById("recommendation");
 const contextRefreshed = document.getElementById("contextRefreshed");
+const builderTitle = document.getElementById("builder-title");
 const favoriteCoinName = document.getElementById("favoriteCoinName");
 const favoriteCoinTicker = document.getElementById("favoriteCoinTicker");
 const favoriteCoinWindow = document.getElementById("favoriteCoinWindow");
@@ -930,9 +931,36 @@ const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
 const useFavoriteCoin = document.getElementById("useFavoriteCoin");
+const favoriteMarketCoin = document.getElementById("favoriteMarketCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
 const coinPreferenceGrid = document.querySelector(".coin-chip-grid");
+const profileButton = document.getElementById("profileButton");
+const profileDialog = document.getElementById("profileDialog");
+const profileClose = document.getElementById("profileClose");
+const profileDisplayName = document.getElementById("profileDisplayName");
+const profileSaveName = document.getElementById("profileSaveName");
+const profileDialogTitle = document.getElementById("profileDialogTitle");
+const profileFavoriteList = document.getElementById("profileFavoriteList");
+const profileBundleList = document.getElementById("profileBundleList");
+const profileAlertList = document.getElementById("profileAlertList");
+const appHeader = document.querySelector(".app-header");
+const onboardingTour = document.getElementById("onboardingTour");
+const tourClose = document.getElementById("tourClose");
+const tourVisual = document.getElementById("tourVisual");
+const tourTitle = document.getElementById("tourTitle");
+const tourBody = document.getElementById("tourBody");
+const tourBack = document.getElementById("tourBack");
+const tourDots = document.getElementById("tourDots");
+const tourNext = document.getElementById("tourNext");
+const tourHelp = document.getElementById("tourHelp");
+const notificationCenter = document.getElementById("notificationCenter");
+const coinPreferenceSearch = document.getElementById("coinPreferenceSearch");
+const coinPreferenceCategory = document.getElementById("coinPreferenceCategory");
+const selectVisibleCoins = document.getElementById("selectVisibleCoins");
+const clearSelectedCoins = document.getElementById("clearSelectedCoins");
+const coinPreferenceSummary = document.getElementById("coinPreferenceSummary");
+const selectedCoinSummary = document.getElementById("selectedCoinSummary");
 
 let latestMatches = [];
 let currentFavorite = fallbackPulse;
@@ -941,6 +969,8 @@ let currentFavoriteIndex = 0;
 let currentBundle = null;
 let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
+let pendingPulseWindowLoads = new Map();
+let unavailablePulseWindows = new Set();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseChartWarmSeq = 0;
@@ -954,6 +984,43 @@ let dexScreenerStatsCache = new Map();
 let newsCatalystCache = new Map();
 let latestMarketSignals = new Map();
 const submittedBundlesLocalStorageKey = "viciBundleBuilderSubmittedBundles";
+const builderPreferencesStorageKey = "viciBundleBuilderPreferencesV1";
+const reviewAlertsStorageKey = "viciBundleBuilderReviewAlertsV1";
+const recentBundlesStorageKey = "viciBundleBuilderRecentBundlesV1";
+const localProfileStorageKey = "viciBundleBuilderLocalProfileV1";
+const favoriteCoinsStorageKey = "viciBundleBuilderFavoriteCoinsV1";
+const tourSeenStorageKey = "viciBundleBuilderTourSeenV1";
+let selectedCoinPreferences = new Set();
+let manualAllocationOverride = null;
+let manualAllocationKey = "";
+let tourIndex = 0;
+const tourSlides = [
+  {
+    icon: "sliders",
+    title: "Choose what fits you",
+    body: "Set your risk comfort, investment focus, conviction, and target hold period. These choices shape the ranking; they do not guarantee performance.",
+  },
+  {
+    icon: "pulse",
+    title: "Read the market pulse",
+    body: "Browse the ranked market candidates, compare time windows, and open AI Market Scan for the data, catalyst context, and entry cautions behind each signal.",
+  },
+  {
+    icon: "fit",
+    title: "Inspect the fit score",
+    body: "The Fit chart explains how risk, focus, upside evidence, diversity, and ViciSwap support contributed to the match.",
+  },
+  {
+    icon: "allocation",
+    title: "Tune the allocation",
+    body: "After building, adjust any allocation percentage. The remaining coins rebalance automatically so the bundle stays at 100%.",
+  },
+  {
+    icon: "review",
+    title: "Review, then hand off",
+    body: "Confirm the safety checklist before ViciSwap. Save an optional review reminder so Bundle Builder can prompt you to revisit the bundle on this device.",
+  },
+];
 const pulseWindowOptions = [
   { key: "24h", label: "24h", minutes: 1440 },
   { key: "12h", label: "12h", minutes: 720 },
@@ -964,6 +1031,16 @@ const pulseWindowOptions = [
   { key: "15m", label: "15m", minutes: 15 },
   { key: "5m", label: "5m", minutes: 5 },
 ];
+const pulseWindowChartConfig = {
+  "24h": { aggregate: 15, limit: 96 },
+  "12h": { aggregate: 15, limit: 48 },
+  "6h": { aggregate: 5, limit: 72 },
+  "3h": { aggregate: 5, limit: 36 },
+  "1h": { aggregate: 1, limit: 60 },
+  "30m": { aggregate: 1, limit: 30 },
+  "15m": { aggregate: 1, limit: 15 },
+  "5m": { aggregate: 1, limit: 5 },
+};
 let latestPrices = new Map(
   Object.entries(fallbackPrices).map(([ticker, price]) => [ticker, { price, source: "Cached estimate" }]),
 );
@@ -985,10 +1062,54 @@ function getPreferences() {
     confidence: Number(data.get("confidence")),
     targetHorizon: normalizeTargetHorizon(data.get("targetHorizon")),
     bundleAmount: normalizeBundleAmount(data.get("bundleAmount")),
-    selectedCoins: data.getAll("coinPrefs").filter((ticker) => isTickerOnNetwork(ticker, network)),
+    selectedCoins: [...selectedCoinPreferences].filter((ticker) => isTickerOnNetwork(ticker, network)),
     diversityEnabled: data.get("diversityToggle") === "on",
     coinCount: Number(data.get("coinCount")),
   };
+}
+
+function saveBuilderPreferences() {
+  const preferences = safePreferences();
+  try {
+    localStorage.setItem(builderPreferencesStorageKey, JSON.stringify({
+      network: preferences.network,
+      risk: preferences.risk,
+      theme: preferences.theme,
+      confidence: preferences.confidence,
+      targetHorizon: preferences.targetHorizon,
+      selectedCoins: [...selectedCoinPreferences],
+      diversityEnabled: preferences.diversityEnabled,
+      coinCount: preferences.coinCount,
+    }));
+  } catch {
+    // The builder remains usable when private browsing blocks storage.
+  }
+}
+
+function restoreBuilderPreferences() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(builderPreferencesStorageKey) || "null");
+  } catch {
+    saved = null;
+  }
+  const initialChecked = [...document.querySelectorAll('input[name="coinPrefs"]:checked')].map((input) => input.value);
+  selectedCoinPreferences = new Set(Array.isArray(saved?.selectedCoins) ? saved.selectedCoins.map(normalizeTicker) : initialChecked);
+  if (!saved) return;
+  if (saved.network && [...targetNetwork.options].some((option) => option.value === saved.network && !option.disabled)) targetNetwork.value = saved.network;
+  const riskControl = form.elements.namedItem("risk");
+  if (riskControl && saved.risk) riskControl.value = saved.risk;
+  const themeControl = document.querySelector(`input[name="theme"][value="${CSS.escape(saved.theme || "")}"]`);
+  if (themeControl) themeControl.checked = true;
+  const confidenceControl = form.elements.namedItem("confidence");
+  if (confidenceControl && Number.isFinite(Number(saved.confidence))) confidenceControl.value = String(saved.confidence);
+  const horizonControl = form.elements.namedItem("targetHorizon");
+  if (horizonControl && saved.targetHorizon) horizonControl.value = saved.targetHorizon;
+  diversityToggle.checked = saved.diversityEnabled === true;
+  coinCount.disabled = !diversityToggle.checked;
+  diversitySliderWrap.setAttribute("aria-disabled", String(!diversityToggle.checked));
+  if (Number.isFinite(Number(saved.coinCount))) coinCount.value = String(saved.coinCount);
+  coinCountValue.textContent = `${coinCount.value} coins`;
 }
 
 function safePreferences() {
@@ -1958,6 +2079,22 @@ function renderPrimary(bundle) {
           ${icon("alert")} Risk note
         </button>
       </div>
+      <div class="review-reminder-control">
+        <div>
+          <strong>Set a review alert</strong>
+          <span>Schedule a same-device market analysis for this bundle.</span>
+        </div>
+        <select id="resultReviewDelay" aria-label="Bundle review reminder timing">
+          <option value="1">Tomorrow</option>
+          <option value="3">In 3 days</option>
+          <option value="7" selected>In 1 week</option>
+          <option value="14">In 2 weeks</option>
+          <option value="30">In 1 month</option>
+          <option value="custom">Choose exact date and time</option>
+        </select>
+        <input id="resultReviewDateTime" class="review-date-time" type="datetime-local" aria-label="Exact bundle review date and time" hidden />
+        <button class="action-button" type="button" data-schedule-review="${bundle.id}">${icon("alert")} Schedule analysis</button>
+      </div>
     </div>
     <div class="fit-panel">
       ${renderFitDonut(fitBreakdown)}
@@ -1965,6 +2102,8 @@ function renderPrimary(bundle) {
       <p class="fit-role-note"><strong>Signal roles:</strong> ${escapeHtml(allocationRoleSummary(adjustedAllocation))}</p>
     </div>
   `;
+  const resultReviewDelay = document.getElementById("resultReviewDelay");
+  if (resultReviewDelay) resultReviewDelay.value = String(bundleReviewDelay(preferences));
   renderAllocation(bundle, allocationPlan);
 }
 
@@ -2011,6 +2150,15 @@ function renderFitDonut(breakdown) {
           </span>
         `).join("")}
       </div>
+      <details class="fit-explanation">
+        <summary>How this Fit score works</summary>
+        <p>Fit measures how well this bundle matches your choices. It is not a performance forecast.</p>
+        <div class="fit-formula-list">
+          ${breakdown.pieces.map((piece) => `
+            <span><b>${escapeHtml(piece.label)}</b><em>${Math.round(piece.value)}/100 x ${Math.round(piece.weight * 100)}% = ${piece.contribution.toFixed(1)} points</em></span>
+          `).join("")}
+        </div>
+      </details>
     </div>
   `;
 }
@@ -2086,12 +2234,66 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-function getAdjustedAllocation(bundle, network = chooseBundleNetwork(bundle), preferences = getPreferences()) {
+function getBaseAdjustedAllocation(bundle, network = chooseBundleNetwork(bundle), preferences = getPreferences()) {
   const allocation = getNetworkSafeAllocation(getViciSwapAllocation(bundle, preferences, network), network);
   if (!preferences.diversityEnabled) return allocation;
 
   const desiredCount = Math.max(3, Math.min(preferences.coinCount, allocation.length));
   return normalizeAllocationWeights(getNetworkSafeAllocation(allocation.slice(0, desiredCount), network));
+}
+
+function allocationOverrideFingerprint(bundle, network, allocation) {
+  return `${bundle?.id || "bundle"}:${network}:${allocation.map(([ticker]) => ticker).join(",")}`;
+}
+
+function getAdjustedAllocation(bundle, network = chooseBundleNetwork(bundle), preferences = getPreferences()) {
+  const allocation = getBaseAdjustedAllocation(bundle, network, preferences);
+  const fingerprint = allocationOverrideFingerprint(bundle, network, allocation);
+  if (manualAllocationOverride && manualAllocationKey === fingerprint) {
+    return manualAllocationOverride.map((item) => [...item]);
+  }
+  return allocation;
+}
+
+function clearManualAllocationOverride() {
+  manualAllocationOverride = null;
+  manualAllocationKey = "";
+}
+
+function rebalanceAllocation(ticker, requestedWeight) {
+  if (!currentBundle) return;
+  const preferences = getPreferences();
+  const network = preferences.network;
+  const base = getBaseAdjustedAllocation(currentBundle, network, preferences);
+  const current = getAdjustedAllocation(currentBundle, network, preferences);
+  const targetIndex = current.findIndex(([coin]) => coin === ticker);
+  if (targetIndex < 0 || current.length < 2) return;
+  const minimumOtherTotal = current.length - 1;
+  const targetWeight = clamp(Math.round(Number(requestedWeight) || 1), 1, 100 - minimumOtherTotal);
+  const otherIndexes = current.map((_, index) => index).filter((index) => index !== targetIndex);
+  const currentOtherTotal = otherIndexes.reduce((sum, index) => sum + current[index][1], 0) || otherIndexes.length;
+  const remaining = 100 - targetWeight;
+  const shares = otherIndexes.map((index) => {
+    const exact = remaining * (current[index][1] / currentOtherTotal);
+    return { index, weight: Math.max(1, Math.floor(exact)), remainder: exact - Math.floor(exact) };
+  });
+  let assigned = shares.reduce((sum, item) => sum + item.weight, 0);
+  while (assigned < remaining) {
+    const item = [...shares].sort((a, b) => b.remainder - a.remainder || current[b.index][1] - current[a.index][1])[0];
+    item.weight += 1;
+    item.remainder = 0;
+    assigned += 1;
+  }
+  while (assigned > remaining) {
+    const item = [...shares].filter((entry) => entry.weight > 1).sort((a, b) => a.remainder - b.remainder || b.weight - a.weight)[0];
+    if (!item) break;
+    item.weight -= 1;
+    assigned -= 1;
+  }
+  const shareByIndex = new Map(shares.map((item) => [item.index, item.weight]));
+  manualAllocationOverride = current.map(([coin, weight, role], index) => [coin, index === targetIndex ? targetWeight : shareByIndex.get(index), role]);
+  manualAllocationKey = allocationOverrideFingerprint(currentBundle, network, base);
+  renderPrimary(currentBundle);
 }
 
 function getAllocationPlan(allocation, totalAmount = getPreferences().bundleAmount) {
@@ -2212,7 +2414,12 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
     return;
   }
 
-  allocationBars.innerHTML = allocationPlan
+  allocationBars.innerHTML = `
+    <div class="allocation-editor-head">
+      <div><strong>Adjust allocation</strong><span>Change one percentage and the remaining coins rebalance to keep the bundle at 100%.</span></div>
+      <button type="button" data-reset-allocation>Reset</button>
+    </div>
+  ` + allocationPlan
     .map(({ ticker, weight, role, amount, quantity, price, priceSource, networks, signalSummary, thesisProfile, safetyProfile, bestFor }, index) => {
       const color = colors[index % colors.length];
       const selectedNetwork = getPreferences().network;
@@ -2233,7 +2440,8 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
             </span>
             <span class="allocation-value">
               <strong>${formatCurrency(amount)}</strong>
-              <span>${weight}% - ${formatQuantity(quantity, ticker)}</span>
+              <label class="allocation-weight-input"><input type="number" min="1" max="99" step="1" value="${weight}" data-allocation-weight="${ticker}" aria-label="${ticker} allocation percentage" /><span>%</span></label>
+              <span>${formatQuantity(quantity, ticker)}</span>
               <span>${formatPriceLine(price, priceSource)}</span>
             </span>
           </div>
@@ -2246,22 +2454,66 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
     .join("");
 }
 
+function coinPreferenceGroups(ticker) {
+  const normalized = normalizeTicker(ticker);
+  const groups = new Set(["base"]);
+  const addWhenListed = (group, tickers) => {
+    if (tickers.includes(normalized)) groups.add(group);
+  };
+  addWhenListed("core", ["USDC", "USDBC", "USDT", "USDT.E", "DAI", "USD", "USDS", "WETH", "ETH", "WBTC", "CBBTC", "CBETH", "EZETH", "WEETH", "WSTETH", "LBTC", "TBTC"]);
+  addWhenListed("defi", ["AERO", "MORPHO", "AAVE", "UNI", "COMP", "PENDLE", "CRV", "CRVUSD", "GMX", "GNS", "VELO", "LDO", "DOLA", "DEGEN"]);
+  addWhenListed("ai", ["VIRTUAL", "AIXBT", "KAITO", "TIBBIR", "CLANKER", "TAO", "RENDER", "FET"]);
+  addWhenListed("rwa", ["ONDO", "PAXG", "XAUT0", "THBILL", "WTMSTR", "WTSPYM", "LINK", "MORPHO", "USDE", "SUSDE", "CBXRP", "CBBTC"]);
+  addWhenListed("l2", ["ARB", "OP", "ZRO", "AERO", "VELO", "GMX", "GNS", "ETH", "WETH", "CBETH", "EZETH", "WEETH", "WSTETH"]);
+  addWhenListed("vici", ["VCNT", "DAYS", "VSN", "VFY", "CHIP"]);
+  addWhenListed("community", ["BRETT", "DEGEN", "TOSHI", "ZORA", "MOG", "DINO"]);
+  addWhenListed("infrastructure", ["LINK", "ZRO", "ARB", "OP", "ETH", "WETH", "CBETH", "EZETH", "WEETH", "WSTETH", "AERO"]);
+  if (groups.size === 1) groups.add("infrastructure");
+  return groups;
+}
+
+function visibleCoinPreferenceTickers() {
+  const network = safePreferences().network;
+  const query = String(coinPreferenceSearch?.value || "").trim().toUpperCase();
+  const category = coinPreferenceCategory?.value || "all";
+  return getSupportedTickersForNetwork(network).filter((ticker) => {
+    const matchesQuery = !query || ticker.includes(query) || String(tokenThesisForTicker(ticker)?.role || "").toUpperCase().includes(query);
+    const matchesCategory = category === "all" || coinPreferenceGroups(ticker).has(category);
+    return matchesQuery && matchesCategory;
+  });
+}
+
+function syncCoinPreferenceFilterToFocus(focus, { clearSearch = true } = {}) {
+  if (!coinPreferenceCategory) return;
+  const supportedFocuses = new Set(["core", "defi", "ai", "rwa", "base", "l2", "vici"]);
+  coinPreferenceCategory.value = supportedFocuses.has(focus) ? focus : "all";
+  if (clearSearch && coinPreferenceSearch) coinPreferenceSearch.value = "";
+  renderCoinPreferenceChips();
+}
+
+function renderSelectedCoinSummary() {
+  if (!selectedCoinSummary || !coinPreferenceSummary) return;
+  const supported = [...selectedCoinPreferences].filter((ticker) => isTickerOnNetwork(ticker, safePreferences().network));
+  coinPreferenceSummary.textContent = `${supported.length} selected`;
+  selectedCoinSummary.innerHTML = supported.length
+    ? supported.map((ticker) => `<button type="button" data-remove-coin="${ticker}" aria-label="Remove ${ticker}">${ticker}<span aria-hidden="true">&times;</span></button>`).join("")
+    : '<span>No preferred coins selected. The machine can search the full eligible list.</span>';
+}
+
 function renderCoinPreferenceChips() {
   if (!coinPreferenceGrid) return;
-  const { network } = getPreferences();
-  const checked = new Set([...document.querySelectorAll('input[name="coinPrefs"]')]
-    .filter((input) => input.checked)
-    .map((input) => input.value));
-  const tickers = getSupportedTickersForNetwork(network);
+  const { network } = safePreferences();
+  const tickers = visibleCoinPreferenceTickers();
   coinPreferenceGrid.innerHTML = tickers.length
     ? tickers.map((ticker) => {
       const id = `coin-${ticker.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
       return `
-        <input type="checkbox" id="${id}" name="coinPrefs" value="${ticker}" ${checked.has(ticker) ? "checked" : ""} />
+        <input type="checkbox" id="${id}" name="coinPrefs" value="${ticker}" ${selectedCoinPreferences.has(ticker) ? "checked" : ""} />
         <label for="${id}" title="${ticker} is available on ${network}">${ticker}</label>
       `;
     }).join("")
-    : `<p class="empty-chip-note">ViciSwap API unavailable for this network. Run a fallback scan or choose another network.</p>`;
+    : `<p class="empty-chip-note">No supported coins match this filter.</p>`;
+  renderSelectedCoinSummary();
   syncCoinCountBounds();
 }
 
@@ -2466,6 +2718,8 @@ function icon(name) {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>',
     alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21.7 18-8.5-15a1.4 1.4 0 0 0-2.4 0L2.3 18a1.3 1.3 0 0 0 1.2 2h17a1.3 1.3 0 0 0 1.2-2Z" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>',
+    star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" /></svg>',
+    starFilled: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" /></svg>',
   };
   return icons[name] || "";
 }
@@ -2535,6 +2789,7 @@ function acceptTermsGate() {
   } else {
     termsDialog?.removeAttribute("open");
   }
+  window.setTimeout(() => openTour(), 180);
 }
 
 function applyThemePreference(theme) {
@@ -2571,11 +2826,398 @@ function toggleThemePreference() {
   }
 }
 
+function readLocalArray(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalArray(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    showToast("Browser storage is unavailable, so this item could not be saved.");
+  }
+}
+
+function readRecentBundles() {
+  return readLocalArray(recentBundlesStorageKey);
+}
+
+function readReviewAlerts() {
+  return readLocalArray(reviewAlertsStorageKey);
+}
+
+function readLocalProfile() {
+  try {
+    const profile = JSON.parse(localStorage.getItem(localProfileStorageKey) || "{}");
+    return profile && typeof profile === "object" ? profile : {};
+  } catch {
+    return {};
+  }
+}
+
+function displayNameFromProfile(profile = readLocalProfile()) {
+  return String(profile.displayName || "").trim().slice(0, 40);
+}
+
+function updatePersonalGreeting(displayName = displayNameFromProfile()) {
+  if (!builderTitle) return;
+  builderTitle.textContent = displayName
+    ? `Hello ${displayName}, find a ViciSwap bundle that fits how you want to invest.`
+    : "Find a ViciSwap bundle that fits how you want to invest.";
+}
+
+function readFavoriteCoins() {
+  return readLocalArray(favoriteCoinsStorageKey);
+}
+
+function favoriteCoinKey(ticker, network = safePreferences().network) {
+  return `${normalizeNetwork(network)}:${normalizeTicker(ticker)}`;
+}
+
+function isFavoriteCoin(ticker, network = safePreferences().network) {
+  const key = favoriteCoinKey(ticker, network);
+  return readFavoriteCoins().some((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) === key);
+}
+
+function favoriteCoinRecord(candidate = currentFavorite) {
+  const ticker = normalizeTicker(candidate?.ticker);
+  if (!ticker) return null;
+  const network = normalizeNetwork(safePreferences().network);
+  const thesis = tokenThesisProfiles?.[ticker];
+  const row = coinData.find(([coinTicker]) => normalizeTicker(coinTicker) === ticker);
+  return {
+    key: favoriteCoinKey(ticker, network),
+    ticker,
+    name: candidate?.name || ticker,
+    network,
+    theme: candidate?.theme || row?.[1] || "Core",
+    source: candidate?.source || "Live Market Pulse",
+    addedAt: new Date().toISOString(),
+    change24h: finiteOrNull(candidate?.change24h),
+    volume24h: finiteOrNull(candidate?.volume24h ?? candidate?.volume24hUsd ?? candidate?.total_volume),
+    liquidityUsd: finiteOrNull(candidate?.liquidityUsd),
+    setupLabel: candidate?.marketSetup?.label || candidate?.setupLabel || "",
+    edgeLabel: candidate?.marketEdge?.label || candidate?.edgeLabel || "",
+    note: thesis?.why || candidate?.reason || row?.[4] || "",
+  };
+}
+
+function toggleFavoriteMarketCoin(candidate = currentFavorite) {
+  const record = favoriteCoinRecord(candidate);
+  if (!record) return;
+  const favorites = readFavoriteCoins();
+  const exists = favorites.some((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) === record.key);
+  const next = exists
+    ? favorites.filter((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) !== record.key)
+    : [record, ...favorites].slice(0, 50);
+  writeLocalArray(favoriteCoinsStorageKey, next);
+  renderProfile();
+  updateFavoriteToggle();
+  showToast(exists ? `${record.ticker} removed from favorites.` : `${record.ticker} saved to your profile.`);
+}
+
+function removeFavoriteCoin(ticker, network) {
+  const key = favoriteCoinKey(ticker, network);
+  writeLocalArray(
+    favoriteCoinsStorageKey,
+    readFavoriteCoins().filter((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) !== key),
+  );
+  renderProfile();
+  updateFavoriteToggle();
+  showToast(`${normalizeTicker(ticker)} removed from favorites.`);
+}
+
+function bundleReviewDelay(preferences = safePreferences()) {
+  return { quick: 1, swing: 7, trend: 14, position: 30 }[preferences.targetHorizon] || 7;
+}
+
+function bundleSnapshot(bundleId) {
+  const bundle = currentBundle?.id === bundleId
+    ? currentBundle
+    : bundleData.find((item) => item.id === bundleId) || currentBundle;
+  if (!bundle) return null;
+  const preferences = getPreferences();
+  const allocation = getAdjustedAllocation(bundle, preferences.network, preferences);
+  return {
+    id: `bundle-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    bundleId: bundle.id,
+    name: bundle.name,
+    network: preferences.network,
+    amountUsd: preferences.bundleAmount,
+    risk: preferences.risk,
+    focus: preferences.theme,
+    targetHorizon: preferences.targetHorizon,
+    createdAt: new Date().toISOString(),
+    allocation: getAllocationPlan(allocation, preferences.bundleAmount).map(({ ticker, weight, amount }) => ({
+      ticker,
+      weight,
+      amountUsd: Number(amount.toFixed(2)),
+    })),
+  };
+}
+
+function saveRecentBundleSnapshot(bundleId) {
+  const snapshot = bundleSnapshot(bundleId);
+  if (!snapshot) return null;
+  const recent = readRecentBundles();
+  const duplicate = recent.find((item) => item.bundleId === snapshot.bundleId
+    && item.network === snapshot.network
+    && Math.abs(new Date(item.createdAt).getTime() - Date.now()) < 60_000);
+  if (duplicate) return duplicate;
+  writeLocalArray(recentBundlesStorageKey, [snapshot, ...recent].slice(0, 20));
+  return snapshot;
+}
+
+function scheduleBundleReview(bundleId, delayDays, { silent = false, snapshotId = "", dueAt = "", kind = "scheduled-analysis", analysis = "" } = {}) {
+  const snapshot = readRecentBundles().find((item) => item.id === snapshotId) || bundleSnapshot(bundleId);
+  if (!snapshot) return;
+  const days = clamp(Number(delayDays) || bundleReviewDelay(), 1, 90);
+  const alerts = readReviewAlerts();
+  const requestedDue = dueAt ? new Date(dueAt) : null;
+  const resolvedDueAt = requestedDue && Number.isFinite(requestedDue.getTime()) && requestedDue.getTime() > Date.now()
+    ? requestedDue.toISOString()
+    : new Date(Date.now() + days * 86_400_000).toISOString();
+  const alert = {
+    id: `review-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    bundleId: snapshot.bundleId,
+    snapshotId: snapshot.id,
+    bundleName: snapshot.name,
+    dueAt: resolvedDueAt,
+    createdAt: new Date().toISOString(),
+    detectedAt: kind === "urgent-risk-review" ? new Date().toISOString() : "",
+    kind,
+    analysis: analysis || (kind === "urgent-risk-review"
+      ? "Market conditions changed enough to warrant a fresh hold, rebalance, or exit review."
+      : "Run a fresh market analysis at the scheduled time, then review the bundle's route, liquidity, allocation, and risk."),
+    status: "pending",
+  };
+  writeLocalArray(reviewAlertsStorageKey, [alert, ...alerts].slice(0, 40));
+  renderProfile();
+  if (!silent) showToast(`${snapshot.name} analysis scheduled for ${formatDateTime(resolvedDueAt)}.`);
+}
+
+function formatShortDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "a future date";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: date.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined });
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function renderProfile() {
+  if (!profileBundleList || !profileAlertList) return;
+  const localProfile = readLocalProfile();
+  const displayName = displayNameFromProfile(localProfile);
+  updatePersonalGreeting(displayName);
+  if (profileDisplayName) profileDisplayName.value = displayName;
+  if (profileDialogTitle) profileDialogTitle.textContent = displayName ? `${displayName}'s profile` : "Profile";
+  const recent = readRecentBundles();
+  const alerts = readReviewAlerts().filter((item) => item.status === "pending");
+  const favorites = readFavoriteCoins();
+  if (profileFavoriteList) {
+    profileFavoriteList.innerHTML = favorites.length ? favorites.map((coin) => {
+      const ticker = normalizeTicker(coin.ticker);
+      const network = normalizeNetwork(coin.network);
+      const context = [
+        coin.edgeLabel,
+        coin.setupLabel,
+        coin.volume24h ? `${formatCompactUsd(coin.volume24h)} volume` : "",
+      ].filter(Boolean).join(" · ");
+      return `
+        <article class="profile-favorite-card">
+          <div>
+            <strong>${escapeHtml(ticker)}${coin.name && coin.name !== ticker ? ` - ${escapeHtml(coin.name)}` : ""}</strong>
+            <span>${escapeHtml(network)} · saved ${formatDateTime(coin.addedAt)}</span>
+            <small>${escapeHtml(context || coin.note || "Saved from Live Market Pulse.")}</small>
+          </div>
+          <button type="button" data-remove-favorite-coin="${escapeAttribute(ticker)}" data-remove-favorite-network="${escapeAttribute(network)}">Remove</button>
+        </article>
+      `;
+    }).join("") : '<p class="profile-empty">Favorite coins appear here after you star a market pulse coin.</p>';
+  }
+  profileBundleList.innerHTML = recent.length ? recent.map((bundle) => `
+    <article class="profile-bundle-card">
+      <header><div><strong>${escapeHtml(bundle.name)}</strong><span>${escapeHtml(bundle.network)} · ${formatDateTime(bundle.createdAt)}</span></div><b>${formatCurrency(bundle.amountUsd || 0)}</b></header>
+      <div class="profile-allocation">${(bundle.allocation || []).map((coin) => `<span>${escapeHtml(coin.ticker)} <b>${coin.weight}%</b></span>`).join("")}</div>
+      <button type="button" data-profile-remind="${escapeAttribute(bundle.id)}" data-profile-bundle="${escapeAttribute(bundle.bundleId)}">Schedule analysis</button>
+    </article>
+  `).join("") : '<p class="profile-empty">Bundles appear here after you complete the ViciSwap review handoff.</p>';
+  profileAlertList.innerHTML = alerts.length ? alerts.map((alert) => {
+    const due = new Date(alert.dueAt).getTime();
+    const isDue = Number.isFinite(due) && due <= Date.now();
+    return `
+      <article class="profile-alert-card ${isDue ? "is-due" : ""}">
+        <div><strong>${alert.kind === "urgent-risk-review" ? "Urgent market review" : "Scheduled analysis"}: ${escapeHtml(alert.bundleName || "Bundle")}</strong><span>${isDue ? `Due now · ${formatDateTime(alert.dueAt)}` : `Due ${formatDateTime(alert.dueAt)}`}</span><small>${escapeHtml(alert.analysis || "Recheck the market before making a decision.")}</small></div>
+        <div class="profile-alert-actions">
+          <button type="button" data-dismiss-alert="${escapeAttribute(alert.id)}">Dismiss</button>
+        </div>
+      </article>
+    `;
+  }).join("") : '<p class="profile-empty">No review reminders yet.</p>';
+}
+
+function updateReviewAlert(alertId, updater) {
+  const alerts = readReviewAlerts().map((alert) => alert.id === alertId ? updater({ ...alert }) : alert);
+  writeLocalArray(reviewAlertsStorageKey, alerts);
+  renderProfile();
+  showDueReviewAlerts();
+}
+
+function dismissReviewAlert(alertId) {
+  updateReviewAlert(alertId, (alert) => ({ ...alert, status: "dismissed", dismissedAt: new Date().toISOString() }));
+}
+
+function showDueReviewAlerts() {
+  if (!notificationCenter) return;
+  const dueAlerts = readReviewAlerts().filter((alert) => alert.status === "pending" && new Date(alert.dueAt).getTime() <= Date.now());
+  notificationCenter.innerHTML = dueAlerts.slice(0, 3).map((alert) => `
+    <aside class="review-notification ${alert.kind === "urgent-risk-review" ? "urgent" : ""}" role="status">
+      <div><strong>${alert.kind === "urgent-risk-review" ? "Urgent market review" : "Scheduled bundle analysis"}</strong><span>${formatDateTime(alert.dueAt)} · ${escapeHtml(alert.bundleName || "Your bundle")}</span><span>${escapeHtml(alert.analysis || "Recheck the market, route, liquidity, and allocation before deciding whether to hold, rebalance, or exit.")}</span></div>
+      <div><button type="button" data-open-profile>Review</button><button type="button" data-dismiss-alert="${escapeAttribute(alert.id)}" aria-label="Dismiss reminder">&times;</button></div>
+    </aside>
+  `).join("");
+}
+
+function urgentMarketReviewReasons(candidate = {}) {
+  const reasons = [];
+  const change = finiteOrNull(candidate.change24h);
+  const liquidity = finiteOrNull(candidate.liquidityUsd);
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  if (change !== null && change <= -8) reasons.push(`${formatPercent(change)} over 24h`);
+  if (Number.isFinite(setup?.score) && setup.score <= -5) reasons.push("the market setup has weakened materially");
+  if (liquidity !== null && liquidity < 250_000 && change !== null && change <= -4) {
+    reasons.push(`route depth is only ${formatCompactUsd(liquidity)}`);
+  }
+  return reasons;
+}
+
+function maybeQueueUrgentMarketReviews(favorites = currentFavorites) {
+  const recent = readRecentBundles();
+  if (!recent.length || !Array.isArray(favorites) || !favorites.length) return;
+  const candidates = new Map(favorites.map((candidate) => [normalizeTicker(candidate.ticker), candidate]));
+  const existing = readReviewAlerts();
+  const dayKey = new Date().toISOString().slice(0, 10);
+  const created = [];
+
+  recent.slice(0, 10).forEach((bundle) => {
+    const flagged = (bundle.allocation || []).map((coin) => {
+      const candidate = candidates.get(normalizeTicker(coin.ticker));
+      const reasons = candidate ? urgentMarketReviewReasons(candidate) : [];
+      return reasons.length ? { ticker: normalizeTicker(coin.ticker), reasons } : null;
+    }).filter(Boolean);
+    if (!flagged.length) return;
+    const signalKey = `urgent:${bundle.id}:${dayKey}:${flagged.map((item) => item.ticker).sort().join("-")}`;
+    if (existing.some((alert) => alert.signalKey === signalKey)) return;
+    const summary = flagged.map((item) => `${item.ticker}: ${item.reasons.join(" and ")}`).join("; ");
+    created.push({
+      id: `urgent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      signalKey,
+      bundleId: bundle.bundleId,
+      snapshotId: bundle.id,
+      bundleName: bundle.name,
+      dueAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+      detectedAt: new Date().toISOString(),
+      kind: "urgent-risk-review",
+      analysis: `Fresh market data suggests a prompt review, not an automatic sell: ${summary}. Recheck the quote, route, liquidity, allocation, and your own risk plan before acting.`,
+      status: "pending",
+    });
+  });
+
+  if (!created.length) return;
+  writeLocalArray(reviewAlertsStorageKey, [...created, ...existing].slice(0, 40));
+  renderProfile();
+  showDueReviewAlerts();
+}
+
+function openProfile() {
+  renderProfile();
+  if (typeof profileDialog?.showModal === "function") {
+    if (!profileDialog.open) profileDialog.showModal();
+  } else {
+    profileDialog?.setAttribute("open", "");
+  }
+}
+
+function closeProfile() {
+  if (typeof profileDialog?.close === "function" && profileDialog.open) profileDialog.close();
+  else profileDialog?.removeAttribute("open");
+}
+
+function hasSeenTour() {
+  try {
+    return localStorage.getItem(tourSeenStorageKey) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function tourVisualMarkup(type) {
+  const visual = {
+    sliders: '<span class="tour-slider"></span><span class="tour-slider short"></span><span class="tour-slider"></span>',
+    pulse: '<span class="tour-pulse-line"></span><span class="tour-pulse-dot"></span>',
+    fit: '<span class="tour-ring"><b>92</b></span>',
+    allocation: '<span class="tour-bar wide"></span><span class="tour-bar medium"></span><span class="tour-bar short"></span>',
+    review: '<span class="tour-check">&#10003;</span><span class="tour-bell">!</span>',
+  };
+  return visual[type] || visual.sliders;
+}
+
+function renderTour() {
+  const slide = tourSlides[tourIndex];
+  if (!slide || !tourTitle || !tourBody || !tourDots) return;
+  tourVisual.innerHTML = tourVisualMarkup(slide.icon);
+  tourTitle.textContent = slide.title;
+  tourBody.textContent = slide.body;
+  tourBack.disabled = tourIndex === 0;
+  tourNext.textContent = tourIndex === tourSlides.length - 1 ? "Start building" : "Next";
+  tourDots.innerHTML = tourSlides.map((_, index) => `<button type="button" data-tour-index="${index}" class="${index === tourIndex ? "active" : ""}" aria-label="Go to tutorial step ${index + 1}"></button>`).join("");
+}
+
+function openTour({ force = false } = {}) {
+  if (!onboardingTour || (!force && hasSeenTour()) || !hasAcceptedTerms()) return;
+  tourIndex = 0;
+  renderTour();
+  if (typeof onboardingTour.showModal === "function") {
+    if (!onboardingTour.open) onboardingTour.showModal();
+  } else {
+    onboardingTour.setAttribute("open", "");
+  }
+}
+
+function closeTour({ remember = true } = {}) {
+  if (remember) {
+    try { localStorage.setItem(tourSeenStorageKey, "true"); } catch { /* Keep the tour dismissible for this session. */ }
+  }
+  if (typeof onboardingTour?.close === "function" && onboardingTour.open) onboardingTour.close();
+  else onboardingTour?.removeAttribute("open");
+}
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   openAmountDialog();
 });
 form.addEventListener("change", (event) => {
+  if (event.target.matches('input[name="theme"]')) {
+    syncCoinPreferenceFilterToFocus(event.target.value);
+  }
+  if (event.target.matches('input[name="coinPrefs"]')) {
+    const ticker = normalizeTicker(event.target.value);
+    if (event.target.checked) selectedCoinPreferences.add(ticker);
+    else selectedCoinPreferences.delete(ticker);
+    renderSelectedCoinSummary();
+  }
+  clearManualAllocationOverride();
+  saveBuilderPreferences();
   updateFavoriteToggle();
   if (event.target === targetNetwork) return;
   renderNetworkGroups();
@@ -2584,12 +3226,16 @@ form.addEventListener("change", (event) => {
 });
 form.addEventListener("input", (event) => {
   if (event.target === bundleAmount || event.target === coinCount) return;
+  clearManualAllocationOverride();
+  saveBuilderPreferences();
   renderNetworkGroups();
   renderCoinRows();
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
 });
 targetNetwork.addEventListener("change", () => {
   marketPulseReady = false;
+  clearManualAllocationOverride();
+  saveBuilderPreferences();
   renderNetworkGroups();
   renderCoinPreferenceChips();
   updateCoinPreferenceAvailability();
@@ -2634,6 +3280,8 @@ diversityToggle.addEventListener("change", () => {
 });
 coinCount.addEventListener("input", () => {
   coinCountValue.textContent = `${coinCount.value} coins`;
+  clearManualAllocationOverride();
+  saveBuilderPreferences();
   renderNetworkGroups();
   renderCoinRows();
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
@@ -2641,16 +3289,25 @@ coinCount.addEventListener("input", () => {
 
 useFavoriteCoin.addEventListener("click", () => {
   if (!currentFavorite?.ticker) return;
-  const coinInput = document.querySelector(`input[name="coinPrefs"][value="${currentFavorite.ticker}"]`);
-  if (!coinInput || coinInput.disabled) {
+  const ticker = normalizeTicker(currentFavorite.ticker);
+  if (!isTickerOnNetwork(ticker, getPreferences().network)) {
     showToast(`${currentFavorite.ticker} is not available on ${getPreferences().network}.`);
     return;
   }
-  const isUsing = !!coinInput?.checked;
-  if (coinInput) coinInput.checked = !isUsing;
-  if (!isUsing) {
+  const isUsing = selectedCoinPreferences.has(ticker);
+  if (isUsing) {
+    selectedCoinPreferences.delete(ticker);
+  } else {
     const themeInput = document.querySelector(`input[name="theme"][value="${currentFavorite.theme}"]`);
-    if (themeInput) themeInput.checked = true;
+    if (themeInput) {
+      themeInput.checked = true;
+      syncCoinPreferenceFilterToFocus(currentFavorite.theme);
+    }
+    selectedCoinPreferences.add(ticker);
+  }
+  renderCoinPreferenceChips();
+  saveBuilderPreferences();
+  if (!isUsing) {
     showToast(`${currentFavorite.ticker} added to your preferences.`);
     if (bundleAmount.checkValidity() && !recommendation.hidden) buildBundle({ scroll: false });
   } else {
@@ -2658,6 +3315,57 @@ useFavoriteCoin.addEventListener("click", () => {
     if (!recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
   }
   updateFavoriteToggle();
+});
+
+favoriteMarketCoin?.addEventListener("click", () => toggleFavoriteMarketCoin(currentFavorite));
+
+coinPreferenceSearch?.addEventListener("input", renderCoinPreferenceChips);
+coinPreferenceCategory?.addEventListener("change", renderCoinPreferenceChips);
+selectVisibleCoins?.addEventListener("click", () => {
+  visibleCoinPreferenceTickers().forEach((ticker) => selectedCoinPreferences.add(ticker));
+  renderCoinPreferenceChips();
+  saveBuilderPreferences();
+  showToast("Visible supported coins selected.");
+});
+clearSelectedCoins?.addEventListener("click", () => {
+  selectedCoinPreferences.clear();
+  renderCoinPreferenceChips();
+  saveBuilderPreferences();
+  if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
+});
+
+profileButton?.addEventListener("click", openProfile);
+profileClose?.addEventListener("click", closeProfile);
+profileDialog?.addEventListener("cancel", closeProfile);
+profileSaveName?.addEventListener("click", () => {
+  const displayName = String(profileDisplayName?.value || "").trim().slice(0, 40);
+  try {
+    localStorage.setItem(localProfileStorageKey, JSON.stringify({ ...readLocalProfile(), displayName }));
+  } catch {
+    showToast("This browser could not save the profile name.");
+    return;
+  }
+  renderProfile();
+  showToast(displayName ? `Profile saved for ${displayName}.` : "Profile name cleared.");
+});
+profileDisplayName?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  profileSaveName?.click();
+});
+tourHelp?.addEventListener("click", () => openTour({ force: true }));
+tourClose?.addEventListener("click", () => closeTour());
+onboardingTour?.addEventListener("cancel", () => closeTour());
+tourBack?.addEventListener("click", () => {
+  tourIndex = Math.max(0, tourIndex - 1);
+  renderTour();
+});
+tourNext?.addEventListener("click", () => {
+  if (tourIndex >= tourSlides.length - 1) closeTour();
+  else {
+    tourIndex += 1;
+    renderTour();
+  }
 });
 
 pulseRefresh?.addEventListener("click", () => {
@@ -2682,16 +3390,107 @@ function closeEntryCautionPopovers() {
   });
 }
 
+let pulseSummaryReturnFocus = null;
+
 function closePulseSummaryPopovers() {
+  const returnFocus = pulseSummaryReturnFocus;
+  pulseSummaryReturnFocus = null;
   document.querySelectorAll(".pulse-ai-trigger[aria-expanded='true']").forEach((button) => {
+    const panelId = button.getAttribute("aria-controls");
+    const panel = panelId ? document.getElementById(panelId) : null;
     const wrapper = button.closest(".pulse-ai-summary");
-    const panel = wrapper?.querySelector(".pulse-ai-popover");
     button.setAttribute("aria-expanded", "false");
-    if (panel) panel.hidden = true;
+    if (!panel) return;
+    panel.hidden = true;
+    panel.classList.remove("is-modal");
+    if (wrapper?.isConnected) wrapper.append(panel);
+    else panel.remove();
   });
+  const layer = document.getElementById("pulseAiModalLayer");
+  layer?.querySelectorAll(".pulse-ai-popover.is-modal").forEach((panel) => {
+    panel.hidden = true;
+    panel.remove();
+  });
+  if (layer) layer.hidden = true;
+  document.body.classList.remove("pulse-ai-modal-open");
+  if (returnFocus?.isConnected) {
+    requestAnimationFrame(() => returnFocus.focus({ preventScroll: true }));
+  }
+}
+
+function openPulseSummaryModal(button, panel) {
+  const layer = document.getElementById("pulseAiModalLayer");
+  if (!layer || !button || !panel) return;
+  pulseSummaryReturnFocus = button;
+  button.setAttribute("aria-expanded", "true");
+  panel.classList.add("is-modal");
+  layer.append(panel);
+  layer.hidden = false;
+  panel.hidden = false;
+  document.body.classList.add("pulse-ai-modal-open");
+  requestAnimationFrame(() => panel.querySelector(".pulse-ai-close")?.focus({ preventScroll: true }));
 }
 
 document.body.addEventListener("click", (event) => {
+  const removeFavorite = event.target.closest("[data-remove-favorite-coin]");
+  if (removeFavorite) {
+    removeFavoriteCoin(removeFavorite.dataset.removeFavoriteCoin, removeFavorite.dataset.removeFavoriteNetwork);
+    return;
+  }
+  const removeCoin = event.target.closest("[data-remove-coin]");
+  if (removeCoin) {
+    selectedCoinPreferences.delete(normalizeTicker(removeCoin.dataset.removeCoin));
+    renderCoinPreferenceChips();
+    saveBuilderPreferences();
+    updateFavoriteToggle();
+    if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
+    return;
+  }
+  const resetAllocation = event.target.closest("[data-reset-allocation]");
+  if (resetAllocation) {
+    clearManualAllocationOverride();
+    if (currentBundle) renderPrimary(currentBundle);
+    showToast("Suggested allocation restored.");
+    return;
+  }
+  const scheduleReview = event.target.closest("[data-schedule-review]");
+  if (scheduleReview) {
+    const delayControl = document.getElementById("resultReviewDelay");
+    const dateControl = document.getElementById("resultReviewDateTime");
+    if (delayControl?.value === "custom") {
+      const chosenDate = new Date(dateControl?.value || "");
+      if (!Number.isFinite(chosenDate.getTime()) || chosenDate.getTime() <= Date.now()) {
+        showToast("Choose a future date and time for the analysis.");
+        dateControl?.focus();
+        return;
+      }
+      scheduleBundleReview(scheduleReview.dataset.scheduleReview, bundleReviewDelay(), { dueAt: chosenDate.toISOString() });
+    } else {
+      const delay = Number(delayControl?.value || bundleReviewDelay());
+      scheduleBundleReview(scheduleReview.dataset.scheduleReview, delay);
+    }
+    return;
+  }
+  const profileReminder = event.target.closest("[data-profile-remind]");
+  if (profileReminder) {
+    scheduleBundleReview(profileReminder.dataset.profileBundle, bundleReviewDelay(), { snapshotId: profileReminder.dataset.profileRemind });
+    return;
+  }
+  const dismissAlert = event.target.closest("[data-dismiss-alert]");
+  if (dismissAlert) {
+    dismissReviewAlert(dismissAlert.dataset.dismissAlert);
+    return;
+  }
+  if (event.target.closest("[data-open-profile]")) {
+    openProfile();
+    return;
+  }
+  const tourDot = event.target.closest("[data-tour-index]");
+  if (tourDot) {
+    tourIndex = clamp(Number(tourDot.dataset.tourIndex) || 0, 0, tourSlides.length - 1);
+    renderTour();
+    return;
+  }
   const entryFlag = event.target.closest(".pulse-entry-flag");
   if (entryFlag) {
     event.preventDefault();
@@ -2708,17 +3507,28 @@ document.body.addEventListener("click", (event) => {
   if (summaryButton) {
     event.preventDefault();
     event.stopPropagation();
-    const wrapper = summaryButton.closest(".pulse-ai-summary");
-    const panel = wrapper?.querySelector(".pulse-ai-popover");
+    const panelId = summaryButton.getAttribute("aria-controls");
+    const panel = panelId ? document.getElementById(panelId) : null;
     const willOpen = summaryButton.getAttribute("aria-expanded") !== "true";
     closeEntryCautionPopovers();
     closePulseSummaryPopovers();
-    summaryButton.setAttribute("aria-expanded", String(willOpen));
-    if (panel) panel.hidden = !willOpen;
+    if (willOpen && panel) openPulseSummaryModal(summaryButton, panel);
+    return;
+  }
+  const summaryClose = event.target.closest(".pulse-ai-close");
+  if (summaryClose) {
+    event.preventDefault();
+    event.stopPropagation();
+    closePulseSummaryPopovers();
+    return;
+  }
+  const summaryLayer = event.target.closest(".pulse-ai-modal-layer");
+  if (summaryLayer && event.target === summaryLayer) {
+    closePulseSummaryPopovers();
     return;
   }
   if (!event.target.closest(".pulse-entry-warning")) closeEntryCautionPopovers();
-  if (!event.target.closest(".pulse-ai-summary")) closePulseSummaryPopovers();
+  if (!event.target.closest(".pulse-ai-summary") && !event.target.closest(".pulse-ai-popover")) closePulseSummaryPopovers();
 
   const copyButton = event.target.closest("[data-copy]");
   const riskButton = event.target.closest("[data-risk]");
@@ -2735,6 +3545,33 @@ document.body.addEventListener("click", (event) => {
   if (networkButton) {
     targetNetwork.value = networkButton.dataset.networkSelect;
     targetNetwork.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+});
+
+document.body.addEventListener("change", (event) => {
+  if (event.target.id === "resultReviewDelay") {
+    const dateControl = document.getElementById("resultReviewDateTime");
+    if (dateControl) {
+      const custom = event.target.value === "custom";
+      dateControl.hidden = !custom;
+      if (custom && !dateControl.value) {
+        const defaultDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        defaultDate.setMinutes(defaultDate.getMinutes() - defaultDate.getTimezoneOffset());
+        dateControl.value = defaultDate.toISOString().slice(0, 16);
+        dateControl.min = new Date(Date.now() + 60_000).toISOString().slice(0, 16);
+      }
+    }
+    return;
+  }
+  const allocationInput = event.target.closest("[data-allocation-weight]");
+  if (!allocationInput) return;
+  rebalanceAllocation(allocationInput.dataset.allocationWeight, allocationInput.value);
+  if (currentBundle) renderPrimary(currentBundle);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && document.body.classList.contains("pulse-ai-modal-open")) {
+    closePulseSummaryPopovers();
   }
 });
 
@@ -2770,16 +3607,40 @@ window.addEventListener("message", (event) => {
 });
 
 applyThemePreference(readThemePreference());
+restoreBuilderPreferences();
 renderNetworkGroups();
-renderCoinPreferenceChips();
+syncCoinPreferenceFilterToFocus(safePreferences().theme, { clearSearch: false });
 updateCoinPreferenceAvailability();
 renderCoinRows();
 showTermsGate();
+renderProfile();
+showDueReviewAlerts();
+if (hasAcceptedTerms() && !hasSeenTour()) window.setTimeout(() => openTour(), 350);
 refreshMarketPulse({ preserveSelection: false });
 refreshViciCoinsFromApi({ announce: false }).catch(() => {
   // If the office API is temporarily offline, the builder keeps using scan/starter support data.
 });
 setInterval(() => refreshMarketPulse({ preserveSelection: true, silent: true, render: false }), 1000 * 60 * 5);
+setInterval(showDueReviewAlerts, 1000 * 60);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) showDueReviewAlerts();
+});
+
+let headerScrollFrame = 0;
+function syncCompactMobileHeader() {
+  if (!appHeader) return;
+  const shouldCompact = window.matchMedia("(max-width: 720px)").matches && window.scrollY > 72;
+  appHeader.classList.toggle("is-compact", shouldCompact);
+}
+window.addEventListener("scroll", () => {
+  if (headerScrollFrame) return;
+  headerScrollFrame = window.requestAnimationFrame(() => {
+    headerScrollFrame = 0;
+    syncCompactMobileHeader();
+  });
+}, { passive: true });
+window.addEventListener("resize", syncCompactMobileHeader);
+syncCompactMobileHeader();
 
 function showFitSliceTooltip(slice) {
   const wrap = slice.closest(".fit-donut-wrap");
@@ -2816,6 +3677,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
         currentFavorite = currentFavorites.find((candidate) => candidate.ticker === currentFavorite?.ticker) || currentFavorite;
         currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite?.ticker));
         lastMarketPulseError = "";
+        maybeQueueUrgentMarketReviews(currentFavorites);
         return;
       }
       currentFavorites = nextFavorites;
@@ -2826,6 +3688,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
         : currentFavorites[0];
       currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
       marketPulseReady = true;
+      maybeQueueUrgentMarketReviews(currentFavorites);
     } catch (error) {
       if (refreshId !== marketPulseRefreshSeq) return;
       lastMarketPulseError = error?.message || String(error);
@@ -3044,17 +3907,19 @@ async function enrichPulseDeckWithCatalysts(deck, network) {
       const catalyst = catalystByTicker.get(candidate.ticker);
       if (!catalyst) return candidate;
       const currentEdge = candidate.marketEdge || marketEdgeSignal(candidate, candidate, candidate.prices);
+      const verifiedNews = catalyst.signalType === "verified-article" || catalyst.verifiedArticleCount > 0;
+      const newsScore = verifiedNews ? clamp(catalyst.score || 0, -5, 6) : 0;
       const nextEdge = {
         ...currentEdge,
-        label: catalyst.score >= 5 && currentEdge.label === "Neutral data edge" ? "Positive data edge" : currentEdge.label,
-        score: roundTo((currentEdge.score || 0) + catalyst.score, 1),
+        label: newsScore >= 5 && currentEdge.label === "Neutral data edge" ? "Positive data edge" : currentEdge.label,
+        score: roundTo((currentEdge.score || 0) + newsScore, 1),
         details: [...(currentEdge.details || []), catalyst.summary].slice(0, 4),
       };
       return {
         ...candidate,
         marketEdge: nextEdge,
         newsCatalyst: catalyst,
-        pulseScore: (candidate.pulseScore || 0) + catalyst.score * 0.25,
+        pulseScore: (candidate.pulseScore || 0) + newsScore * 0.25,
         reason: appendCatalystNote(candidate.reason, catalyst),
       };
     })
@@ -3075,7 +3940,9 @@ async function fetchNewsCatalystSignal(candidate, network) {
 
   const serverCatalyst = await fetchServerCatalystSignal(candidate, network).catch(() => null);
   if (serverCatalyst) {
-    const selected = curated && curated.score > serverCatalyst.score ? curated : serverCatalyst;
+    const selected = serverCatalyst.signalType === "verified-article" || serverCatalyst.verifiedArticleCount > 0
+      ? serverCatalyst
+      : curated || serverCatalyst;
     newsCatalystCache.set(cacheKey, { value: selected, cachedAt: Date.now() });
     return selected;
   }
@@ -3116,8 +3983,10 @@ async function fetchNewsCatalystSignal(candidate, network) {
   const riskDriver = riskHits > 0 ? riskDriverFromText(titleText) : "";
   const value = {
     source: "GDELT news scan",
+    signalType: "verified-article",
     score: roundTo(score, 1),
     articleCount: relevant.length,
+    verifiedArticleCount: relevant.length,
     driver,
     riskDriver,
     topTitle,
@@ -3128,9 +3997,8 @@ async function fetchNewsCatalystSignal(candidate, network) {
       : `${candidate.ticker} has fresh ${driver.toLowerCase()} coverage: ${shortenText(topTitle, 90)}${topArticle.domain ? ` (${topArticle.domain})` : ""}`,
     updatedAt: new Date().toISOString(),
   };
-  const selected = curated && curated.score > value.score ? curated : value;
-  newsCatalystCache.set(cacheKey, { value: selected, cachedAt: Date.now() });
-  return selected;
+  newsCatalystCache.set(cacheKey, { value, cachedAt: Date.now() });
+  return value;
 }
 
 async function fetchServerCatalystSignal(candidate, network) {
@@ -3141,6 +4009,8 @@ async function fetchServerCatalystSignal(candidate, network) {
     ticker,
     name: candidate.name || ticker,
     network: normalizeNetwork(network),
+    coinGeckoId: candidate.id || "",
+    contractAddress: candidate.address || candidate.contractAddress || "",
   });
   const payload = await fetchJsonUrl(`/api/v1/catalyst?${params.toString()}`);
   if (!payload?.ok) return null;
@@ -3148,13 +4018,20 @@ async function fetchServerCatalystSignal(candidate, network) {
   if (score <= 0 && !payload.summary) return null;
   return {
     source: payload.source || "Bundle Builder catalyst service",
+    signalType: payload.signalType || (payload.articleCount > 0 ? "verified-article" : "market-context"),
     score: roundTo(score, 1),
+    contextStrength: roundTo(finiteOrNull(payload.contextStrength) || 0, 1),
     articleCount: finiteOrNull(payload.articleCount) || 0,
+    verifiedArticleCount: finiteOrNull(payload.verifiedArticleCount) || 0,
     driver: payload.driver || "market catalyst",
     riskDriver: payload.riskDriver || "",
     topTitle: payload.topTitle || "",
     topSource: payload.topSource || "",
-    articles: Array.isArray(payload.articles) ? payload.articles.slice(0, 3).map(normalizeNewsArticle) : [],
+    articles: Array.isArray(payload.articles) ? payload.articles.slice(0, 6).map(normalizeNewsArticle) : [],
+    sourceStatuses: Array.isArray(payload.sourceStatuses) ? payload.sourceStatuses : [],
+    corroboration: Array.isArray(payload.corroboration) ? payload.corroboration : [],
+    configuredSourceCount: finiteOrNull(payload.configuredSourceCount) || 0,
+    successfulSourceCount: finiteOrNull(payload.successfulSourceCount) || 0,
     summary: payload.summary || "",
     watch: payload.watch || "",
     socialWatch: payload.socialWatch || "",
@@ -3162,6 +4039,8 @@ async function fetchServerCatalystSignal(candidate, network) {
     confidence: payload.confidence || "",
     updatedAt: payload.updatedAt || new Date().toISOString(),
     warning: payload.warning || "",
+    contextTitle: payload.contextTitle || "",
+    contextSummary: payload.contextSummary || "",
   };
 }
 
@@ -3183,19 +4062,19 @@ function curatedCatalystSignal(candidate = {}, network = "") {
   const score = clamp(2.8 + depthBonus + setupBonus + changeBonus, 2.5, 7.5);
   return {
     source: profile.source,
-    score: roundTo(score, 1),
+    signalType: "market-context",
+    score: 0,
+    contextStrength: roundTo(score, 1),
     articleCount: 0,
+    verifiedArticleCount: 0,
     driver: profile.driver,
     riskDriver: "",
-    topTitle: profile.title,
-    topSource: profile.source,
-    articles: [{
-      title: profile.title,
-      domain: profile.source,
-      url: "",
-      seendate: "",
-    }],
-    summary: `${ticker} has a confirmed catalyst lane: ${profile.summary}`,
+    topTitle: "",
+    topSource: "",
+    articles: [],
+    contextTitle: profile.title,
+    contextSummary: profile.summary,
+    summary: `No recent article was confirmed for ${ticker}. Background context: ${profile.summary}`,
     watch: profile.watch,
     socialWatch: profile.socialWatch,
     network: normalizeNetwork(network),
@@ -4706,16 +5585,25 @@ function pulseSummaryButton(favorite = {}) {
         </svg>
         <span>AI Market Scan</span>
       </button>
-      <div class="pulse-ai-popover" id="${escapeHtml(panelId)}" hidden>
-        ${renderPulseNewsFound(summary.news)}
-        <ol class="pulse-ai-points">
-          ${summary.points.map((point) => `
-            <li>
-              <span>${escapeHtml(point.label)}</span>
-              <p>${escapeHtml(point.text)}</p>
-            </li>
-          `).join("")}
-        </ol>
+      <div class="pulse-ai-popover" id="${escapeHtml(panelId)}" role="dialog" aria-modal="true" aria-label="AI Market Scan for ${escapeHtml(favorite.ticker)}" hidden>
+        <div class="pulse-ai-modal-head">
+          <strong>AI Market Scan</strong>
+          <span>${escapeHtml(favorite.ticker)}</span>
+          <button class="pulse-ai-close" type="button" aria-label="Close AI Market Scan" title="Close">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div class="pulse-ai-modal-content">
+          ${renderPulseNewsFound(summary.news)}
+          <ol class="pulse-ai-points">
+            ${summary.points.map((point) => `
+              <li>
+                <span>${escapeHtml(point.label)}</span>
+                <p>${escapeHtml(point.text)}</p>
+              </li>
+            `).join("")}
+          </ol>
+        </div>
       </div>
     </div>
   `;
@@ -4805,12 +5693,13 @@ function pulseNewsFoundSummary(favorite = {}, catalyst = null, fallbackHeadline 
         .slice(0, 4)
     : [];
   const searchLinks = catalystSearchLinkList(catalyst, ticker);
-  if (articles.length) {
+  const verifiedArticles = catalyst?.signalType === "verified-article" || catalyst?.verifiedArticleCount > 0;
+  if (articles.length && verifiedArticles) {
     const first = articles[0];
     const source = first.domain || catalyst?.topSource || catalyst?.source || "news scan";
     return {
-      label: "News found",
-      lead: `${ticker} has ${articles.length} catalyst item${articles.length === 1 ? "" : "s"} in the latest scan. Top signal: ${first.title}${source ? ` (${source})` : ""}.`,
+      label: "Recent coverage",
+      lead: `${articles.length} recent article${articles.length === 1 ? "" : "s"} matched ${ticker}. The strongest current headline is “${first.title}”${source ? ` from ${source}` : ""}. This is supporting context, not proof that the headline caused the price move.`,
       items: articles.map((article) => ({
         title: shortenText(article.title, 150),
         url: safeExternalUrl(article.url),
@@ -4819,21 +5708,22 @@ function pulseNewsFoundSummary(favorite = {}, catalyst = null, fallbackHeadline 
       searches: searchLinks,
     };
   }
-  if (catalyst?.source === "Bundle Builder catalyst watchlist") {
+  if (catalyst?.signalType === "market-context" || catalyst?.source === "Bundle Builder catalyst watchlist") {
+    const context = catalyst.contextSummary || cleanCuratedCatalystSummary(catalyst.summary, ticker);
     return {
-      label: "Catalyst watchlist",
-      lead: `${ticker} has a known catalyst lane under watch, but the live article scan did not confirm a fresh headline in this refresh.`,
-      items: catalyst.summary ? [{
-        title: cleanCuratedCatalystSummary(catalyst.summary, ticker),
+      label: "What the machine is watching",
+      lead: `No recent article matched ${ticker} in this refresh. The machine is therefore treating news as unconfirmed and judging the coin mainly from market activity and its established use case.`,
+      items: context ? [{
+        title: context,
         url: "",
-        meta: catalyst.source,
+        meta: "Background context, not breaking news",
       }] : [],
       searches: searchLinks,
     };
   }
   return {
-    label: "News found",
-    lead: `No fresh article-level catalyst was confirmed for ${ticker} yet. The market read below is based on price action, volume, liquidity, route depth, and narrative fit.`,
+    label: "Current market context",
+    lead: `No recent article matched ${ticker}. The explanation below is based on price direction, trading activity, liquidity, route depth, and the coin’s role in the selected network.`,
     items: fallbackHeadline ? [{ title: fallbackHeadline, url: "", meta: "market-data read" }] : [],
     searches: searchLinks,
   };
@@ -4871,9 +5761,9 @@ function pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, 
   if (catalyst?.riskDriver) {
     return `Fresh headlines include ${catalyst.riskDriver.toLowerCase()} risk language${source}. The machine keeps ${ticker} on the board only if the ViciSwap route, liquidity, and market depth still justify the risk.`;
   }
-  if (catalyst?.source === "Bundle Builder catalyst watchlist") {
-    const catalystSummary = cleanCuratedCatalystSummary(catalyst.summary, ticker);
-    return `${ticker} is moving inside a known ${catalyst.driver.toLowerCase()} catalyst lane: ${catalystSummary} The app is not claiming a fresh X/article confirmation here; it is saying the current volume, liquidity, and chart action line up with a narrative the machine is watching.`;
+  if (catalyst?.signalType === "market-context" || catalyst?.source === "Bundle Builder catalyst watchlist") {
+    const catalystSummary = catalyst.contextSummary || cleanCuratedCatalystSummary(catalyst.summary, ticker);
+    return `No recent article was confirmed for ${ticker}. The machine is watching its ${String(catalyst.driver || theme || "market").toLowerCase()} use case because ${catalystSummary || thesis?.why || coinInsightForTheme(favorite.theme, ticker)} Today’s read still depends on whether price direction, volume, and liquidity show that buyers are actually interested.`;
   }
   if (catalyst?.driver && articleTitle) {
     return `Fresh market coverage is pointing to a ${catalyst.driver.toLowerCase()} catalyst: "${shortenText(articleTitle, 150)}"${source}. For ${ticker}, that matters because ${thesis?.why || coinInsightForTheme(favorite.theme, ticker)}`;
@@ -5427,17 +6317,18 @@ async function loadGeckoTerminalPulseChart(candidate) {
   }
 }
 
-async function getGeckoTerminalPulseChartData(candidate) {
+async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
   const chainId = normalizeDexChainId(candidate.chainId || dexScreenerChainIds[normalizeNetwork(candidate.network)]);
   const pairAddress = normalizeContractAddress(candidate.pairAddress);
   if (!chainId || !pairAddress) throw new Error("Missing GeckoTerminal pool address");
-  const cacheKey = `geckoterminal:${chainId}:${pairAddress}`;
+  const config = pulseWindowChartConfig[windowKey] || pulseWindowChartConfig["24h"];
+  const cacheKey = `geckoterminal:${chainId}:${pairAddress}:${windowKey}`;
   const cached = pulseChartCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
     return { prices: cached.prices, updatedAt: cached.updatedAt || candidate.updatedAt };
   }
 
-  const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/minute?aggregate=15&limit=96&currency=usd`;
+  const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/minute?aggregate=${config.aggregate}&limit=${config.limit}&currency=usd`;
   const payload = await withTimeout(
     fetchGeckoTerminalJson(chartUrl),
     MARKET_CHART_TIMEOUT_MS,
@@ -5727,7 +6618,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       ? `Retry market pulse. Last error: ${lastMarketPulseError}`
       : "Refresh market pulse";
   }
-  pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeSparkline(favorite.prices, favorite.change24h)}`;
+  renderPulseWindowChart(favorite);
   if (pulseAiSummarySlot) pulseAiSummarySlot.innerHTML = pulseSummaryButton(favorite);
   currentFavoriteIndex = Math.max(0, (favorites || []).findIndex((candidate) => candidate.ticker === favorite.ticker));
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
@@ -5752,6 +6643,75 @@ function stepPulseWindow(direction) {
   const nextIndex = (currentIndex + direction + pulseWindowOptions.length) % pulseWindowOptions.length;
   selectedPulseWindow = pulseWindowOptions[nextIndex].key;
   renderPulseChange(currentFavorite);
+  renderPulseWindowChart(currentFavorite);
+  ensurePulseWindowChart(currentFavorite, selectedPulseWindow);
+}
+
+function pulsePricesForWindow(favorite = {}, key = "24h") {
+  if (key === "24h") return normalizePriceSeries(favorite.prices);
+  return normalizePriceSeries(favorite.windowPrices?.[key]);
+}
+
+function priceSeriesChange(prices) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 2 || !series[0]) return null;
+  return ((series.at(-1) - series[0]) / series[0]) * 100;
+}
+
+function pulseWindowLoadKey(favorite = {}, key = "24h") {
+  return `${normalizeTicker(favorite.ticker)}:${normalizeContractAddress(favorite.pairAddress)}:${key}`;
+}
+
+function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseWindow) {
+  if (!favorite || key === "24h" || pulsePricesForWindow(favorite, key).length >= 2) return;
+  const requestKey = pulseWindowLoadKey(favorite, key);
+  if (!favorite.pairAddress || pendingPulseWindowLoads.has(requestKey) || unavailablePulseWindows.has(requestKey)) return;
+
+  const request = getGeckoTerminalPulseChartData(favorite, key)
+    .then(({ prices, updatedAt }) => {
+      const normalizedPrices = normalizePriceSeries(prices);
+      if (normalizedPrices.length < 2) throw new Error("Exact chart window is empty");
+      currentFavorites = currentFavorites.map((candidate) => {
+        if (normalizeTicker(candidate.ticker) !== normalizeTicker(favorite.ticker)) return candidate;
+        return {
+          ...candidate,
+          windowPrices: { ...(candidate.windowPrices || {}), [key]: normalizedPrices },
+          changeWindows: { ...(candidate.changeWindows || {}), [key]: priceSeriesChange(normalizedPrices) },
+          windowUpdatedAt: { ...(candidate.windowUpdatedAt || {}), [key]: updatedAt },
+        };
+      });
+      const updated = currentFavorites.find((candidate) => normalizeTicker(candidate.ticker) === normalizeTicker(favorite.ticker));
+      if (updated && normalizeTicker(currentFavorite?.ticker) === normalizeTicker(updated.ticker)) {
+        currentFavorite = updated;
+        if (selectedPulseWindow === key) {
+          renderPulseChange(updated);
+          renderPulseWindowChart(updated);
+        }
+      }
+    })
+    .catch(() => {
+      unavailablePulseWindows.add(requestKey);
+      if (normalizeTicker(currentFavorite?.ticker) === normalizeTicker(favorite.ticker) && selectedPulseWindow === key) {
+        renderPulseWindowChart(currentFavorite);
+      }
+    })
+    .finally(() => pendingPulseWindowLoads.delete(requestKey));
+  pendingPulseWindowLoads.set(requestKey, request);
+}
+
+function renderPulseWindowChart(favorite = currentFavorite) {
+  if (!pulseChart || !favorite) return;
+  const prices = pulsePricesForWindow(favorite, selectedPulseWindow);
+  const change = pulseChangeForWindow(favorite, selectedPulseWindow);
+  const requestKey = pulseWindowLoadKey(favorite, selectedPulseWindow);
+  if (selectedPulseWindow !== "24h" && prices.length < 2) {
+    const unavailable = unavailablePulseWindows.has(requestKey) || !favorite.pairAddress;
+    pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">${unavailable ? `${pulseWindowLabel(selectedPulseWindow)} chart unavailable` : `Loading ${escapeHtml(favorite.ticker || "coin")} ${pulseWindowLabel(selectedPulseWindow)} chart...`}</div>`;
+    if (!unavailable) ensurePulseWindowChart(favorite, selectedPulseWindow);
+  } else {
+    pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeSparkline(prices, change, pulseWindowLabel(selectedPulseWindow))}`;
+  }
+  pulseChart.setAttribute("aria-label", `${pulseWindowLabel(selectedPulseWindow)} price sparkline for ${favorite.ticker || "this coin"}`);
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
@@ -6208,16 +7168,26 @@ function routeThesisForTicker(ticker) {
 }
 
 function updateFavoriteToggle() {
-  const coinInput = currentFavorite?.ticker
-    ? document.querySelector(`input[name="coinPrefs"][value="${currentFavorite.ticker}"]`)
-    : null;
-  const unavailable = !coinInput || coinInput.disabled;
-  const active = !!coinInput?.checked && !unavailable;
-  useFavoriteCoin.classList.toggle("active", active);
-  useFavoriteCoin.disabled = unavailable;
-  useFavoriteCoin.innerHTML = active
-    ? `${icon("check")} Using this coin`
-    : `${icon("check")} Use this coin`;
+  const ticker = normalizeTicker(currentFavorite?.ticker);
+  const network = safePreferences().network;
+  const unavailable = !ticker || !isTickerOnNetwork(ticker, network);
+  const active = selectedCoinPreferences.has(ticker) && !unavailable;
+  if (useFavoriteCoin) {
+    useFavoriteCoin.classList.toggle("active", active);
+    useFavoriteCoin.disabled = unavailable;
+    useFavoriteCoin.innerHTML = active
+      ? `${icon("check")} Using this coin`
+      : `${icon("check")} Use this coin`;
+  }
+  if (favoriteMarketCoin) {
+    const favorited = !unavailable && isFavoriteCoin(ticker, network);
+    favoriteMarketCoin.disabled = unavailable;
+    favoriteMarketCoin.classList.toggle("active", favorited);
+    favoriteMarketCoin.setAttribute("aria-pressed", String(favorited));
+    favoriteMarketCoin.innerHTML = favorited
+      ? `${icon("starFilled")} <span>Favorited</span>`
+      : `${icon("star")} <span>Favorite</span>`;
+  }
 }
 
 function updateCoinPreferenceAvailability() {
@@ -6225,7 +7195,7 @@ function updateCoinPreferenceAvailability() {
   document.querySelectorAll('input[name="coinPrefs"]').forEach((input) => {
     const available = isTickerOnNetwork(input.value, network);
     input.disabled = !available;
-    if (!available) input.checked = false;
+    input.checked = available && selectedCoinPreferences.has(normalizeTicker(input.value));
     input.nextElementSibling?.setAttribute("title", available ? `${input.value} is available on ${network}` : `${input.value} is not available on ${network}`);
   });
   updateFavoriteToggle();
@@ -6556,12 +7526,17 @@ async function confirmViciReview() {
   if (!pendingViciSwapHandoff || !reviewAcknowledge.checked) return;
   const { bundleId, url } = pendingViciSwapHandoff;
   closeViciReview();
+  const snapshot = saveRecentBundleSnapshot(bundleId);
+  if (snapshot) {
+    const alreadyScheduled = readReviewAlerts().some((alert) => alert.snapshotId === snapshot.id && alert.status === "pending");
+    if (!alreadyScheduled) scheduleBundleReview(bundleId, bundleReviewDelay(), { silent: true, snapshotId: snapshot.id });
+  }
   submitTrackedBundle(bundleId);
   await copyViciSwapHandoff(bundleId);
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-function makeSparkline(prices, change) {
+function makeSparkline(prices, change, windowLabel = "24h") {
   const series = normalizePriceSeries(prices);
   const width = 320;
   const height = 132;
@@ -6589,7 +7564,7 @@ function makeSparkline(prices, change) {
   const area = `${line} L ${width - pad} ${height - pad} L ${pad} ${height - pad} Z`;
   const color = change >= 0 ? "#1f8a5f" : "#c8503e";
   return `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="24 hour sparkline">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(windowLabel)} sparkline">
       <path d="${area}" fill="${color}" opacity="0.12"></path>
       <path d="${line}" fill="none" stroke="${color}" stroke-width="3"></path>
       <circle cx="${points.at(-1)[0].toFixed(1)}" cy="${points.at(-1)[1].toFixed(1)}" r="4" fill="${color}"></circle>

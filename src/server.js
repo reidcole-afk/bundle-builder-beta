@@ -3,7 +3,15 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { URL } = require("node:url");
-const { recommendBundle, getSupportedTokens, normalizeNetwork, isNetworkAllowedForBeta, API_VERSION } = require("./recommendation-engine");
+const {
+  recommendBundle,
+  getSupportedTokens,
+  normalizeNetwork,
+  isNetworkAllowedForBeta,
+  coinGeckoIdForTicker,
+  API_VERSION,
+} = require("./recommendation-engine");
+const { collectNewsIntelligence } = require("./news-intelligence");
 
 const PORT = Number(process.env.PORT || 8788);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -44,7 +52,7 @@ const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
 ];
 const COINGECKO_CHART_PRELOAD_IDS = parseCoinGeckoPreloadIds(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_IDS);
 const CATALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_CATALYST_CACHE_MS || 1000 * 60 * 10);
-const CATALYST_FETCH_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_CATALYST_TIMEOUT_MS || 2200);
+const CATALYST_FETCH_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_CATALYST_TIMEOUT_MS || 5000);
 const coingeckoChartPreloadState = {
   enabled: COINGECKO_CHART_PRELOAD_ENABLED,
   running: false,
@@ -230,8 +238,16 @@ async function handleRequest(request, response) {
 
       const network = normalizeNetwork(url.searchParams.get("network") || "base");
       const name = safeText(url.searchParams.get("name"), 120) || ticker;
+      const coinGeckoId = safeText(url.searchParams.get("coinGeckoId"), 120) || coinGeckoIdForTicker(ticker);
+      const contractAddress = safeText(url.searchParams.get("contractAddress"), 80);
       const force = isTruthy(url.searchParams.get("force"));
-      const payload = await getCatalystIntelligence({ ticker, name, network: network.name }, { force });
+      const payload = await getCatalystIntelligence({
+        ticker,
+        name,
+        network: network.name,
+        coinGeckoId,
+        contractAddress,
+      }, { force });
       sendJson(response, 200, payload);
       return;
     }
@@ -607,40 +623,42 @@ function contentTypeForPath(filePath) {
   return types[extension] || "application/octet-stream";
 }
 
-async function getCatalystIntelligence({ ticker, name, network }, options = {}) {
+async function getCatalystIntelligence({ ticker, name, network, coinGeckoId, contractAddress }, options = {}) {
   const normalizedTicker = safeTicker(ticker);
   const normalizedNetwork = normalizeNetwork(network?.name || network).name;
-  const cacheKey = `${normalizedNetwork}:${normalizedTicker}:${safeText(name, 120).toLowerCase()}`;
+  const resolvedCoinGeckoId = safeText(coinGeckoId, 120) || coinGeckoIdForTicker(normalizedTicker);
+  const cacheKey = `${normalizedNetwork}:${normalizedTicker}:${resolvedCoinGeckoId}:${safeText(name, 120).toLowerCase()}`;
   const cached = catalystCache.get(cacheKey);
   if (!options.force && cached && Date.now() - cached.cachedAt < CATALYST_CACHE_MS) return cached.value;
 
   const profile = catalystProfiles[normalizedTicker] || null;
   const query = catalystSearchQuery({ ticker: normalizedTicker, name, network: normalizedNetwork, profile });
   const searches = catalystSearchLinks({ ticker: normalizedTicker, name, network: normalizedNetwork, profile, query });
-  let articles = [];
-  let fetchError = null;
-
-  try {
-    const payload = await fetchJsonWithTimeout(makeGdeltNewsUrl(query), CATALYST_FETCH_TIMEOUT_MS);
-    articles = normalizeCatalystArticles(payload?.articles)
-      .map((article) => ({ ...article, score: scoreCatalystArticle(article, normalizedTicker, profile) }))
-      .filter((article) => article.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-  } catch (error) {
-    fetchError = error.message || "news search failed";
-  }
+  const intelligence = await collectNewsIntelligence({
+    ticker: normalizedTicker,
+    name: safeText(name, 120) || normalizedTicker,
+    network: normalizedNetwork,
+    coinGeckoId: resolvedCoinGeckoId,
+    contractAddress,
+    profile,
+  }, { timeoutMs: CATALYST_FETCH_TIMEOUT_MS });
+  const articles = intelligence.articles;
 
   const topArticle = articles[0] || null;
-  const source = topArticle ? "GDELT news scan" : profile ? profile.source : "No catalyst source";
-  const confidence = topArticle ? "article-signal" : profile ? "watchlist-signal" : "unconfirmed";
-  const driver = topArticle ? catalystDriverFromText(topArticle.title, profile) : profile?.driver || "market catalyst";
-  const riskDriver = topArticle ? riskDriverFromText(topArticle.title) : "";
+  const source = topArticle
+    ? intelligence.successfulSourceCount > 1 ? "Multi-source news scan" : topArticle.source
+    : profile ? profile.source : "No catalyst source";
+  const signalType = topArticle ? "verified-article" : profile ? "market-context" : "unconfirmed";
+  const confidence = topArticle ? intelligence.confidence : profile ? "context-only" : "unconfirmed";
+  const driver = topArticle?.driver || profile?.driver || "market catalyst";
+  const riskDriver = topArticle?.direction === "risk" ? driver : "";
+  const corroborated = intelligence.corroboration.find((group) => group.sourceCount >= 2);
   const summary = topArticle
-    ? `${normalizedTicker} has fresh ${driver.toLowerCase()} coverage: ${shortenText(topArticle.title, 130)}${topArticle.domain ? ` (${topArticle.domain})` : ""}.`
+    ? `${normalizedTicker} has fresh ${driver.toLowerCase()} coverage: ${shortenText(topArticle.title, 130)}${topArticle.source ? ` (${topArticle.source})` : ""}.${corroborated ? ` ${corroborated.sourceCount} independent sources are pointing to the same ${corroborated.driver} theme.` : ""}`
     : profile
-      ? `${normalizedTicker} has a catalyst watchlist lane: ${profile.summary}`
-      : `No article-level catalyst was confirmed for ${normalizedTicker}.`;
+      ? `No recent article was confirmed for ${normalizedTicker}. Background context: ${profile.summary}`
+      : `No recent article-level catalyst was confirmed for ${normalizedTicker}.`;
+  const failedSources = intelligence.sourceStatuses.filter((status) => status.enabled && !status.ok);
 
   const value = {
     ok: true,
@@ -648,20 +666,31 @@ async function getCatalystIntelligence({ ticker, name, network }, options = {}) 
     name: safeText(name, 120) || normalizedTicker,
     network: normalizedNetwork,
     source,
+    signalType,
     confidence,
     driver,
     riskDriver,
-    score: topArticle ? clamp(2.5 + topArticle.score, 2.5, 8) : profile ? 3.5 : 0,
+    score: topArticle ? intelligence.score : 0,
+    contextStrength: profile ? 3.5 : 0,
     articleCount: articles.length,
-    topTitle: topArticle?.title || profile?.title || "",
-    topSource: topArticle?.domain || profile?.source || "",
+    verifiedArticleCount: articles.filter((article) => article.verified).length,
+    topTitle: topArticle?.title || "",
+    topSource: topArticle?.domain || "",
     articles,
+    sourceStatuses: intelligence.sourceStatuses,
+    corroboration: intelligence.corroboration,
+    configuredSourceCount: intelligence.configuredSourceCount,
+    successfulSourceCount: intelligence.successfulSourceCount,
     summary,
+    contextTitle: profile?.title || "",
+    contextSummary: profile?.summary || "",
     watch: profile?.watch || "Watch whether volume, route depth, and chart structure keep confirming the move.",
     socialWatch: profile?.socialWatch || "No dedicated social watchlist is attached yet.",
     searches,
     updatedAt: new Date().toISOString(),
-    warning: fetchError && !topArticle ? `Live catalyst search unavailable: ${fetchError}` : null,
+    warning: !topArticle && failedSources.length
+      ? `Some news sources were unavailable: ${failedSources.map((status) => status.name).join(", ")}`
+      : null,
   };
   catalystCache.set(cacheKey, { value, cachedAt: Date.now() });
   return value;

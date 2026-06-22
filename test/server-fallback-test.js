@@ -44,6 +44,13 @@ global.fetch = async (url) => {
   assert.equal(catalystFallback.body.ok, true);
   assert.equal(catalystFallback.body.ticker, "AERO");
   assert.equal(catalystFallback.body.source, "Bundle Builder catalyst watchlist");
+  assert.equal(catalystFallback.body.signalType, "market-context");
+  assert.equal(catalystFallback.body.score, 0);
+  assert(catalystFallback.body.contextStrength > 0);
+  assert.equal(catalystFallback.body.verifiedArticleCount, 0);
+  assert.deepEqual(catalystFallback.body.articles, []);
+  assert.equal(catalystFallback.body.topTitle, "");
+  assert(catalystFallback.body.summary.includes("No recent article was confirmed"));
   assert(catalystFallback.body.socialWatch.includes("Monitor"));
   assert(catalystFallback.body.searches.xSearch.includes("x.com/search"));
 
