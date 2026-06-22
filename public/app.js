@@ -957,9 +957,6 @@ const tourHelp = document.getElementById("tourHelp");
 const notificationCenter = document.getElementById("notificationCenter");
 const coinPreferenceSearch = document.getElementById("coinPreferenceSearch");
 const coinPreferenceCategory = document.getElementById("coinPreferenceCategory");
-const selectVisibleCoins = document.getElementById("selectVisibleCoins");
-const clearSelectedCoins = document.getElementById("clearSelectedCoins");
-const coinPreferenceSummary = document.getElementById("coinPreferenceSummary");
 const selectedCoinSummary = document.getElementById("selectedCoinSummary");
 
 let latestMatches = [];
@@ -2492,9 +2489,8 @@ function syncCoinPreferenceFilterToFocus(focus, { clearSearch = true } = {}) {
 }
 
 function renderSelectedCoinSummary() {
-  if (!selectedCoinSummary || !coinPreferenceSummary) return;
+  if (!selectedCoinSummary) return;
   const supported = [...selectedCoinPreferences].filter((ticker) => isTickerOnNetwork(ticker, safePreferences().network));
-  coinPreferenceSummary.textContent = `${supported.length} selected`;
   selectedCoinSummary.innerHTML = supported.length
     ? supported.map((ticker) => `<button type="button" data-remove-coin="${ticker}" aria-label="Remove ${ticker}">${ticker}<span aria-hidden="true">&times;</span></button>`).join("")
     : '<span>No preferred coins selected. The machine can search the full eligible list.</span>';
@@ -2884,12 +2880,54 @@ function isFavoriteCoin(ticker, network = safePreferences().network) {
   return readFavoriteCoins().some((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) === key);
 }
 
+function favoriteActionSignal(favorite = {}, setup = null, entry = null, hold = null) {
+  const change = finiteOrNull(favorite.change24h);
+  const edgeLabel = String(favorite.marketEdge?.label || favorite.edgeLabel || "").toLowerCase();
+  const setupLabel = String(setup?.label || favorite.setupLabel || "").toLowerCase();
+  const entryLabel = String(entry?.label || favorite.entryLabel || "").toLowerCase();
+  if (/falling|caution|wait|high-zone/.test(entryLabel) || (Number.isFinite(change) && change <= -4 && !setup?.boughtPullback)) {
+    return {
+      label: "Wait / avoid chase",
+      tone: "caution",
+      text: entry?.text || `${normalizeTicker(favorite.ticker) || "This coin"} needs stabilization before the setup looks actionable.`,
+    };
+  }
+  if (/pullback|constructive|momentum/.test(entryLabel) || /strong|confirmed/.test(edgeLabel) || /constructive/.test(setupLabel)) {
+    return {
+      label: "Buy setup",
+      tone: "positive",
+      text: entry?.text || hold?.text || `${normalizeTicker(favorite.ticker) || "This coin"} has enough confirmation to deserve a route and sizing check.`,
+    };
+  }
+  return {
+    label: "Hold / watch",
+    tone: "neutral",
+    text: hold?.text || entry?.text || `${normalizeTicker(favorite.ticker) || "This coin"} stays on watch until volume, route quality, and chart direction confirm.`,
+  };
+}
+
+function favoriteStoredRead(coin = {}) {
+  if (coin.actionLabel || coin.actionText) {
+    return {
+      label: coin.actionLabel || "Hold / watch",
+      tone: coin.actionTone || "neutral",
+      text: coin.actionText || coin.note || "Saved from Live Market Pulse.",
+    };
+  }
+  return favoriteActionSignal(coin);
+}
+
 function favoriteCoinRecord(candidate = currentFavorite) {
   const ticker = normalizeTicker(candidate?.ticker);
   if (!ticker) return null;
   const network = normalizeNetwork(safePreferences().network);
   const thesis = tokenThesisProfiles?.[ticker];
   const row = coinData.find(([coinTicker]) => normalizeTicker(coinTicker) === ticker);
+  const setup = candidate?.marketSetup || marketSetupSignal(candidate, candidate, candidate?.prices);
+  const trajectory = chartTrajectoryLabel(candidate?.prices);
+  const entry = entryTimingSignal(candidate, setup, trajectory);
+  const hold = holdWindowSignal(candidate, setup, trajectory);
+  const action = favoriteActionSignal(candidate, setup, entry, hold);
   return {
     key: favoriteCoinKey(ticker, network),
     ticker,
@@ -2901,8 +2939,15 @@ function favoriteCoinRecord(candidate = currentFavorite) {
     change24h: finiteOrNull(candidate?.change24h),
     volume24h: finiteOrNull(candidate?.volume24h ?? candidate?.volume24hUsd ?? candidate?.total_volume),
     liquidityUsd: finiteOrNull(candidate?.liquidityUsd),
-    setupLabel: candidate?.marketSetup?.label || candidate?.setupLabel || "",
+    setupLabel: setup?.label || candidate?.setupLabel || "",
     edgeLabel: candidate?.marketEdge?.label || candidate?.edgeLabel || "",
+    entryLabel: entry?.label || "",
+    entryText: entry?.text || "",
+    holdLabel: hold?.label || "",
+    holdText: hold?.text || "",
+    actionLabel: action.label,
+    actionTone: action.tone,
+    actionText: action.text,
     note: thesis?.why || candidate?.reason || row?.[4] || "",
   };
 }
@@ -3027,6 +3072,7 @@ function renderProfile() {
     profileFavoriteList.innerHTML = favorites.length ? favorites.map((coin) => {
       const ticker = normalizeTicker(coin.ticker);
       const network = normalizeNetwork(coin.network);
+      const read = favoriteStoredRead(coin);
       const context = [
         coin.edgeLabel,
         coin.setupLabel,
@@ -3038,6 +3084,10 @@ function renderProfile() {
             <strong>${escapeHtml(ticker)}${coin.name && coin.name !== ticker ? ` - ${escapeHtml(coin.name)}` : ""}</strong>
             <span>${escapeHtml(network)} · saved ${formatDateTime(coin.addedAt)}</span>
             <small>${escapeHtml(context || coin.note || "Saved from Live Market Pulse.")}</small>
+            <div class="profile-favorite-read ${escapeAttribute(read.tone)}">
+              <b>${escapeHtml(read.label)}</b>
+              <small>${escapeHtml(read.text)}</small>
+            </div>
           </div>
           <button type="button" data-remove-favorite-coin="${escapeAttribute(ticker)}" data-remove-favorite-network="${escapeAttribute(network)}">Remove</button>
         </article>
@@ -3321,18 +3371,6 @@ favoriteMarketCoin?.addEventListener("click", () => toggleFavoriteMarketCoin(cur
 
 coinPreferenceSearch?.addEventListener("input", renderCoinPreferenceChips);
 coinPreferenceCategory?.addEventListener("change", renderCoinPreferenceChips);
-selectVisibleCoins?.addEventListener("click", () => {
-  visibleCoinPreferenceTickers().forEach((ticker) => selectedCoinPreferences.add(ticker));
-  renderCoinPreferenceChips();
-  saveBuilderPreferences();
-  showToast("Visible supported coins selected.");
-});
-clearSelectedCoins?.addEventListener("click", () => {
-  selectedCoinPreferences.clear();
-  renderCoinPreferenceChips();
-  saveBuilderPreferences();
-  if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
-});
 
 profileButton?.addEventListener("click", openProfile);
 profileClose?.addEventListener("click", closeProfile);
@@ -3629,7 +3667,7 @@ document.addEventListener("visibilitychange", () => {
 let headerScrollFrame = 0;
 function syncCompactMobileHeader() {
   if (!appHeader) return;
-  const shouldCompact = window.matchMedia("(max-width: 720px)").matches && window.scrollY > 72;
+  const shouldCompact = false;
   appHeader.classList.toggle("is-compact", shouldCompact);
 }
 window.addEventListener("scroll", () => {
@@ -5562,7 +5600,7 @@ function entryCautionFlag(favorite = {}) {
     <div class="pulse-entry-warning ${escapeHtml(tone)}">
       <button class="pulse-entry-flag ${escapeHtml(tone)}" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(`${note.label}: ${note.text}`)}">
         ${entryFlagIcon(tone)}
-        <span>${escapeHtml(note.label)}</span>
+        <span class="sr-only">${escapeHtml(note.label)}</span>
       </button>
       <div class="pulse-entry-popover ${escapeHtml(tone)}" id="${escapeHtml(panelId)}" hidden>
         <strong>${escapeHtml(note.label)}</strong>
