@@ -943,6 +943,7 @@ const profileDisplayName = document.getElementById("profileDisplayName");
 const profileSaveName = document.getElementById("profileSaveName");
 const profileDialogTitle = document.getElementById("profileDialogTitle");
 const profileFavoriteList = document.getElementById("profileFavoriteList");
+const profileFavoriteBundleList = document.getElementById("profileFavoriteBundleList");
 const profileBundleList = document.getElementById("profileBundleList");
 const profileAlertList = document.getElementById("profileAlertList");
 const appHeader = document.querySelector(".app-header");
@@ -965,6 +966,8 @@ let currentFavorite = fallbackPulse;
 let currentFavorites = fallbackPulseDeck;
 let currentFavoriteIndex = 0;
 let currentBundle = null;
+let activeProfileFavoritesTab = "coins";
+let editingBundleNameId = "";
 let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
 let pendingPulseWindowLoads = new Map();
@@ -1175,7 +1178,9 @@ function chooseBundleNetwork(bundle, preferences = getPreferences()) {
 }
 
 function getViciSwapAllocation(bundle, preferences = getPreferences(), network = chooseBundleNetwork(bundle, preferences)) {
-  const supportedAllocation = getNetworkSafeAllocation(bundle.allocation, network);
+  const selectedTickers = selectedTickersForNetwork(preferences, network);
+  const supportedAllocation = getNetworkSafeAllocation(bundle.allocation, network)
+    .filter(([ticker]) => !selectedTickers.length || selectedTickers.some((selected) => areEquivalentTickers(selected, ticker)));
   const desiredCount = getDesiredSupportedCoinCount(preferences, network);
   return normalizeAllocationWeights(fillAllocationToCount(supportedAllocation, network, desiredCount, preferences));
 }
@@ -1615,6 +1620,8 @@ function readApiTokenField(row, keys) {
 function getDesiredSupportedCoinCount(preferences, network) {
   const availableCount = getUniqueSupportedFamilyCount(network);
   if (!availableCount) return 0;
+  const selectedCount = selectedTickersForNetwork(preferences, network).length;
+  if (selectedCount) return Math.min(selectedCount, availableCount);
   const requested = preferences.diversityEnabled ? preferences.coinCount : 6;
   return Math.max(Math.min(3, availableCount), Math.min(requested, availableCount));
 }
@@ -1625,9 +1632,9 @@ function getUniqueSupportedFamilyCount(network) {
 
 function fillAllocationToCount(allocation, network, desiredCount, preferences) {
   const filled = allocation.slice();
-  const selectedTickers = preferences.selectedCoins.filter((ticker) => isTickerOnNetwork(ticker, network));
+  const selectedTickers = selectedTickersForNetwork(preferences, network);
   const fallbackTickers = getNetworkCandidateTickers(network);
-  const candidates = [...new Set([...selectedTickers, ...fallbackTickers])];
+  const candidates = selectedTickers.length ? selectedTickers : fallbackTickers;
 
   for (const ticker of candidates) {
     if (filled.length >= desiredCount) break;
@@ -1636,6 +1643,18 @@ function fillAllocationToCount(allocation, network, desiredCount, preferences) {
   }
 
   return rebalanceAllocationByLiveSignals(filled, preferences);
+}
+
+function selectedTickersForNetwork(preferences = safePreferences(), network = preferences.network) {
+  const normalizedNetwork = normalizeNetwork(network);
+  const seenFamilies = new Set();
+  return (preferences.selectedCoins || []).filter((ticker) => {
+    if (!isTickerOnNetwork(ticker, normalizedNetwork)) return false;
+    const family = canonicalTickerFamily(ticker);
+    if (seenFamilies.has(family)) return false;
+    seenFamilies.add(family);
+    return true;
+  });
 }
 
 function areEquivalentTickers(firstTicker, secondTicker) {
@@ -2731,6 +2750,7 @@ function icon(name) {
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>',
     star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" /></svg>',
     starFilled: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m12 3 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8l-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9L12 3Z" /></svg>',
+    pencil: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" /></svg>',
   };
   return icons[name] || "";
 }
@@ -2856,6 +2876,60 @@ function writeLocalArray(key, value) {
 
 function readRecentBundles() {
   return readLocalArray(recentBundlesStorageKey);
+}
+
+function bundleDisplayName(bundle = {}) {
+  return String(bundle.customName || bundle.name || "Bundle Builder allocation").trim();
+}
+
+function updateRecentBundleRecord(snapshotId, updater) {
+  if (!snapshotId) return null;
+  let updatedRecord = null;
+  const next = readRecentBundles().map((bundle) => {
+    if (bundle.id !== snapshotId) return bundle;
+    updatedRecord = updater({ ...bundle });
+    return updatedRecord;
+  });
+  writeLocalArray(recentBundlesStorageKey, next);
+  renderProfile();
+  return updatedRecord;
+}
+
+function toggleFavoriteBundle(snapshotId) {
+  const updated = updateRecentBundleRecord(snapshotId, (bundle) => ({
+    ...bundle,
+    favorite: !bundle.favorite,
+    favoritedAt: !bundle.favorite ? new Date().toISOString() : "",
+  }));
+  if (updated) showToast(updated.favorite ? `${bundleDisplayName(updated)} saved as a favorite bundle.` : `${bundleDisplayName(updated)} removed from favorite bundles.`);
+}
+
+function renameRecentBundle(snapshotId) {
+  const bundle = readRecentBundles().find((item) => item.id === snapshotId);
+  if (!bundle) return;
+  editingBundleNameId = snapshotId;
+  renderProfile();
+  requestAnimationFrame(() => {
+    const input = document.querySelector("[data-bundle-name-input]");
+    input?.focus();
+    input?.select();
+  });
+}
+
+function saveRecentBundleName(snapshotId, value) {
+  const cleanName = String(value || "").trim().replace(/\s+/g, " ").slice(0, 60);
+  if (!cleanName) {
+    showToast("Bundle name was not changed.");
+    return;
+  }
+  editingBundleNameId = "";
+  updateRecentBundleRecord(snapshotId, (item) => ({ ...item, customName: cleanName, renamedAt: new Date().toISOString() }));
+  showToast(`Bundle renamed to ${cleanName}.`);
+}
+
+function cancelRecentBundleRename() {
+  editingBundleNameId = "";
+  renderProfile();
 }
 
 function readReviewAlerts() {
@@ -3615,7 +3689,7 @@ function scheduleBundleReview(bundleId, delayDays, { silent = false, snapshotId 
     id: `review-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     bundleId: snapshot.bundleId,
     snapshotId: snapshot.id,
-    bundleName: snapshot.name,
+    bundleName: bundleDisplayName(snapshot),
     dueAt: resolvedDueAt,
     createdAt: new Date().toISOString(),
     detectedAt: kind === "urgent-risk-review" ? new Date().toISOString() : "",
@@ -3627,7 +3701,7 @@ function scheduleBundleReview(bundleId, delayDays, { silent = false, snapshotId 
   };
   writeLocalArray(reviewAlertsStorageKey, [alert, ...alerts].slice(0, 40));
   renderProfile();
-  if (!silent) showToast(`${snapshot.name} analysis scheduled for ${formatDateTime(resolvedDueAt)}.`);
+  if (!silent) showToast(`${bundleDisplayName(snapshot)} analysis scheduled for ${formatDateTime(resolvedDueAt)}.`);
 }
 
 function formatShortDate(value) {
@@ -3642,6 +3716,85 @@ function formatDateTime(value) {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+function renderProfileFavoriteTabs() {
+  document.querySelectorAll("[data-profile-favorites-tab]").forEach((button) => {
+    const isActive = button.dataset.profileFavoritesTab === activeProfileFavoritesTab;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  document.querySelectorAll("[data-profile-favorites-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.profileFavoritesPanel !== activeProfileFavoritesTab;
+  });
+}
+
+function setProfileFavoritesTab(tab) {
+  activeProfileFavoritesTab = tab === "bundles" ? "bundles" : "coins";
+  renderProfileFavoriteTabs();
+}
+
+function bundlePerformanceSnapshot(bundle = {}) {
+  const allocation = Array.isArray(bundle.allocation) ? bundle.allocation : [];
+  const startValue = finiteOrNull(bundle.startValueUsd) || finiteOrNull(bundle.amountUsd)
+    || allocation.reduce((sum, coin) => sum + (finiteOrNull(coin.amountUsd) || 0), 0);
+  if (!startValue) return { startValue: 0, currentValue: 0, changePercent: 0, tone: "neutral" };
+  const livePreferences = {
+    ...safePreferences(),
+    network: normalizeNetwork(bundle.network || safePreferences().network),
+    risk: bundle.risk || safePreferences().risk,
+    targetHorizon: normalizeTargetHorizon(bundle.targetHorizon || safePreferences().targetHorizon),
+  };
+  const currentValue = allocation.reduce((sum, coin) => {
+    const amount = finiteOrNull(coin.amountUsd) || 0;
+    const live = allocationSignalSnapshot(coin.ticker, livePreferences);
+    const change = finiteOrNull(live?.change24h ?? coin.change24h) || 0;
+    return sum + amount * (1 + change / 100);
+  }, 0) || startValue;
+  const changePercent = ((currentValue - startValue) / startValue) * 100;
+  return {
+    startValue,
+    currentValue,
+    changePercent,
+    tone: changePercent > 0.05 ? "positive" : changePercent < -0.05 ? "caution" : "neutral",
+  };
+}
+
+function renderProfileBundleCard(bundle = {}) {
+  const displayName = bundleDisplayName(bundle);
+  const isEditing = editingBundleNameId === bundle.id;
+  const performance = bundlePerformanceSnapshot(bundle);
+  const titleControl = isEditing ? `
+    <form class="profile-bundle-rename" data-bundle-rename-form="${escapeAttribute(bundle.id)}">
+      <input data-bundle-name-input="${escapeAttribute(bundle.id)}" type="text" maxlength="60" value="${escapeAttribute(displayName)}" aria-label="Bundle name" />
+      <button type="submit">Save</button>
+      <button type="button" data-cancel-rename-bundle="${escapeAttribute(bundle.id)}">Cancel</button>
+    </form>
+  ` : `
+    <span class="profile-bundle-title-row">
+      <strong>${escapeHtml(displayName)}</strong>
+      <button class="profile-icon-button ${bundle.favorite ? "active" : ""}" type="button" data-favorite-bundle="${escapeAttribute(bundle.id)}" aria-label="${bundle.favorite ? "Remove bundle from favorites" : "Favorite this bundle"}" aria-pressed="${String(Boolean(bundle.favorite))}">${icon(bundle.favorite ? "starFilled" : "star")}</button>
+      <button class="profile-icon-button" type="button" data-rename-bundle="${escapeAttribute(bundle.id)}" aria-label="Rename ${escapeAttribute(displayName)}">${icon("pencil")}</button>
+    </span>
+  `;
+  return `
+    <article class="profile-bundle-card ${bundle.favorite ? "is-favorite" : ""}">
+      <header>
+        <div>
+          ${titleControl}
+          <span>${escapeHtml(bundle.network)} · ${formatDateTime(bundle.createdAt)}${bundle.favorite ? " · favorite" : ""}</span>
+        </div>
+        <div class="profile-bundle-value">
+          <strong>${formatCurrency(performance.currentValue)}</strong>
+          <span class="${escapeAttribute(performance.tone)}">${formatPercent(performance.changePercent)}</span>
+          <small>Started at ${formatCurrency(performance.startValue || bundle.amountUsd || 0)}</small>
+        </div>
+      </header>
+      <div class="profile-allocation">${(bundle.allocation || []).map((coin) => `<span>${escapeHtml(coin.ticker)} <b>${coin.weight}%</b></span>`).join("")}</div>
+      ${renderProfileBundleRead(bundle)}
+      <button type="button" data-profile-remind="${escapeAttribute(bundle.id)}" data-profile-bundle="${escapeAttribute(bundle.bundleId)}">Schedule analysis</button>
+    </article>
+  `;
+}
+
 function renderProfile() {
   if (!profileBundleList || !profileAlertList) return;
   const localProfile = readLocalProfile();
@@ -3649,9 +3802,13 @@ function renderProfile() {
   updatePersonalGreeting(displayName);
   if (profileDisplayName) profileDisplayName.value = displayName;
   if (profileDialogTitle) profileDialogTitle.textContent = displayName ? `${displayName}'s profile` : "Profile";
-  const recent = readRecentBundles();
+  const recent = readRecentBundles()
+    .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
+      || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const favoriteBundles = recent.filter((bundle) => bundle.favorite);
   const alerts = readReviewAlerts().filter((item) => item.status === "pending");
   const favorites = readFavoriteCoins();
+  renderProfileFavoriteTabs();
   if (profileFavoriteList) {
     profileFavoriteList.innerHTML = favorites.length ? favorites.map((coin) => {
       const ticker = normalizeTicker(coin.ticker);
@@ -3685,14 +3842,14 @@ function renderProfile() {
       `;
     }).join("") : '<p class="profile-empty">Favorite coins appear here after you star a market pulse coin.</p>';
   }
-  profileBundleList.innerHTML = recent.length ? recent.map((bundle) => `
-    <article class="profile-bundle-card">
-      <header><div><strong>${escapeHtml(bundle.name)}</strong><span>${escapeHtml(bundle.network)} · ${formatDateTime(bundle.createdAt)}</span></div><b>${formatCurrency(bundle.amountUsd || 0)}</b></header>
-      <div class="profile-allocation">${(bundle.allocation || []).map((coin) => `<span>${escapeHtml(coin.ticker)} <b>${coin.weight}%</b></span>`).join("")}</div>
-      ${renderProfileBundleRead(bundle)}
-      <button type="button" data-profile-remind="${escapeAttribute(bundle.id)}" data-profile-bundle="${escapeAttribute(bundle.bundleId)}">Schedule analysis</button>
-    </article>
-  `).join("") : '<p class="profile-empty">Bundles appear here after you complete the ViciSwap review handoff.</p>';
+  if (profileFavoriteBundleList) {
+    profileFavoriteBundleList.innerHTML = favoriteBundles.length
+      ? favoriteBundles.map(renderProfileBundleCard).join("")
+      : '<p class="profile-empty">Favorite bundles appear here after you star a recent bundle.</p>';
+  }
+  profileBundleList.innerHTML = recent.length
+    ? recent.map(renderProfileBundleCard).join("")
+    : '<p class="profile-empty">Bundles appear here after you complete the ViciSwap review handoff.</p>';
   profileAlertList.innerHTML = alerts.length ? alerts.map((alert) => {
     const due = new Date(alert.dueAt).getTime();
     const isDue = Number.isFinite(due) && due <= Date.now();
@@ -3883,6 +4040,15 @@ form.addEventListener("submit", (event) => {
   event.preventDefault();
   openAmountDialog();
 });
+
+document.body.addEventListener("submit", (event) => {
+  const renameForm = event.target.closest("[data-bundle-rename-form]");
+  if (!renameForm) return;
+  event.preventDefault();
+  const input = renameForm.querySelector("[data-bundle-name-input]");
+  saveRecentBundleName(renameForm.dataset.bundleRenameForm, input?.value);
+});
+
 form.addEventListener("change", (event) => {
   if (event.target.matches('input[name="theme"]')) {
     syncCoinPreferenceFilterToFocus(event.target.value);
@@ -4097,6 +4263,11 @@ function openPulseSummaryModal(button, panel) {
 }
 
 document.body.addEventListener("click", (event) => {
+  const profileFavoritesTab = event.target.closest("[data-profile-favorites-tab]");
+  if (profileFavoritesTab) {
+    setProfileFavoritesTab(profileFavoritesTab.dataset.profileFavoritesTab);
+    return;
+  }
   const favoriteToken = event.target.closest("[data-favorite-token]");
   if (favoriteToken) {
     toggleFavoriteBundleToken(favoriteToken.dataset.favoriteToken);
@@ -4139,6 +4310,21 @@ document.body.addEventListener("click", (event) => {
       const delay = Number(delayControl?.value || bundleReviewDelay());
       scheduleBundleReview(scheduleReview.dataset.scheduleReview, delay);
     }
+    return;
+  }
+  const favoriteBundle = event.target.closest("[data-favorite-bundle]");
+  if (favoriteBundle) {
+    toggleFavoriteBundle(favoriteBundle.dataset.favoriteBundle);
+    return;
+  }
+  const renameBundle = event.target.closest("[data-rename-bundle]");
+  if (renameBundle) {
+    renameRecentBundle(renameBundle.dataset.renameBundle);
+    return;
+  }
+  const cancelRenameBundle = event.target.closest("[data-cancel-rename-bundle]");
+  if (cancelRenameBundle) {
+    cancelRecentBundleRename();
     return;
   }
   const profileReminder = event.target.closest("[data-profile-remind]");

@@ -812,23 +812,26 @@ function selectStrategyModel(params, network, supportedTickers, scoredCandidates
 function buildAllocation(model, scoredCandidates, tokenMap, params) {
   const selected = new Map();
   const supportedCandidateMap = new Map(scoredCandidates.map((candidate) => [candidate.ticker, candidate]));
+  const hasPreferredCoins = params.preferredCoins.length > 0;
 
   for (const ticker of params.preferredCoins) {
     const candidate = supportedCandidateMap.get(ticker);
     if (candidate) selected.set(ticker, { candidate, role: "Preferred", seedWeight: 14 });
   }
 
-  model.allocation.forEach(([ticker, weight, role]) => {
-    const candidate = supportedCandidateMap.get(ticker);
-    if (!candidate || selected.has(ticker)) return;
-    selected.set(ticker, { candidate, role, seedWeight: weight });
-  });
+  if (!hasPreferredCoins) {
+    model.allocation.forEach(([ticker, weight, role]) => {
+      const candidate = supportedCandidateMap.get(ticker);
+      if (!candidate || selected.has(ticker)) return;
+      selected.set(ticker, { candidate, role, seedWeight: weight });
+    });
 
-  scoredCandidates.forEach((candidate) => {
-    if (selected.size >= params.coinCount) return;
-    if (selected.has(candidate.ticker)) return;
-    selected.set(candidate.ticker, { candidate, role: roleForCandidate(candidate), seedWeight: fallbackWeight(candidate, params) });
-  });
+    scoredCandidates.forEach((candidate) => {
+      if (selected.size >= params.coinCount) return;
+      if (selected.has(candidate.ticker)) return;
+      selected.set(candidate.ticker, { candidate, role: roleForCandidate(candidate), seedWeight: fallbackWeight(candidate, params) });
+    });
+  }
 
   const rows = [...selected.values()].slice(0, params.coinCount);
   const weighted = normalizeWeights(rows.map(({ candidate, role, seedWeight }) => {

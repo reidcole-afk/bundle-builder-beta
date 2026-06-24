@@ -3254,6 +3254,10 @@ input[type="range"] {
   min-height: 42px;
 }
 
+.review-reminder-control .action-button {
+  white-space: normal;
+}
+
 .review-date-time {
   min-height: 42px;
   min-width: 205px;
@@ -3445,6 +3449,45 @@ input[type="range"] {
   margin-bottom: 10px;
 }
 
+.profile-favorites-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-favorites-tab {
+  margin: 0;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
+  color: var(--ink-soft);
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  transform: translateY(1px);
+}
+
+.profile-favorites-tab.active {
+  border-color: var(--teal) var(--line) var(--panel);
+  border-top-width: 3px;
+  color: var(--teal-strong);
+  background: linear-gradient(180deg, rgba(137, 221, 213, 0.22), var(--panel) 58%);
+  box-shadow: 0 -1px 0 rgba(137, 221, 213, 0.3), 0 1px 0 var(--panel);
+}
+
+.profile-favorites-tab:not(.active):hover {
+  color: var(--ink);
+  background: var(--panel-soft);
+}
+
+.profile-favorites-panel[hidden] {
+  display: none;
+}
+
 .profile-bundle-list,
 .profile-favorite-list,
 .profile-alert-list {
@@ -3475,6 +3518,108 @@ input[type="range"] {
 .profile-alert-card > div:first-child {
   display: grid;
   gap: 2px;
+}
+
+.profile-bundle-title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.profile-bundle-title-row strong {
+  min-width: 0;
+}
+
+.profile-bundle-title-row .profile-icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.profile-bundle-title-row .profile-icon-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+}
+
+.profile-bundle-title-row .profile-icon-button.active {
+  border-color: #d69e2e;
+  color: #7a4a05;
+  background: #fff8e7;
+}
+
+.profile-bundle-title-row .profile-icon-button.active svg {
+  fill: currentColor;
+}
+
+.profile-bundle-value {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  min-width: 132px;
+  text-align: right;
+}
+
+.profile-bundle-value strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.profile-bundle-value span {
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.profile-bundle-value span.positive {
+  color: var(--green);
+}
+
+.profile-bundle-value span.caution {
+  color: var(--red);
+}
+
+.profile-bundle-value span.neutral {
+  color: var(--ink-soft);
+}
+
+.profile-bundle-value small {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.profile-bundle-rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.profile-bundle-rename input {
+  width: min(280px, 100%);
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--panel);
+  font: inherit;
+  font-weight: 800;
+}
+
+.profile-bundle-rename button {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-size: 0.82rem;
 }
 
 .profile-bundle-card header span,
@@ -3620,6 +3765,12 @@ input[type="range"] {
   border-color: #60718c;
   background: #22324a;
   color: #f2f7ff;
+}
+
+:root[data-theme="dark"] .profile-bundle-title-row .profile-icon-button.active {
+  border-color: rgba(240, 200, 121, 0.45);
+  color: #f7d38a;
+  background: rgba(214, 158, 46, 0.18);
 }
 
 :root[data-theme="dark"] .seven-day-meter-track {
@@ -3908,6 +4059,22 @@ input[type="range"] {
 }
 
 @media (max-width: 900px) {
+  .review-reminder-control {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .review-reminder-control div {
+    max-width: 42rem;
+  }
+
+  .review-reminder-control select,
+  .review-reminder-control .action-button,
+  .review-date-time {
+    width: 100%;
+    min-width: 0;
+  }
+
   .pulse-ai-summary {
     position: static;
     max-width: 100%;
@@ -4176,6 +4343,11 @@ input[type="range"] {
   .profile-alert-card {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .profile-bundle-value {
+    justify-items: start;
+    text-align: left;
   }
 
   .allocation-editor-head button {

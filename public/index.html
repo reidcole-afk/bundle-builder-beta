@@ -456,9 +456,18 @@
             <button type="button" id="profileSaveName">Save</button>
           </div>
         </div>
-        <div class="profile-section">
-          <h3>Favorite coins</h3>
-          <div class="profile-favorite-list" id="profileFavoriteList"></div>
+        <div class="profile-section profile-favorites-section">
+          <h3>Favorites</h3>
+          <div class="profile-favorites-tabs" role="tablist" aria-label="Favorite profile lists">
+            <button class="profile-favorites-tab active" type="button" data-profile-favorites-tab="coins" role="tab" aria-selected="true">Favorite coins</button>
+            <button class="profile-favorites-tab" type="button" data-profile-favorites-tab="bundles" role="tab" aria-selected="false">Favorite bundles</button>
+          </div>
+          <div class="profile-favorites-panel" data-profile-favorites-panel="coins">
+            <div class="profile-favorite-list" id="profileFavoriteList"></div>
+          </div>
+          <div class="profile-favorites-panel" data-profile-favorites-panel="bundles" hidden>
+            <div class="profile-bundle-list" id="profileFavoriteBundleList"></div>
+          </div>
         </div>
         <div class="profile-section">
           <h3>Recent bundles</h3>

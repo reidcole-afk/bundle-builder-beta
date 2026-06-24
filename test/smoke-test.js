@@ -25,12 +25,12 @@ const { recommendBundle, normalizeParams, normalizeNetwork } = require("../src/r
   const result = await recommendBundle(params, { skipExternalFetch: true });
   assert.equal(result.ok, true);
   assert.equal(result.bundle.network, "Base");
-  assert.equal(result.bundle.coins.length, 6);
-  assert.equal(result.coins.length, 6);
+  assert.equal(result.bundle.coins.length, 2);
+  assert.equal(result.coins.length, 2);
   assert(result.coins.every((coin) => coin.network === "Base"));
   assert(result.coins.every((coin) => typeof coin.allocationPercent === "number"));
   assert(result.coins.every((coin) => coin.categorySignals.source === "not available"));
-  assert(result.coins.some((coin) => coin.ticker === "MORPHO"));
+  assert.deepEqual(result.coins.map((coin) => coin.ticker).sort(), ["AERO", "MORPHO"]);
   assert(!result.coins.some((coin) => coin.ticker === "TOSHI"));
 
   const total = result.coins.reduce((sum, coin) => sum + coin.allocationPercent, 0);
