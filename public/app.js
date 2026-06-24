@@ -926,6 +926,7 @@ const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
 const favoriteCoinSetup = document.getElementById("favoriteCoinSetup");
 const favoriteCoinReason = document.getElementById("favoriteCoinReason");
 const favoriteCoinInsights = document.getElementById("favoriteCoinInsights");
+const pulseSevenDayMeter = document.getElementById("pulseSevenDayMeter");
 const pulseAiSummarySlot = document.getElementById("pulseAiSummarySlot");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
@@ -1019,6 +1020,9 @@ const tourSlides = [
   },
 ];
 const pulseWindowOptions = [
+  { key: "1m", label: "1m", minutes: 43200 },
+  { key: "7d", label: "7d", minutes: 10080 },
+  { key: "3d", label: "3d", minutes: 4320 },
   { key: "24h", label: "24h", minutes: 1440 },
   { key: "12h", label: "12h", minutes: 720 },
   { key: "6h", label: "6h", minutes: 360 },
@@ -1029,14 +1033,17 @@ const pulseWindowOptions = [
   { key: "5m", label: "5m", minutes: 5 },
 ];
 const pulseWindowChartConfig = {
-  "24h": { aggregate: 15, limit: 96 },
-  "12h": { aggregate: 15, limit: 48 },
-  "6h": { aggregate: 5, limit: 72 },
-  "3h": { aggregate: 5, limit: 36 },
-  "1h": { aggregate: 1, limit: 60 },
-  "30m": { aggregate: 1, limit: 30 },
-  "15m": { aggregate: 1, limit: 15 },
-  "5m": { aggregate: 1, limit: 5 },
+  "24h": { timeframe: "minute", aggregate: 15, limit: 96 },
+  "3d": { timeframe: "hour", aggregate: 1, limit: 72 },
+  "7d": { timeframe: "hour", aggregate: 2, limit: 84 },
+  "1m": { timeframe: "day", aggregate: 1, limit: 30 },
+  "12h": { timeframe: "minute", aggregate: 15, limit: 48 },
+  "6h": { timeframe: "minute", aggregate: 5, limit: 72 },
+  "3h": { timeframe: "minute", aggregate: 5, limit: 36 },
+  "1h": { timeframe: "minute", aggregate: 1, limit: 60 },
+  "30m": { timeframe: "minute", aggregate: 1, limit: 30 },
+  "15m": { timeframe: "minute", aggregate: 1, limit: 15 },
+  "5m": { timeframe: "minute", aggregate: 1, limit: 5 },
 };
 let latestPrices = new Map(
   Object.entries(fallbackPrices).map(([ticker, price]) => [ticker, { price, source: "Cached estimate" }]),
@@ -2428,7 +2435,10 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
         <div class="allocation-item">
           <div class="allocation-head">
             <span class="allocation-label">
-              ${ticker} - ${role}
+              <span class="allocation-token-title">
+                <span>${ticker} - ${role}</span>
+                ${bundleTokenFavoriteButton(ticker, selectedNetwork)}
+              </span>
               <small>${networkText}</small>
               ${bestFor ? `<small>Best for ${escapeHtml(bestFor.label)} - ${escapeHtml(bestFor.fit)} with your target.</small>` : ""}
               ${thesisProfile ? `<small>${escapeHtml(thesisProfile.role)}: ${escapeHtml(thesisProfile.why)}</small>` : ""}
@@ -2569,7 +2579,12 @@ function renderCoinRows() {
       const color = score >= 64 ? "#1f8a5f" : score >= 55 ? "#c98219" : "#c8503e";
       return `
         <tr>
-          <td><strong>${escapeHtml(ticker)}</strong></td>
+          <td>
+            <span class="coin-table-ticker">
+              <strong>${escapeHtml(ticker)}</strong>
+              ${bundleTokenFavoriteButton(ticker, network)}
+            </span>
+          </td>
           <td>${escapeHtml(theme)}</td>
           <td>${escapeHtml(networkTextForTicker(ticker) || coinNetwork)}</td>
           <td><span class="score-badge" style="--score-color:${color}">${score}</span></td>
@@ -2913,47 +2928,344 @@ function favoriteHoldEstimate(favorite = {}, hold = null) {
   const change = finiteOrNull(favorite.change24h);
   const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
   const volume = finiteOrNull(favorite.volume24h) || 0;
+  const edge = String(favorite.marketEdge?.label || favorite.edgeLabel || "").toLowerCase();
+  const setup = String(favorite.marketSetup?.label || favorite.setupLabel || "").toLowerCase();
+  const entry = String(favorite.entryLabel || "").toLowerCase();
+  const theme = String(favorite.theme || "").toLowerCase();
+  const highBeta = theme.includes("meme") || theme.includes("ai") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "VIRTUAL"].includes(ticker);
+  const hasDepth = volume >= 1_000_000 && liquidity >= 1_000_000;
+  const strongDepth = volume >= 3_000_000 && liquidity >= 5_000_000;
+  const confirmed = /confirmed|constructive|strong|momentum/.test(`${edge} ${setup} ${entry}`);
 
   if (/watch-only/.test(label)) {
     return {
-      label: "Recheck in 6-12h",
-      text: `${ticker} is better as a watch-only hold until the fade stabilizes. Current holders should look for renewed volume before adding.`,
+      label: "Review in 3-6h",
+      text: `${ticker} is watch-only right now. If holding, do not add yet; review in 3-6h and only stay aggressive if the fade stabilizes with fresh volume.`,
+    };
+  }
+  if (Number.isFinite(change) && change <= -6) {
+    return {
+      label: "Review now",
+      text: `${ticker} is down ${formatPercent(change)} over 24h, so the machine wants an immediate holder check. Consider trimming or pausing adds unless the next route quote and chart rebound are clearly improving.`,
+    };
+  }
+  if (Number.isFinite(change) && change <= -3) {
+    return {
+      label: "Recheck in 6h",
+      text: `${ticker} is slipping enough to need a same-day decision. Hold only if it stabilizes by the next 6h check; otherwise treat it as a trim/rebalance candidate.`,
+    };
+  }
+  if (Number.isFinite(change) && change >= 10 && (!hasDepth || highBeta)) {
+    return {
+      label: "Trim check 6-12h",
+      text: `${ticker} has already moved ${formatPercent(change)} in 24h. If holding, protect the win: avoid chasing adds and check within 6-12h for fading volume or a reversal candle.`,
+    };
+  }
+  if (Number.isFinite(change) && change >= 5 && highBeta) {
+    return {
+      label: "Review in 12-24h",
+      text: `${ticker} is acting like a fast momentum trade. Hold only while volume stays active; if the move stalls by the next 12-24h review, the machine would rather trim than wait lazily.`,
     };
   }
   if (/short-term|quick/.test(label) || (Number.isFinite(change) && change >= 8)) {
     return {
-      label: "1-3 days",
-      text: `${ticker} looks like a shorter momentum hold. Current holders should review it daily and be ready to trim if the 24h move cools without volume.`,
+      label: "Hold 24-48h",
+      text: `${ticker} is a short momentum hold, not a set-and-forget position. Review again within 24-48h; keep it only if price holds up and volume does not fade.`,
     };
   }
-  if (/1-3 week/.test(text)) {
+  if ((/1-3 week/.test(text) || confirmed) && strongDepth && Number.isFinite(change) && change >= 1) {
     return {
-      label: "1-3 weeks",
-      text: `${ticker} has enough market activity for a longer swing hold, as long as route depth and volume stay healthy.`,
+      label: "Recheck in 3-5d",
+      text: `${ticker} has enough confirmation for a real swing attempt. Current holders can give it 3-5 days, but should cut the window short if 24h performance turns negative with weaker volume.`,
     };
   }
   if (/swing/.test(label) || /3-10 day/.test(text)) {
     return {
-      label: "3-10 days",
-      text: `${ticker} fits a swing-style hold. Current holders can give it a few days, but should reassess if volume fades or the setup turns defensive.`,
+      label: "Recheck in 48-72h",
+      text: `${ticker} fits a swing-style hold. Give it 48-72h to prove the setup, then reassess; do not wait a full week if volume fades or the chart turns defensive.`,
     };
   }
   if (/longer/.test(label) || liquidity >= 5_000_000) {
+    if (Number.isFinite(change) && change < 0) {
+      return {
+        label: "Recheck in 3-5d",
+        text: `${ticker} has enough depth for a longer thesis, but the 24h move is negative. Hold only if the next 3-5 days show stabilization; avoid adding while momentum is still soft.`,
+      };
+    }
     return {
-      label: "2-6 weeks",
-      text: `${ticker} can support a longer conviction hold because the thesis is less dependent on one short-term spike.`,
+      label: "Recheck in 5-7d",
+      text: `${ticker} can support a longer thesis, but the next useful decision point is 5-7 days from now. Stay with it while liquidity and trend remain intact; reassess before letting it drift for weeks.`,
     };
   }
   if (/small|flexible/.test(label) || volume < 1_000_000) {
     return {
-      label: "12h-3 days",
-      text: `${ticker} should be reviewed sooner because the machine does not have enough depth or confirmation for a lazy hold.`,
+      label: "Review in 12h",
+      text: `${ticker} does not have enough depth for a lazy hold. If holding, check again in about 12h and avoid adding unless volume and route quality improve.`,
     };
   }
   return {
-    label: "3-10 days",
-    text: `${ticker} is a flexible hold. Let the setup prove itself, then reassess after a few sessions or if the 24h trend changes sharply.`,
+    label: "Recheck in 24h",
+    text: `${ticker} is a wait-and-confirm hold. Recheck in 24h; buy/add only if the setup improves, and trim if the 24h trend turns sharply lower.`,
   };
+}
+
+function sevenDayScoreLabel(score = 50) {
+  if (score >= 76) return "Strong bullish";
+  if (score >= 62) return "Bullish";
+  if (score >= 46) return "Balanced";
+  if (score >= 31) return "Bearish";
+  return "Strong bearish";
+}
+
+function sevenDayScoreTone(score = 50) {
+  if (score >= 62) return "positive";
+  if (score <= 45) return "caution";
+  return "neutral";
+}
+
+function sevenDayScoreAction(score = 50, subject = "position") {
+  if (score >= 76) return `strong buy-side pressure: ${subject} can be held or added to if the route quote is clean`;
+  if (score >= 62) return `buy-side pressure is ahead: ${subject} favors holding, with small adds only on clean routing`;
+  if (score >= 46) return `mixed pressure: wait for the next confirmation before changing size`;
+  if (score >= 31) return `sell-side risk is ahead: protect the ${subject} and avoid adding until the score improves`;
+  return `strong sell-side risk: consider trimming or waiting for a reset before adding`;
+}
+
+function sevenDayScoreInputs({ change24h, change7d, change30d, volume, liquidity, setup = "", edge = "" }) {
+  const inputs = [];
+  if (Number.isFinite(change7d)) inputs.push(`7d ${formatPercent(change7d)}`);
+  if (Number.isFinite(change24h)) inputs.push(`24h ${formatPercent(change24h)}`);
+  if (Number.isFinite(change30d)) inputs.push(`30d ${formatPercent(change30d)}`);
+  if (volume > 0) inputs.push(`${formatCompactUsd(volume)} volume`);
+  if (liquidity > 0) inputs.push(`${formatCompactUsd(liquidity)} liquidity`);
+  if (setup) inputs.push(setup);
+  if (edge) inputs.push(edge);
+  return inputs.slice(0, 5).join(" · ");
+}
+
+function sevenDayCoinRead(favorite = {}) {
+  const ticker = normalizeTicker(favorite.ticker) || "This coin";
+  const change24h = finiteOrNull(favorite.change24h);
+  const change7d = finiteOrNull(favorite.change7d);
+  const change30d = finiteOrNull(favorite.change30d);
+  const volume = finiteOrNull(favorite.volume24h) || 0;
+  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
+  const setup = String(favorite.marketSetup?.label || favorite.setupLabel || "").toLowerCase();
+  const edge = String(favorite.marketEdge?.label || favorite.edgeLabel || "").toLowerCase();
+  const entry = String(favorite.entryLabel || "").toLowerCase();
+  const theme = String(favorite.theme || "").toLowerCase();
+  const highBeta = theme.includes("meme") || theme.includes("ai") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "VIRTUAL"].includes(ticker);
+  let score = 50;
+
+  if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 1.7;
+  if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.85;
+  if (Number.isFinite(change30d)) score += clamp(change30d, -60, 80) * 0.12;
+  if (volume >= 3_000_000) score += 6;
+  else if (volume >= 1_000_000) score += 3;
+  else if (volume > 0) score -= 6;
+  if (liquidity >= 5_000_000) score += 8;
+  else if (liquidity >= 1_000_000) score += 4;
+  else if (liquidity > 0) score -= 8;
+  if (/confirmed|constructive|strong|momentum|pullback/.test(`${setup} ${edge} ${entry}`)) score += 8;
+  if (/caution|cooling|wait|avoid|falling|high-zone/.test(`${setup} ${edge} ${entry}`)) score -= 12;
+  if (highBeta && Number.isFinite(change24h) && change24h >= 9 && volume < 2_000_000) score -= 8;
+  if (Number.isFinite(change24h) && change24h <= -5) score -= 12;
+
+  const rounded = Math.round(clamp(score, 0, 100));
+  const label = sevenDayScoreLabel(rounded);
+  const tone = sevenDayScoreTone(rounded);
+  const bearish = 100 - rounded;
+  const inputs = sevenDayScoreInputs({ change24h, change7d, change30d, volume, liquidity, setup: favorite.setupLabel || favorite.marketSetup?.label || "", edge: favorite.edgeLabel || favorite.marketEdge?.label || "" });
+  const action = sevenDayScoreAction(rounded, "position");
+  return {
+    score: rounded,
+    bearish,
+    label,
+    tone,
+    chip: "7d read",
+    text: `${label} 7-day directional score: ${rounded}% bullish / ${bearish}% bearish. Signal inputs: ${inputs || "market setup and available live data"}. Machine action: ${action}.`,
+  };
+}
+
+function sevenDayBundleRead(weighted = {}) {
+  if (!weighted.signalWeight) {
+    return {
+      score: 50,
+      label: "Refreshing",
+      tone: "neutral",
+      chip: "7d direction --",
+      text: "7-day directional score is refreshing until the bundle has enough live market signal.",
+    };
+  }
+  let score = 50;
+  score += clamp(weighted.change24h || 0, -12, 12) * 1.6;
+  score += clamp(weighted.change7d || 0, -25, 35) * 0.8;
+  score += clamp(weighted.change30d || 0, -55, 75) * 0.1;
+  score += clamp(weighted.strongWeight || 0, 0, 100) * 0.13;
+  score -= clamp(weighted.weakWeight || 0, 0, 100) * 0.22;
+  score += clamp((weighted.dataScore || 50) - 55, -18, 18) * 0.25;
+  if ((weighted.volume24h || 0) < 750_000) score -= 5;
+
+  const rounded = Math.round(clamp(score, 0, 100));
+  const label = sevenDayScoreLabel(rounded);
+  const tone = sevenDayScoreTone(rounded);
+  const bearish = 100 - rounded;
+  const action = sevenDayScoreAction(rounded, "bundle");
+  return {
+    score: rounded,
+    bearish,
+    label,
+    tone,
+    chip: "7d read",
+    text: `${label} 7-day bundle score: ${rounded}% bullish / ${bearish}% bearish. Inputs: weighted 24h ${formatPercent(weighted.change24h)}, weighted 7d ${formatPercent(weighted.change7d)}, strong allocation weight ${Math.round(weighted.strongWeight || 0)}%, weak allocation weight ${Math.round(weighted.weakWeight || 0)}%. Machine action: ${action}.`,
+  };
+}
+
+function qualityAdjustedPulseScore(candidate = {}) {
+  const base = finiteOrNull(candidate.pulseScore) || 0;
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h);
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  const edge = candidate.marketEdge || marketEdgeSignal(candidate, candidate, candidate.prices);
+  const direction = sevenDayCoinRead(candidate);
+  const practical = practicalPulseScorecard(candidate);
+  let score = base;
+
+  if (volume > 0 && volume < 100_000) score -= 34;
+  else if (volume > 0 && volume < 500_000) score -= 20;
+  else if (volume >= 1_000_000) score += 6;
+  if (liquidity > 0 && liquidity < 250_000) score -= 28;
+  else if (liquidity > 0 && liquidity < 750_000) score -= 16;
+  else if (liquidity >= 2_500_000) score += 7;
+  if (Number.isFinite(setup?.score) && setup.score <= -3) score -= 22;
+  else if (Number.isFinite(setup?.score) && setup.score >= 4) score += 8;
+  if (Number.isFinite(edge?.score) && edge.score <= -5) score -= 18;
+  if (Number.isFinite(direction.score) && direction.score <= 20) score -= 34;
+  else if (Number.isFinite(direction.score) && direction.score <= 35) score -= 18;
+  else if (Number.isFinite(direction.score) && direction.score >= 65) score += 10;
+  if (Number.isFinite(change24h) && change24h <= -6 && volume < 500_000) score -= 14;
+  if (Number.isFinite(direction.score) && direction.score <= 10 && !setup?.boughtPullback) score -= 45;
+  if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6) score -= 20;
+  if (volume > 0 && volume < 75_000 && Number.isFinite(change24h) && change24h < 0) score -= 18;
+  if (Number.isFinite(setup?.score) && setup.score < 1 && Number.isFinite(direction.score) && direction.score <= 30) score -= 18;
+  score += (practical.marketTiming.score - 50) * 0.22;
+  score += (practical.executionSafety.score - 50) * 0.24;
+  score += (practical.convictionQuality.score - 50) * 0.2;
+  return roundTo(score, 2);
+}
+
+function practicalPulseScorecard(candidate = {}) {
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  const edge = candidate.marketEdge || marketEdgeSignal(candidate, candidate, candidate.prices);
+  return {
+    marketTiming: marketTimingScore(candidate, setup),
+    executionSafety: executionSafetyScore(candidate),
+    convictionQuality: convictionQualityScore(candidate, setup, edge),
+  };
+}
+
+function marketTimingScore(candidate = {}, setup = {}) {
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h) || 0;
+  const change7d = finiteOrNull(candidate.change7d ?? candidate.price_change_percentage_7d_in_currency);
+  const stats = chartTrajectoryStats(candidate.prices);
+  let score = 50;
+  score += clamp(change24h, -10, 12) * 1.7;
+  if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.45;
+  if (setup?.constructive) score += 12;
+  if (setup?.boughtPullback) score += 13;
+  if (setup?.extended && !setup?.fading) score += 3;
+  if (setup?.extended && setup?.fading) score -= 22;
+  if (stats?.recentReturn >= 1.2 && stats?.consistency >= 0.5) score += 9;
+  if (stats?.recentReturn <= -1.4) score -= 14;
+  if (stats?.pullbackFromHigh >= 0.12 && !setup?.boughtPullback) score -= 10;
+  const rounded = Math.round(clamp(score, 0, 100));
+  let label = "Timing mixed";
+  if (rounded >= 75) label = "Timing strong";
+  else if (rounded >= 60) label = "Timing constructive";
+  else if (rounded <= 25) label = "Timing weak";
+  else if (rounded <= 40) label = "Timing cautious";
+  return {
+    score: rounded,
+    label,
+    text: timingScoreText(candidate, rounded, setup, stats),
+  };
+}
+
+function executionSafetyScore(candidate = {}) {
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  let score = 46;
+  if (volume >= 5_000_000) score += 20;
+  else if (volume >= 1_000_000) score += 13;
+  else if (volume >= 250_000) score += 4;
+  else if (volume > 0) score -= 16;
+  if (liquidity >= 5_000_000) score += 24;
+  else if (liquidity >= 1_000_000) score += 16;
+  else if (liquidity >= 250_000) score += 5;
+  else if (liquidity > 0) score -= 18;
+  if (candidate.source === "DEX Screener" && candidate.pairAddress) score += 5;
+  if (!volume && !liquidity) score -= 10;
+  const rounded = Math.round(clamp(score, 0, 100));
+  let label = "Execution mixed";
+  if (rounded >= 75) label = "Execution strong";
+  else if (rounded >= 60) label = "Execution usable";
+  else if (rounded <= 30) label = "Execution thin";
+  else if (rounded <= 45) label = "Execution cautious";
+  return {
+    score: rounded,
+    label,
+    text: executionScoreText(volume, liquidity, rounded),
+  };
+}
+
+function convictionQualityScore(candidate = {}, setup = {}, edge = {}) {
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const direction = sevenDayCoinRead(candidate);
+  const stats = chartTrajectoryStats(candidate.prices);
+  let score = 48;
+  score += clamp((finiteOrNull(edge?.score) || 0) * 2.2, -22, 28);
+  score += clamp((finiteOrNull(setup?.score) || 0) * 3.2, -24, 28);
+  score += (direction.score - 50) * 0.25;
+  if (volume >= 1_000_000) score += 8;
+  if (liquidity >= 1_000_000) score += 8;
+  if (stats?.consistency >= 0.58) score += 6;
+  if (stats?.drawdown >= 0.18 && !setup?.boughtPullback) score -= 10;
+  if (isSpeculativePulseCandidate(candidate) && (volume < 1_000_000 || liquidity < 1_000_000)) score -= 12;
+  const rounded = Math.round(clamp(score, 0, 100));
+  let label = "Conviction mixed";
+  if (rounded >= 75) label = "Conviction strong";
+  else if (rounded >= 60) label = "Conviction building";
+  else if (rounded <= 30) label = "Conviction weak";
+  else if (rounded <= 45) label = "Conviction cautious";
+  return {
+    score: rounded,
+    label,
+    text: convictionScoreText(candidate, rounded, setup, edge, direction),
+  };
+}
+
+function isSpeculativePulseCandidate(candidate = {}) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
+  const theme = String(candidate.theme || "").toLowerCase();
+  return theme.includes("meme") || theme.includes("ai") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "VIRTUAL", "AIXBT"].includes(ticker);
+}
+
+function isRankablePulseCandidate(candidate = {}) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
+  if (!ticker || !isPulseUpsideCandidate({ ...candidate, ticker })) return false;
+  const quality = qualityAdjustedPulseScore(candidate);
+  const direction = sevenDayCoinRead(candidate);
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h);
+  const hasReversalEvidence = Boolean(setup?.boughtPullback || setup?.constructive);
+
+  if (Number.isFinite(direction.score) && direction.score <= 8 && !hasReversalEvidence) return false;
+  if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6 && !hasReversalEvidence) return false;
+  if (volume > 0 && volume < 75_000 && Number.isFinite(change24h) && change24h < 0) return false;
+  return quality >= 8;
 }
 
 function favoriteMachineSummary(favorite = {}, action = {}, holdEstimate = {}) {
@@ -2968,12 +3280,12 @@ function favoriteMachineSummary(favorite = {}, action = {}, holdEstimate = {}) {
   const liquidityText = Number.isFinite(liquidity) ? `${formatCompactUsd(liquidity)} liquidity` : "liquidity still needs a route check";
 
   if (action.tone === "positive") {
-    return `Machine read: ${ticker} has a ${setup.toLowerCase()} with ${edge.toLowerCase()}. ${changeText}, with ${volumeText} and ${liquidityText}. For current holders, the estimated hold window is ${holdEstimate.label}; stay with it only while volume and route depth keep confirming.`;
+    return `Machine read: ${ticker} leans constructive, but the next decision is still conditional. ${changeText}, with ${volumeText} and ${liquidityText}. Current holder plan: ${holdEstimate.label}. Add only if route quality, volume, and price direction still confirm at that check.`;
   }
   if (action.tone === "caution") {
-    return `Machine read: ${ticker} needs caution. ${changeText}, with ${volumeText} and ${liquidityText}. For current holders, this is a review-now setup: consider trimming, waiting for stabilization, or avoiding adds until the chart confirms again.`;
+    return `Machine read: ${ticker} needs caution. ${changeText}, with ${volumeText} and ${liquidityText}. Current holder plan: ${holdEstimate.label}. Do not add into weakness; consider trimming unless the next check shows stabilization.`;
   }
-  return `Machine read: ${ticker} is not flashing a clean buy or sell. ${changeText}, with ${volumeText} and ${liquidityText}. For current holders, the estimated hold window is ${holdEstimate.label}; keep watching volume, route quality, and chart direction.`;
+  return `Machine read: ${ticker} is not a clean buy or exit yet. ${changeText}, with ${volumeText} and ${liquidityText}. Current holder plan: ${holdEstimate.label}. Wait for the next check before changing size unless price or volume breaks sharply.`;
 }
 
 function favoriteStoredRead(coin = {}) {
@@ -2984,13 +3296,22 @@ function favoriteStoredRead(coin = {}) {
     text: coin.actionText || action.text,
   };
   const hold = favoriteHoldEstimate(coin);
+  const sevenDay = sevenDayCoinRead(coin);
   return {
     ...storedAction,
+    tone: storedAction.tone === "neutral" ? sevenDay.tone : storedAction.tone,
     changeLabel: Number.isFinite(finiteOrNull(coin.change24h)) ? `24h ${formatPercent(coin.change24h)}` : "24h --",
-    holdLabel: `Hold ${hold.label}`,
+    holdLabel: actionTimeChipLabel(hold.label),
+    sevenDay,
     holderText: hold.text,
     text: favoriteMachineSummary(coin, storedAction, hold),
   };
+}
+
+function actionTimeChipLabel(label = "") {
+  const clean = String(label || "").trim();
+  if (!clean) return "Review timing --";
+  return /^(review|recheck|trim|wait)/i.test(clean) ? clean : `Hold ${clean}`;
 }
 
 function favoriteCoinRecord(candidate = currentFavorite) {
@@ -3014,6 +3335,8 @@ function favoriteCoinRecord(candidate = currentFavorite) {
     source: candidate?.source || "Live Market Pulse",
     addedAt: new Date().toISOString(),
     change24h: finiteOrNull(candidate?.change24h),
+    change7d: finiteOrNull(candidate?.change7d),
+    change30d: finiteOrNull(candidate?.change30d),
     volume24h: finiteOrNull(candidate?.volume24h ?? candidate?.volume24hUsd ?? candidate?.total_volume),
     liquidityUsd: finiteOrNull(candidate?.liquidityUsd),
     setupLabel: setup?.label || candidate?.setupLabel || "",
@@ -3028,6 +3351,62 @@ function favoriteCoinRecord(candidate = currentFavorite) {
     actionText: favoriteMachineSummary(candidate, action, holdEstimate),
     note: thesis?.why || candidate?.reason || row?.[4] || "",
   };
+}
+
+function bundleCoinFavoriteCandidate(ticker) {
+  const normalized = normalizeTicker(ticker);
+  if (!normalized) return null;
+  const preferences = safePreferences();
+  const network = normalizeNetwork(preferences.network);
+  if (!isTickerOnNetwork(normalized, network)) return null;
+  const meta = coinMetaForTicker(normalized);
+  const thesis = tokenThesisForTicker(normalized);
+  const signal = marketSignalForTicker(normalized);
+  const candidate = marketCandidates.find((coin) => normalizeTicker(coin.ticker) === normalized);
+  return {
+    id: candidate?.id || null,
+    ticker: normalized,
+    name: candidate?.name || thesis?.role || normalized,
+    theme: candidate?.theme || meta?.theme || "core",
+    network,
+    source: signal ? "Bundle token signal" : "Bundle token",
+    change24h: finiteOrNull(signal?.change24h),
+    change7d: finiteOrNull(signal?.change7d),
+    change30d: finiteOrNull(signal?.change30d),
+    volume24h: finiteOrNull(signal?.volume24h),
+    liquidityUsd: finiteOrNull(signal?.liquidityUsd),
+    volatility: finiteOrNull(signal?.volatility),
+    drawdown: finiteOrNull(signal?.drawdown),
+    prices: [],
+    reason: thesis?.why || meta?.bullish || `${normalized} is included in the generated bundle and is supported on ${network}.`,
+  };
+}
+
+function isBundleTokenFavorited(ticker, network = safePreferences().network) {
+  return isFavoriteCoin(normalizeTicker(ticker), normalizeNetwork(network));
+}
+
+function bundleTokenFavoriteButton(ticker, network = safePreferences().network) {
+  const normalized = normalizeTicker(ticker);
+  const unavailable = !normalized || !isTickerOnNetwork(normalized, network);
+  const favorited = !unavailable && isBundleTokenFavorited(normalized, network);
+  const label = favorited ? `Remove ${normalized} from favorites` : `Add ${normalized} to favorites`;
+  return `
+    <button class="token-favorite-button ${favorited ? "active" : ""}" type="button" data-favorite-token="${escapeAttribute(normalized)}" aria-label="${escapeAttribute(label)}" aria-pressed="${favorited}" ${unavailable ? "disabled" : ""}>
+      ${icon(favorited ? "starFilled" : "star")}
+    </button>
+  `;
+}
+
+function toggleFavoriteBundleToken(ticker) {
+  const candidate = bundleCoinFavoriteCandidate(ticker);
+  if (!candidate) {
+    showToast(`${normalizeTicker(ticker) || "That coin"} is not available on the selected network.`);
+    return;
+  }
+  toggleFavoriteMarketCoin(candidate);
+  renderCoinRows();
+  if (currentBundle) renderPrimary(currentBundle);
 }
 
 function toggleFavoriteMarketCoin(candidate = currentFavorite) {
@@ -3082,11 +3461,13 @@ function bundleHoldWindowLabel(bundle = {}, weighted = {}) {
   const volatility = finiteOrNull(weighted.volatility) || 0;
   const highRisk = /high/.test(String(bundle.risk || "").toLowerCase());
 
-  if (avg24h <= -5 || weighted.weakWeight >= 35) return "Review now / 6-24h";
-  if (horizon === "quick" || (highRisk && avg24h >= 4) || volatility >= 0.035) return "1-3 days";
-  if (horizon === "trend" || avg7d >= 6) return "1-3 weeks";
-  if (horizon === "position" || weighted.coreWeight >= 45) return "2-6 weeks";
-  return "3-10 days";
+  if (avg24h <= -5 || weighted.weakWeight >= 35) return "Review now";
+  if (avg24h <= -2) return "Recheck in 6h";
+  if (avg24h >= 5 && (highRisk || volatility >= 0.035)) return "Trim check 12-24h";
+  if (horizon === "quick" || (highRisk && avg24h >= 3) || volatility >= 0.035) return "Recheck in 24-48h";
+  if (horizon === "trend" || avg7d >= 6) return "Recheck in 3-5d";
+  if (horizon === "position" || weighted.coreWeight >= 45) return avg24h < 1 ? "Recheck in 5-7d" : "Recheck in 7d";
+  return "Recheck in 48-72h";
 }
 
 function bundleWeightedRead(bundle = {}) {
@@ -3122,14 +3503,16 @@ function bundleWeightedRead(bundle = {}) {
       ? { label: "Hold with momentum", tone: "positive" }
       : { label: "Hold / watch", tone: "neutral" };
   const drivers = bundleReadDrivers(allocation);
+  const sevenDay = sevenDayBundleRead(weighted);
 
   return {
     label: action.label,
-    tone: action.tone,
+    tone: action.tone === "neutral" ? sevenDay.tone : action.tone,
     changeLabel: hasSignal ? `Bundle 24h ${formatPercent(weighted.change24h)}` : "Bundle 24h --",
-    holdLabel: `Hold ${holdWindow}`,
+    holdLabel: actionTimeChipLabel(holdWindow),
+    sevenDay,
     text: bundleMachineSummary(action, weighted, drivers),
-    holderText: `Suggested whole-bundle hold window: ${holdWindow}. Recheck sooner if the weighted 24h move drops below -4%, if a large allocation loses support, or before making another swap.`,
+    holderText: `Whole-bundle plan: ${holdWindow}. Add only if the weighted 24h read improves and the biggest positions still confirm; trim/rebalance sooner if weighted 24h drops below -4% or one large allocation loses support.`,
   };
 }
 
@@ -3161,12 +3544,12 @@ function bundleMachineSummary(action, weighted = {}, drivers = "") {
     return `Machine read: this bundle is saved, but the live 24h signal is still refreshing. Current holders should use the hold window as a reminder to recheck route quality, volume, and allocation before adding or exiting. ${drivers}`;
   }
   if (action.tone === "caution") {
-    return `Machine read: this bundle needs a near-term review. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders should check whether to trim, rebalance, or wait for stabilization before adding. ${drivers}`;
+    return `Machine read: this bundle needs a near-term decision, not a passive hold. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders should check whether to trim, rebalance, or wait for stabilization before adding. ${drivers}`;
   }
   if (action.tone === "positive") {
-    return `Machine read: this bundle still has constructive momentum. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders can stay with the setup while volume and the main positions keep confirming. ${drivers}`;
+    return `Machine read: this bundle still has constructive momentum. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders can stay with it until the next scheduled check while the main positions keep confirming. ${drivers}`;
   }
-  return `Machine read: this bundle is balanced, not a clean add or exit. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders should watch the next session before changing size. ${drivers}`;
+  return `Machine read: this bundle is balanced, not a clean add or exit. Weighted 24h is ${formatPercent(weighted.change24h)}, so current holders should wait for the next check before changing size unless a major position breaks down. ${drivers}`;
 }
 
 function bundleSnapshot(bundleId) {
@@ -3290,7 +3673,9 @@ function renderProfile() {
               <div class="profile-favorite-meta">
                 <span>${escapeHtml(read.changeLabel)}</span>
                 <span>${escapeHtml(read.holdLabel)}</span>
+                <span>${escapeHtml(read.sevenDay.chip)}</span>
               </div>
+              ${renderSevenDayMeter(read.sevenDay)}
               <small>${escapeHtml(read.text)}</small>
               <small>${escapeHtml(read.holderText)}</small>
             </div>
@@ -3330,9 +3715,29 @@ function renderProfileBundleRead(bundle = {}) {
       <div class="profile-read-meta">
         <span>${escapeHtml(read.changeLabel)}</span>
         <span>${escapeHtml(read.holdLabel)}</span>
+        <span>${escapeHtml(read.sevenDay.chip)}</span>
       </div>
+      ${renderSevenDayMeter(read.sevenDay)}
       <small>${escapeHtml(read.text)}</small>
       <small>${escapeHtml(read.holderText)}</small>
+    </div>
+  `;
+}
+
+function renderSevenDayMeter(read = {}) {
+  const score = Math.round(clamp(finiteOrNull(read.score) ?? 50, 0, 100));
+  const bearish = 100 - score;
+  const isBearish = bearish > score;
+  const dominantScore = isBearish ? bearish : score;
+  const dominantLabel = dominantScore === 50 ? "Balanced" : `${dominantScore}% ${isBearish ? "Bearish" : "Bullish"}`;
+  const tone = dominantScore === 50 ? "neutral" : isBearish ? "caution" : "positive";
+  const fillStyle = isBearish
+    ? `width: ${dominantScore}%; margin-left: ${100 - dominantScore}%`
+    : `width: ${dominantScore}%`;
+  return `
+    <div class="seven-day-meter ${escapeAttribute(tone)} ${isBearish ? "bearish" : "bullish"}" aria-label="Seven-day read ${dominantLabel}">
+      <div class="seven-day-meter-track"><span style="${fillStyle}"></span></div>
+      <div class="seven-day-meter-labels"><span>Bullish</span><strong>${escapeHtml(dominantLabel)}</strong><span>Bearish</span></div>
     </div>
   `;
 }
@@ -3692,6 +4097,11 @@ function openPulseSummaryModal(button, panel) {
 }
 
 document.body.addEventListener("click", (event) => {
+  const favoriteToken = event.target.closest("[data-favorite-token]");
+  if (favoriteToken) {
+    toggleFavoriteBundleToken(favoriteToken.dataset.favoriteToken);
+    return;
+  }
   const removeFavorite = event.target.closest("[data-remove-favorite-coin]");
   if (removeFavorite) {
     removeFavoriteCoin(removeFavorite.dataset.removeFavoriteCoin, removeFavorite.dataset.removeFavoriteNetwork);
@@ -4069,15 +4479,19 @@ function preparePulseCandidateForDisplay(candidate, rank = candidate?.rank || 1)
     marketEdge: edge,
     marketSetup: setup,
     trajectory: chartTrajectoryLabel(prices),
+    qualityPulseScore: qualityAdjustedPulseScore({ ...candidate, marketEdge: edge, marketSetup: setup, prices }),
     reason,
   };
 }
 
 function finalizePulseDeck(deck, limit = MARKET_PULSE_DECK_SIZE) {
-  return (deck || [])
+  const prepared = (deck || [])
     .filter(Boolean)
-    .slice(0, limit)
-    .map((candidate, index) => preparePulseCandidateForDisplay(candidate, index + 1));
+    .map((candidate, index) => preparePulseCandidateForDisplay(candidate, candidate.rank || index + 1))
+    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a))
+    .filter((candidate) => isRankablePulseCandidate(candidate))
+    .slice(0, limit);
+  return prepared.map((candidate, index) => preparePulseCandidateForDisplay(candidate, index + 1));
 }
 
 function hasLivePulseChart(candidate = {}) {
@@ -4183,7 +4597,8 @@ async function enrichPulseDeckWithCatalysts(deck, network) {
         reason: appendCatalystNote(candidate.reason, catalyst),
       };
     })
-    .sort((a, b) => (b.pulseScore || 0) - (a.pulseScore || 0))
+    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a))
+    .filter((candidate) => isRankablePulseCandidate(candidate))
     .slice(0, MARKET_PULSE_DECK_SIZE)
     .map((candidate, index) => ({
       ...candidate,
@@ -4436,7 +4851,7 @@ function isPulseUpsideCandidate(candidate = {}) {
 async function getCoinGeckoPulseDeck(eligibleCandidates, network) {
   const markets = await fetchCoinGeckoMarketRows(eligibleCandidates);
   updateLatestPrices(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE);
+  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE * 3);
   if (!favoriteMarkets.length) throw new Error("No CoinGecko candidates ranked");
   const favoriteDeck = favoriteMarkets
     .map((market, index) => {
@@ -4452,7 +4867,7 @@ async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
   const candidates = uniqueCoinGeckoCandidates(eligibleCandidates).slice(0, MARKET_CHART_CANDIDATE_LIMIT);
   const markets = await fetchCoinGeckoChartRows(candidates);
   updateLatestPrices(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE);
+  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE * 3);
   if (!favoriteMarkets.length) throw new Error("No CoinGecko chart candidates ranked");
   return finalizePulseDeck(favoriteMarkets
     .map((market, index) => {
@@ -4466,7 +4881,7 @@ async function getCoinGeckoChartPulseDeck(eligibleCandidates, network) {
 async function getDexScreenerPulseDeck(eligibleCandidates, network) {
   const markets = await fetchDexScreenerMarketRows(eligibleCandidates, network);
   updateLatestPricesFromDexScreener(markets);
-  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE * 2);
+  const favoriteMarkets = selectFavoriteMarkets(markets, MARKET_PULSE_DECK_SIZE * 3);
   if (!favoriteMarkets.length) throw new Error("No DEX Screener candidates ranked");
   const favoriteDeck = favoriteMarkets
     .map((market, index) => {
@@ -4607,12 +5022,12 @@ async function getBinancePulseDeck(eligibleCandidates, network) {
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .slice(0, MARKET_PULSE_DECK_SIZE);
 
   if (!scored.length) throw new Error("No Binance-backed candidates ranked");
   updateLatestPricesFromBinance(scored.map((item) => item));
   const deck = scored.map((item, index) => buildBinancePulseCandidate(item.meta, item.ticker, item.marketSymbol, network, index + 1));
-  return finalizePulseDeck(deck, deck.length);
+  return finalizePulseDeck(deck, MARKET_PULSE_DECK_SIZE);
 }
 
 async function getCoinbasePulseDeck(eligibleCandidates, network) {
@@ -4643,12 +5058,12 @@ async function getCoinbasePulseDeck(eligibleCandidates, network) {
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .slice(0, MARKET_PULSE_DECK_SIZE);
 
   if (!scored.length) throw new Error("No Coinbase-backed candidates ranked");
   updateLatestPricesFromCoinbase(scored);
   const deck = scored.map((item, index) => buildCoinbasePulseCandidate(item.meta, item.stats, item.productId, network, index + 1));
-  return finalizePulseDeck(deck, deck.length);
+  return finalizePulseDeck(deck, MARKET_PULSE_DECK_SIZE);
 }
 
 async function getCryptoComparePulseDeck(eligibleCandidates, network) {
@@ -4673,12 +5088,12 @@ async function getCryptoComparePulseDeck(eligibleCandidates, network) {
     })
     .filter(Boolean)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .slice(0, MARKET_PULSE_DECK_SIZE);
 
   if (!scored.length) throw new Error("No CryptoCompare-backed candidates ranked");
   updateLatestPricesFromCryptoCompare(scored);
   const deck = scored.map((item, index) => buildCryptoComparePulseCandidate(item.meta, item.market, item.symbol, network, index + 1));
-  return finalizePulseDeck(deck, deck.length);
+  return finalizePulseDeck(deck, MARKET_PULSE_DECK_SIZE);
 }
 
 function makeCoinGeckoMarketsUrl(ids) {
@@ -5648,7 +6063,8 @@ function selectFavoriteMarkets(markets, limit = 3) {
       return { ...market, pulseScore: score, marketEdge: edge, marketSetup: setup };
     })
     .filter(Boolean)
-    .sort((a, b) => b.pulseScore - a.pulseScore);
+    .filter((market) => isRankablePulseCandidate(market))
+    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a));
   return scored.slice(0, limit);
 }
 
@@ -5666,7 +6082,8 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
         marketSetup: setup,
       };
     })
-    .sort((a, b) => b.pulseScore - a.pulseScore)
+    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a))
+    .filter((candidate) => isRankablePulseCandidate(candidate))
     .slice(0, limit)
     .map((candidate, index) => {
       const rank = index + 1;
@@ -6352,6 +6769,8 @@ function buildPulseCandidate(meta, market, source, rank = 1, network = getPrefer
     ? normalizePriceSeries(market.sparkline_in_7d?.price)
     : lastDayFromSparkline(market.sparkline_in_7d?.price);
   const change24h = finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h) ?? 0;
+  const change7d = finiteOrNull(market.price_change_percentage_7d_in_currency ?? market.change7d);
+  const change30d = finiteOrNull(market.price_change_percentage_30d_in_currency ?? market.change30d);
   return {
     id: meta.id,
     rank,
@@ -6362,6 +6781,8 @@ function buildPulseCandidate(meta, market, source, rank = 1, network = getPrefer
     network: normalizeNetwork(network),
     metaReason: meta.reason,
     change24h,
+    change7d,
+    change30d,
     changeWindows: market.changeWindows || {},
     prices: sparklinePrices,
     reason: buildFavoriteReason(meta, market, rank, source),
@@ -6375,6 +6796,8 @@ function buildPulseCandidate(meta, market, source, rank = 1, network = getPrefer
 
 function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
   const change24h = finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h) ?? 0;
+  const change7d = finiteOrNull(market.price_change_percentage_7d_in_currency ?? market.change7d);
+  const change30d = finiteOrNull(market.price_change_percentage_30d_in_currency ?? market.change30d);
   const prices = normalizePriceSeries(market.sparkline_in_7d?.price);
   return {
     id: meta.id,
@@ -6386,6 +6809,8 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
     network: normalizeNetwork(network),
     metaReason: meta.reason,
     change24h,
+    change7d,
+    change30d,
     changeWindows: market.changeWindows || {},
     prices,
     reason: buildDexScreenerFavoriteReason(meta, market, network, rank),
@@ -6591,7 +7016,8 @@ async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
     return { prices: cached.prices, updatedAt: cached.updatedAt || candidate.updatedAt };
   }
 
-  const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/minute?aggregate=${config.aggregate}&limit=${config.limit}&currency=usd`;
+  const timeframe = config.timeframe || "minute";
+  const chartUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${encodeURIComponent(timeframe)}?aggregate=${config.aggregate}&limit=${config.limit}&currency=usd`;
   const payload = await withTimeout(
     fetchGeckoTerminalJson(chartUrl),
     MARKET_CHART_TIMEOUT_MS,
@@ -6873,6 +7299,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   }
   favoriteCoinUpdated.title = lastMarketPulseError || "";
   favoriteCoinReason.textContent = rewritePulseRankLabel(favorite.reason, favorite.rank || 1);
+  renderPulseSevenDayMeter(favorite);
   renderPulseInsights(favorite);
   pulseStatus.textContent = `#${favorite.rank} ${favorite.source}`;
   pulseStatus.title = lastMarketPulseError || `Showing ${favorite.source} market data`;
@@ -6887,6 +7314,21 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
   updateFavoriteToggle();
+}
+
+function renderPulseSevenDayMeter(favorite = currentFavorite) {
+  if (!pulseSevenDayMeter) return;
+  if (!favorite || favorite.source === "Market data unavailable" || favorite.ticker === "--") {
+    pulseSevenDayMeter.innerHTML = "";
+    return;
+  }
+  const read = sevenDayCoinRead(favorite);
+  pulseSevenDayMeter.innerHTML = `
+    <div class="pulse-seven-day-head">
+      <span>${escapeHtml(read.chip)}</span>
+    </div>
+    ${renderSevenDayMeter(read)}
+  `;
 }
 
 function renderPulseChange(favorite = currentFavorite) {
@@ -7052,7 +7494,7 @@ function stopPulseLoading() {
 
 function renderPulseInsights(favorite) {
   if (!favoriteCoinInsights) return;
-  const insights = buildPulseInsights(favorite).slice(0, 5);
+  const insights = buildPulseInsights(favorite).slice(0, 6);
   favoriteCoinInsights.innerHTML = insights.map((insight) => `
     <div class="pulse-insight">
       <span>${escapeHtml(insight.label)}</span>
@@ -7078,6 +7520,22 @@ function buildPulseInsights(favorite = {}) {
   const trajectory = chartTrajectoryLabel(favorite.prices);
   const entry = entryTimingSignal(favorite, setup, trajectory);
   const hold = holdWindowSignal(favorite, setup, trajectory);
+  const practical = practicalPulseScorecard({ ...favorite, marketSetup: setup, marketEdge: edge });
+
+  insights.push({
+    label: `Timing ${practical.marketTiming.score}/100`,
+    text: practical.marketTiming.text,
+  });
+
+  insights.push({
+    label: `Execution ${practical.executionSafety.score}/100`,
+    text: practical.executionSafety.text,
+  });
+
+  insights.push({
+    label: `Conviction ${practical.convictionQuality.score}/100`,
+    text: practical.convictionQuality.text,
+  });
 
   insights.push({
     label: "Market read",
@@ -7165,6 +7623,38 @@ function plainMarketRead(ticker, change, volume, liquidity, setup = null) {
       : `${ticker} has usable market depth, which helps reduce execution risk compared with thinner tokens.`;
   }
   return thesis?.marketRead || `${ticker} is being ranked from the latest available market signal, but users should still verify the route.`;
+}
+
+function timingScoreText(candidate = {}, score = 50, setup = {}, stats = null) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol) || "This coin";
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h);
+  if (score >= 75) return `${ticker} has a strong timing read because price action is constructive and buyers are still confirming the move.`;
+  if (score >= 60) return `${ticker} has a constructive timing read; the machine likes the setup, but still wants volume to hold.`;
+  if (score <= 25) return `${ticker} has weak timing right now. The machine would wait for stabilization before treating this as a buy.`;
+  if (score <= 40) return `${ticker} has a cautious timing read${Number.isFinite(change24h) ? ` after a ${formatPercent(change24h)} 24h move` : ""}. It needs a cleaner bounce or stronger follow-through.`;
+  if (setup?.boughtPullback) return `${ticker} is in the middle zone, but the pullback is being bought, so the next check is whether the rebound keeps working.`;
+  if (stats?.recentReturn < 0) return `${ticker} is mixed on timing because the recent slope is softening. Wait for the next push before adding size.`;
+  return `${ticker} is mixed on timing. It is not a clean buy or avoid signal yet.`;
+}
+
+function executionScoreText(volume = 0, liquidity = 0, score = 50) {
+  const volumeText = volume ? `${formatCompactUsd(volume)} volume` : "volume still refreshing";
+  const liquidityText = liquidity ? `${formatCompactUsd(liquidity)} liquidity` : "liquidity still refreshing";
+  if (score >= 75) return `Execution looks strong: ${volumeText} and ${liquidityText} give the route more room to work.`;
+  if (score >= 60) return `Execution looks usable with ${volumeText} and ${liquidityText}, but the quote still needs review.`;
+  if (score <= 30) return `Execution is thin: ${volumeText} and ${liquidityText}. Keep size small or avoid until depth improves.`;
+  if (score <= 45) return `Execution needs caution because ${volumeText} and ${liquidityText} may not support easy entry and exit.`;
+  return `Execution is mixed. The token may be usable, but route, slippage, and exit depth matter before sizing.`;
+}
+
+function convictionScoreText(candidate = {}, score = 50, setup = {}, edge = {}, direction = {}) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol) || "This coin";
+  if (score >= 75) return `${ticker} has strong conviction quality because timing, data edge, depth, and setup are lining up.`;
+  if (score >= 60) return `${ticker} has building conviction. It can rank, but it still needs the next market check to confirm.`;
+  if (score <= 30) return `${ticker} has weak conviction quality. It should not be sized up unless the setup, depth, or 7d read improves.`;
+  if (score <= 45) return `${ticker} has cautious conviction: ${edge?.label || "data edge"} and ${setup?.label || "setup"} are not strong enough for a lazy hold.`;
+  if (Number.isFinite(direction.score) && direction.score < 50) return `${ticker} has mixed conviction because the 7d read is still leaning defensive.`;
+  return `${ticker} has neutral conviction. It can stay on the board, but it needs stronger proof before becoming a high-confidence pick.`;
 }
 
 function entryTimingSignal(favorite = {}, setup = {}, trajectory = null) {

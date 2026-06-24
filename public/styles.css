@@ -10,6 +10,7 @@
   --teal-dark: #07565d;
   --teal-soft: #d9f0ee;
   --green: #1f8a5f;
+  --money-green: #22c55e;
   --gold: #c98219;
   --coral: #c8503e;
   --blue: #28608f;
@@ -33,6 +34,7 @@
   --teal-dark: #2ca79f;
   --teal-soft: #173f45;
   --green: #72d69f;
+  --money-green: #76f2a3;
   --gold: #f0bd61;
   --coral: #ef796b;
   --blue: #8ac3f4;
@@ -468,7 +470,7 @@ svg {
 :root[data-theme="dark"] .coin-chip-grid input:checked + label,
 :root[data-theme="dark"] .action-button.primary,
 :root[data-theme="dark"] .pulse-button.active {
-  background: var(--teal);
+  background: var(--money-green);
   border-color: var(--teal);
   color: #07111f;
 }
@@ -1561,12 +1563,43 @@ body.pulse-ai-modal-open {
 
 .pulse-insights {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
 }
 
+.pulse-seven-day {
+  display: grid;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.pulse-seven-day:empty {
+  display: none;
+}
+
+.pulse-seven-day-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pulse-seven-day-head span,
+.pulse-seven-day-head strong {
+  color: var(--ink);
+  font-size: 0.74rem;
+  font-weight: 950;
+}
+
+.pulse-seven-day-head span {
+  color: var(--ink-soft);
+}
+
 .pulse-insight {
-  min-height: 88px;
+  min-height: 84px;
   padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2639,6 +2672,60 @@ input[type="range"] {
   overflow-wrap: anywhere;
 }
 
+.allocation-token-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.allocation-token-title > span {
+  min-width: 0;
+}
+
+.token-favorite-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.token-favorite-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+}
+
+.token-favorite-button:hover,
+.token-favorite-button.active {
+  border-color: #d69e2e;
+  color: #7a4a05;
+  background: #fff8e7;
+}
+
+.token-favorite-button.active svg {
+  fill: currentColor;
+}
+
+:root[data-theme="dark"] .token-favorite-button {
+  border-color: #465a76;
+  color: #a7b5c8;
+  background: #111b2b;
+}
+
+:root[data-theme="dark"] .token-favorite-button:hover,
+:root[data-theme="dark"] .token-favorite-button.active {
+  border-color: rgba(240, 200, 121, 0.45);
+  color: #f7d38a;
+  background: rgba(214, 158, 46, 0.18);
+}
+
 .allocation-label small {
   color: var(--muted);
   font-size: 0.72rem;
@@ -2948,6 +3035,23 @@ input[type="range"] {
 .coin-table td {
   color: var(--ink-soft);
   line-height: 1.45;
+}
+
+.coin-table-ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.coin-table-ticker .token-favorite-button {
+  width: 26px;
+  height: 26px;
+}
+
+.coin-table-ticker .token-favorite-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .score-badge {
@@ -3423,21 +3527,138 @@ input[type="range"] {
   font-weight: 900;
 }
 
+.seven-day-meter {
+  display: grid;
+  gap: 5px;
+}
+
+.seven-day-meter-track {
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(31, 138, 95, 0.24), rgba(244, 182, 76, 0.24), rgba(200, 80, 62, 0.24));
+}
+
+.seven-day-meter-track span {
+  display: block;
+  width: 50%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--money-green);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.38) inset;
+}
+
+.seven-day-meter.caution .seven-day-meter-track span {
+  background: var(--coral);
+}
+
+.seven-day-meter.neutral .seven-day-meter-track span {
+  background: #f4b64c;
+}
+
+.seven-day-meter-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.seven-day-meter-labels strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+  text-align: center;
+  min-width: max-content;
+}
+
 .profile-bundle-read.positive,
 .profile-favorite-read.positive {
-  border-color: rgba(31, 138, 95, 0.28);
-  background: rgba(238, 246, 240, 0.72);
+  border-color: var(--line);
+  background: var(--surface);
 }
 
 .profile-bundle-read.caution,
 .profile-favorite-read.caution {
-  border-color: rgba(200, 80, 62, 0.28);
-  background: rgba(250, 236, 233, 0.72);
+  border-color: var(--line);
+  background: var(--surface);
 }
 
 .profile-bundle-read.caution b,
 .profile-favorite-read.caution b {
   color: var(--coral);
+}
+
+:root[data-theme="dark"] .profile-bundle-read,
+:root[data-theme="dark"] .profile-favorite-read {
+  border-color: #4a5d7a;
+  background: #0d1828;
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .profile-bundle-read.positive,
+:root[data-theme="dark"] .profile-favorite-read.positive {
+  border-color: rgba(137, 221, 213, 0.42);
+  background: #0d1828;
+}
+
+:root[data-theme="dark"] .profile-bundle-read.caution,
+:root[data-theme="dark"] .profile-favorite-read.caution {
+  border-color: rgba(239, 121, 107, 0.46);
+  background: #0d1828;
+}
+
+:root[data-theme="dark"] .profile-bundle-read small,
+:root[data-theme="dark"] .profile-favorite-read small {
+  color: #e4edf9;
+}
+
+:root[data-theme="dark"] .profile-read-meta span,
+:root[data-theme="dark"] .profile-favorite-meta span {
+  border-color: #60718c;
+  background: #22324a;
+  color: #f2f7ff;
+}
+
+:root[data-theme="dark"] .seven-day-meter-track {
+  border-color: #60718c;
+  background: linear-gradient(90deg, rgba(118, 242, 163, 0.32), rgba(240, 189, 97, 0.36), rgba(239, 121, 107, 0.38));
+}
+
+:root[data-theme="dark"] .seven-day-meter-track span {
+  background: var(--money-green);
+  box-shadow: 0 0 0 1px rgba(7, 17, 31, 0.85) inset;
+}
+
+:root[data-theme="dark"] .seven-day-meter.caution .seven-day-meter-track span {
+  background: var(--coral);
+}
+
+:root[data-theme="dark"] .seven-day-meter.neutral .seven-day-meter-track span {
+  background: var(--gold);
+}
+
+:root[data-theme="dark"] .seven-day-meter-labels {
+  color: #d5dfef;
+}
+
+:root[data-theme="dark"] .seven-day-meter-labels strong {
+  color: #f8fbff;
+}
+
+:root[data-theme="dark"] .pulse-seven-day {
+  border-color: #4a5d7a;
+  background: #0d1828;
+}
+
+:root[data-theme="dark"] .pulse-seven-day-head span {
+  color: #d5dfef;
+}
+
+:root[data-theme="dark"] .pulse-seven-day-head strong {
+  color: #f8fbff;
 }
 
 .profile-bundle-card button {
