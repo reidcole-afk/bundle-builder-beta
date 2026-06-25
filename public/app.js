@@ -5235,10 +5235,38 @@ function finalizePulseDeck(deck, limit = MARKET_PULSE_DECK_SIZE) {
   const prepared = (deck || [])
     .filter(Boolean)
     .map((candidate, index) => preparePulseCandidateForDisplay(candidate, candidate.rank || index + 1))
-    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a))
-    .filter((candidate) => isRankablePulseCandidate(candidate))
-    .slice(0, limit);
-  return prepared.map((candidate, index) => preparePulseCandidateForDisplay(candidate, index + 1));
+  const ranked = rankPulseCandidatesForDisplay(prepared, limit);
+  return ranked.map((candidate, index) => preparePulseCandidateForDisplay(candidate, index + 1));
+}
+
+function rankPulseCandidatesForDisplay(candidates = [], limit = MARKET_PULSE_DECK_SIZE) {
+  const sorted = [...(candidates || [])]
+    .filter(Boolean)
+    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a));
+  const strict = sorted.filter((candidate) => isRankablePulseCandidate(candidate));
+  const strictSet = new Set(strict);
+  const fill = sorted.filter((candidate) => !strictSet.has(candidate) && isDisplayablePulseCandidate(candidate));
+  const minimumUsefulDeck = Math.min(limit, 5);
+  const chosen = strict.length >= Math.min(3, limit)
+    ? strict
+    : [...strict, ...fill].slice(0, Math.max(minimumUsefulDeck, strict.length));
+  return chosen.slice(0, limit);
+}
+
+function isDisplayablePulseCandidate(candidate = {}) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
+  if (!ticker || !isPulseUpsideCandidate({ ...candidate, ticker })) return false;
+  const quality = qualityAdjustedPulseScore(candidate);
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const direction = sevenDayCoinRead(candidate);
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  const hasReversalEvidence = Boolean(setup?.boughtPullback || setup?.baseForming || setup?.constructive);
+
+  if (quality < -20) return false;
+  if (volume > 0 && volume < 50_000 && liquidity > 0 && liquidity < 150_000) return false;
+  if (Number.isFinite(direction.score) && direction.score <= 5 && !hasReversalEvidence) return false;
+  return true;
 }
 
 function hasLivePulseChart(candidate = {}) {
@@ -6810,14 +6838,13 @@ function selectFavoriteMarkets(markets, limit = 3) {
       return { ...market, pulseScore: score, marketEdge: edge, marketSetup: setup };
     })
     .filter(Boolean)
-    .filter((market) => isRankablePulseCandidate(market))
     .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a));
-  return scored.slice(0, limit);
+  return rankPulseCandidatesForDisplay(scored, limit);
 }
 
 async function loadPulseChartsAndRerank(deck, limit = 3) {
   const loaded = await Promise.all(deck.map(loadPulseChart));
-  return loaded
+  const ranked = rankPulseCandidatesForDisplay(loaded
     .map((candidate) => {
       const edge = marketEdgeSignal(candidate, candidate, candidate.prices);
       const setup = marketSetupSignal(candidate, candidate, candidate.prices);
@@ -6829,9 +6856,8 @@ async function loadPulseChartsAndRerank(deck, limit = 3) {
         marketSetup: setup,
       };
     })
-    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a))
-    .filter((candidate) => isRankablePulseCandidate(candidate))
-    .slice(0, limit)
+    .sort((a, b) => qualityAdjustedPulseScore(b) - qualityAdjustedPulseScore(a)), limit);
+  return ranked
     .map((candidate, index) => {
       const rank = index + 1;
       return {
