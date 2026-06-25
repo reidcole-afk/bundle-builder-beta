@@ -312,7 +312,7 @@
               </div>
               <label class="review-ack">
                 <input type="checkbox" id="reviewAcknowledge" />
-                <span>I understand ViciSwap will split the selected coins evenly, while Bundle Builder's percentages are guidance only. I will review route, liquidity, slippage, fees, and token risk before swapping.</span>
+                <span>I understand ViciSwap will execute an equal split across the selected coins. Bundle Builder's percentages are recommendation guidance only, not the final ViciSwap allocation. I will review route, liquidity, slippage, fees, and token risk before swapping.</span>
               </label>
               <div class="review-actions">
                 <button class="action-button" type="button" id="reviewCancel">Back</button>
@@ -464,7 +464,10 @@
               <button type="button" id="profileVerifyCode">Verify</button>
             </div>
           </div>
-          <button type="button" id="profileLogout" hidden>Sign out</button>
+          <div class="profile-signed-in-actions" id="profileSignedInActions" hidden>
+            <button type="button" id="profileSyncNow">Sync now</button>
+            <button type="button" id="profileLogout">Sign out</button>
+          </div>
         </div>
         <div class="profile-identity">
           <label for="profileDisplayName">Display name <span>(optional)</span></label>

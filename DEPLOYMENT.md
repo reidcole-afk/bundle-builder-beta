@@ -56,7 +56,18 @@ Bundle Builder now includes a standalone prototype profile store in `src/profile
 
 The current beta stores those profile snapshots in `profiles.json` under `BUNDLE_BUILDER_DATA_DIR`. On a managed host, point `BUNDLE_BUILDER_DATA_DIR` at a durable mounted disk. If the host does not provide durable storage, profile data may reset on redeploy.
 
-For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast. To make this real for public users, connect an email provider such as Resend, Postmark, SendGrid, or AWS SES and change the delivery mode when that provider is wired in.
+For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast.
+
+To send real email codes with Resend, set:
+
+```text
+BUNDLE_BUILDER_EMAIL_DELIVERY=provider
+BUNDLE_BUILDER_EMAIL_PROVIDER=resend
+RESEND_API_KEY=your-resend-api-key
+BUNDLE_BUILDER_EMAIL_FROM=Bundle Builder <login@bundle.vicicoin.io>
+```
+
+Make sure the sender/domain is verified in Resend before switching the live app to provider mode.
 
 ## Database-Ready Storage Seam
 

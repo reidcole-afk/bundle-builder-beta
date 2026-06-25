@@ -950,6 +950,8 @@ const profileLoginCodeGroup = document.getElementById("profileLoginCodeGroup");
 const profileLoginCode = document.getElementById("profileLoginCode");
 const profileRequestCode = document.getElementById("profileRequestCode");
 const profileVerifyCode = document.getElementById("profileVerifyCode");
+const profileSignedInActions = document.getElementById("profileSignedInActions");
+const profileSyncNow = document.getElementById("profileSyncNow");
 const profileLogout = document.getElementById("profileLogout");
 const profileFavoriteList = document.getElementById("profileFavoriteList");
 const profileFavoriteBundleList = document.getElementById("profileFavoriteBundleList");
@@ -2975,6 +2977,73 @@ function applyProfileSnapshot(snapshot = {}) {
   }
 }
 
+function mergeProfileSnapshot(localSnapshot = currentProfileSnapshot(), serverSnapshot = {}) {
+  const localProfile = localSnapshot.profile || {};
+  const serverProfile = serverSnapshot.profile || {};
+  return {
+    profile: {
+      ...serverProfile,
+      ...localProfile,
+      displayName: localProfile.displayName || serverProfile.displayName || "",
+    },
+    favoriteCoins: mergeRecordArrays(serverSnapshot.favoriteCoins, localSnapshot.favoriteCoins, favoriteCoinRecordKey),
+    recentBundles: mergeRecordArrays(serverSnapshot.recentBundles, localSnapshot.recentBundles, recentBundleRecordKey),
+    reviewAlerts: mergeRecordArrays(serverSnapshot.reviewAlerts, localSnapshot.reviewAlerts, reviewAlertRecordKey),
+    builderPreferences: {
+      ...(serverSnapshot.builderPreferences || {}),
+      ...(localSnapshot.builderPreferences || {}),
+    },
+  };
+}
+
+function mergeRecordArrays(serverItems = [], localItems = [], keyForItem = defaultRecordKey) {
+  const merged = new Map();
+  [...(Array.isArray(serverItems) ? serverItems : []), ...(Array.isArray(localItems) ? localItems : [])].forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const key = keyForItem(item);
+    if (!key) return;
+    const existing = merged.get(key);
+    if (!existing || recordTimestamp(item) >= recordTimestamp(existing)) {
+      merged.set(key, { ...existing, ...item });
+    }
+  });
+  return [...merged.values()].slice(0, 100);
+}
+
+function favoriteCoinRecordKey(item = {}) {
+  return item.key || `${normalizeNetwork(item.network)}:${normalizeTicker(item.ticker)}`;
+}
+
+function recentBundleRecordKey(item = {}) {
+  return item.id || item.bundleId || `${item.name || item.customName || "bundle"}:${item.createdAt || ""}`;
+}
+
+function reviewAlertRecordKey(item = {}) {
+  return item.id || `${item.snapshotId || item.bundleId || "alert"}:${item.dueAt || item.createdAt || ""}`;
+}
+
+function defaultRecordKey(item = {}) {
+  return item.id || item.key || JSON.stringify(item).slice(0, 120);
+}
+
+function recordTimestamp(item = {}) {
+  return Math.max(
+    new Date(item.updatedAt || 0).getTime(),
+    new Date(item.renamedAt || 0).getTime(),
+    new Date(item.favoritedAt || 0).getTime(),
+    new Date(item.addedAt || 0).getTime(),
+    new Date(item.createdAt || 0).getTime(),
+    new Date(item.dueAt || 0).getTime(),
+    0,
+  );
+}
+
+function hasMeaningfulProfileSnapshot(snapshot = {}) {
+  return ["favoriteCoins", "recentBundles", "reviewAlerts"].some((key) => Array.isArray(snapshot[key]) && snapshot[key].length)
+    || Boolean(snapshot.profile?.displayName)
+    || Object.keys(snapshot.builderPreferences || {}).length > 0;
+}
+
 function isProfileSignedIn() {
   return Boolean(profileSession?.token);
 }
@@ -3040,10 +3109,11 @@ async function verifyProfileCode() {
       signedInAt: new Date().toISOString(),
     });
     const serverSnapshot = payload.profile?.snapshot || {};
-    const hasServerData = ["favoriteCoins", "recentBundles", "reviewAlerts"].some((key) => Array.isArray(serverSnapshot[key]) && serverSnapshot[key].length)
-      || Boolean(serverSnapshot.profile?.displayName);
-    if (hasServerData) applyProfileSnapshot(serverSnapshot);
-    else await pushProfileSnapshot();
+    const mergedSnapshot = hasMeaningfulProfileSnapshot(serverSnapshot)
+      ? mergeProfileSnapshot(currentProfileSnapshot(), serverSnapshot)
+      : currentProfileSnapshot();
+    applyProfileSnapshot(mergedSnapshot);
+    await pushProfileSnapshot();
     renderProfile();
     updateFavoriteToggle();
     showToast("Profile signed in and synced.");
@@ -3054,13 +3124,18 @@ async function verifyProfileCode() {
   }
 }
 
-async function loadProfileSnapshot() {
+async function loadProfileSnapshot({ silent = false } = {}) {
   if (!isProfileSignedIn()) return;
   try {
     const payload = await profileApi("/api/v1/profile");
-    if (payload.profile?.snapshot) applyProfileSnapshot(payload.profile.snapshot);
+    if (payload.profile?.snapshot) {
+      const mergedSnapshot = mergeProfileSnapshot(currentProfileSnapshot(), payload.profile.snapshot);
+      applyProfileSnapshot(mergedSnapshot);
+      await pushProfileSnapshot();
+    }
     renderProfile();
     updateFavoriteToggle();
+    if (!silent) showToast("Profile synced across devices.");
   } catch (error) {
     showToast("Profile sync is offline; this device will keep saving locally.");
   }
@@ -3103,6 +3178,7 @@ function updateProfileLoginUi(message = "") {
   if (profileLoginCodeGroup) profileLoginCodeGroup.hidden = signedIn;
   if (profileRequestCode) profileRequestCode.hidden = signedIn;
   if (profileVerifyCode) profileVerifyCode.hidden = signedIn;
+  if (profileSignedInActions) profileSignedInActions.hidden = !signedIn;
   if (profileLogout) profileLogout.hidden = !signedIn;
   if (profileDialogSubtitle) {
     profileDialogSubtitle.textContent = signedIn
@@ -3530,6 +3606,10 @@ function qualityAdjustedPulseScore(candidate = {}) {
   if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6) score -= 20;
   if (volume > 0 && volume < 75_000 && Number.isFinite(change24h) && change24h < 0) score -= 18;
   if (Number.isFinite(setup?.score) && setup.score < 1 && Number.isFinite(direction.score) && direction.score <= 30) score -= 18;
+  if (volume > 0 && volume < 250_000 && liquidity > 0 && liquidity < 500_000) score -= 22;
+  if (Number.isFinite(direction.score) && direction.score <= 40 && volume < 500_000) score -= 16;
+  if (Number.isFinite(direction.score) && direction.score <= 35 && liquidity < 750_000) score -= 16;
+  if (Number.isFinite(change24h) && change24h <= -8 && !setup?.boughtPullback && !setup?.baseForming) score -= 18;
   score += (practical.marketTiming.score - 50) * 0.22;
   score += (practical.executionSafety.score - 50) * 0.24;
   score += (practical.convictionQuality.score - 50) * 0.2;
@@ -3641,13 +3721,16 @@ function isRankablePulseCandidate(candidate = {}) {
   const direction = sevenDayCoinRead(candidate);
   const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
   const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
   const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h);
   const hasReversalEvidence = Boolean(setup?.boughtPullback || setup?.baseForming || setup?.constructive);
 
   if (Number.isFinite(direction.score) && direction.score <= 8 && !hasReversalEvidence) return false;
   if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6 && !hasReversalEvidence) return false;
+  if (Number.isFinite(direction.score) && direction.score <= 35 && volume < 250_000 && liquidity < 750_000 && !hasReversalEvidence) return false;
+  if (Number.isFinite(change24h) && change24h <= -8 && volume < 500_000 && !hasReversalEvidence) return false;
   if (volume > 0 && volume < 75_000 && Number.isFinite(change24h) && change24h < 0) return false;
-  return quality >= 8;
+  return quality >= 12;
 }
 
 function favoriteMachineSummary(favorite = {}, action = {}, holdEstimate = {}) {
@@ -4602,6 +4685,7 @@ profileClose?.addEventListener("click", closeProfile);
 profileDialog?.addEventListener("cancel", closeProfile);
 profileRequestCode?.addEventListener("click", requestProfileCode);
 profileVerifyCode?.addEventListener("click", verifyProfileCode);
+profileSyncNow?.addEventListener("click", () => loadProfileSnapshot());
 profileLogout?.addEventListener("click", logoutProfile);
 profileEmail?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -4927,7 +5011,7 @@ updateCoinPreferenceAvailability();
 renderCoinRows();
 showTermsGate();
 renderProfile();
-if (isProfileSignedIn()) loadProfileSnapshot();
+if (isProfileSignedIn()) loadProfileSnapshot({ silent: true });
 showDueReviewAlerts();
 if (hasAcceptedTerms() && !hasSeenTour()) window.setTimeout(() => openTour(), 350);
 refreshMarketPulse({ preserveSelection: false });
@@ -8965,7 +9049,8 @@ function openViciReview(bundleId, viciSwapUrl) {
   reviewChecklist.innerHTML = [
     `Same-network Receive tokens only: ${bundleNetwork}.`,
     `${allocationPlan.length} tokens confirmed from ${supportSourceForNetwork(bundleNetwork)}.`,
-    "ViciSwap currently opens selected coins as an equal split. Bundle Builder percentages are guidance for manual reference.",
+    "ViciSwap will execute an equal split across the selected coins.",
+    "Bundle Builder's machine percentages are recommendation guidance only, not the final ViciSwap allocation.",
     "Assistant can prefill visible fields only. It will not approve, sign, or execute a swap.",
     "Safety screen is basic and does not replace contract review, liquidity review, or rug-pull analysis.",
     "Review ViciSwap quote, route, slippage, fees, token amounts, and wallet approvals before continuing.",
@@ -8987,7 +9072,7 @@ function renderReviewToken({ ticker, weight, recommendedWeight, amount, networks
   return `
     <div class="review-token safety-${safetyProfile.level}">
       <strong>${escapeHtml(ticker)}</strong>
-      <span>${weight}% equal split - machine suggests ${recommendedWeight}% - ${formatCurrency(amount)} - Receive: ${escapeHtml(networkLabel)}</span>
+      <span>ViciSwap split ${weight}% - machine guide ${recommendedWeight}% - ${formatCurrency(amount)} - Receive: ${escapeHtml(networkLabel)}</span>
       <em>${escapeHtml(safetyProfile.label)}: ${escapeHtml(safetyProfile.liquidityLabel)}; ${escapeHtml(safetyProfile.contractLabel)}</em>
     </div>
   `;

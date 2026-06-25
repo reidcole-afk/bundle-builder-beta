@@ -368,6 +368,9 @@ async function handleRequest(request, response) {
       const body = await readJsonBody(request);
       try {
         const login = profileRepository.requestLoginCode(body.email);
+        if (emailDeliveryMode() === "provider") {
+          await sendLoginCodeEmail(login);
+        }
         const payload = {
           ok: true,
           email: login.email,
@@ -518,6 +521,33 @@ function bearerToken(request) {
 
 function emailDeliveryMode() {
   return process.env.BUNDLE_BUILDER_EMAIL_DELIVERY === "provider" ? "provider" : "dev-response";
+}
+
+async function sendLoginCodeEmail(login) {
+  const provider = String(process.env.BUNDLE_BUILDER_EMAIL_PROVIDER || "resend").toLowerCase();
+  if (provider !== "resend") throw new Error(`Unsupported email provider: ${provider}`);
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.BUNDLE_BUILDER_EMAIL_FROM || "Bundle Builder <login@bundle.vicicoin.io>";
+  if (!apiKey) throw new Error("RESEND_API_KEY is required when BUNDLE_BUILDER_EMAIL_DELIVERY=provider");
+  if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required for email delivery");
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: login.email,
+      subject: "Your Bundle Builder login code",
+      text: `Your Bundle Builder login code is ${login.code}. It expires at ${login.expiresAt}.`,
+      html: `<p>Your Bundle Builder login code is:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px;">${login.code}</p><p>This code expires at ${login.expiresAt}.</p>`,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Email provider failed: HTTP ${response.status}${text ? ` ${text.slice(0, 180)}` : ""}`);
+  }
 }
 
 function parseCoinGeckoPreloadIds(value) {

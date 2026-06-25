@@ -3586,21 +3586,21 @@ input[type="range"] {
 .profile-favorites-tabs {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin: 0 0 16px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
 }
 
 .profile-favorites-tab {
   margin: 0;
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: 999px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
   color: var(--ink-soft);
-  background: transparent;
+  background: var(--surface);
   font-size: 0.82rem;
   font-weight: 850;
   cursor: pointer;
@@ -3608,15 +3608,15 @@ input[type="range"] {
 }
 
 .profile-favorites-tab.active {
-  border-color: rgba(13, 107, 115, 0.38);
+  border-color: var(--teal);
   color: #ffffff;
   background: var(--teal);
-  box-shadow: 0 6px 16px rgba(13, 107, 115, 0.18);
+  box-shadow: 0 -1px 0 rgba(13, 107, 115, 0.2), 0 6px 16px rgba(13, 107, 115, 0.12);
 }
 
 .profile-favorites-tab:not(.active):hover {
   color: var(--ink);
-  background: var(--surface);
+  background: var(--panel);
 }
 
 .profile-favorites-panel[hidden] {
