@@ -943,8 +943,10 @@ const profileClose = document.getElementById("profileClose");
 const profileDisplayName = document.getElementById("profileDisplayName");
 const profileSaveName = document.getElementById("profileSaveName");
 const profileDialogTitle = document.getElementById("profileDialogTitle");
+const profileDialogSubtitle = document.getElementById("profileDialogSubtitle");
 const profileSyncStatus = document.getElementById("profileSyncStatus");
 const profileEmail = document.getElementById("profileEmail");
+const profileLoginCodeGroup = document.getElementById("profileLoginCodeGroup");
 const profileLoginCode = document.getElementById("profileLoginCode");
 const profileRequestCode = document.getElementById("profileRequestCode");
 const profileVerifyCode = document.getElementById("profileVerifyCode");
@@ -3098,9 +3100,15 @@ function updateProfileLoginUi(message = "") {
     profileLoginCode.disabled = signedIn;
     if (signedIn) profileLoginCode.value = "";
   }
+  if (profileLoginCodeGroup) profileLoginCodeGroup.hidden = signedIn;
   if (profileRequestCode) profileRequestCode.hidden = signedIn;
   if (profileVerifyCode) profileVerifyCode.hidden = signedIn;
   if (profileLogout) profileLogout.hidden = !signedIn;
+  if (profileDialogSubtitle) {
+    profileDialogSubtitle.textContent = signedIn
+      ? "Recent bundles and review reminders sync to your Bundle Builder profile."
+      : "Recent bundles and review reminders saved on this browser.";
+  }
   if (profileSyncStatus) {
     profileSyncStatus.textContent = signedIn
       ? message || `Signed in as ${profileSession.email}. Favorites, bundles, and alerts sync to the Bundle Builder prototype DB.`

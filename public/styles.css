@@ -3298,7 +3298,7 @@ input[type="range"] {
 }
 
 .profile-inline-actions {
-  margin: 0 0 14px;
+  margin: 0 0 12px;
 }
 
 .profile-inline-actions button,
@@ -3310,6 +3310,14 @@ input[type="range"] {
   background: rgba(13, 107, 115, 0.08);
   color: var(--teal-strong);
   font-size: 0.9rem;
+}
+
+.profile-inline-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 850;
 }
 
 .review-reminder-control {
@@ -3563,6 +3571,10 @@ input[type="range"] {
   display: none;
 }
 
+.profile-login-panel [hidden] {
+  display: none;
+}
+
 .profile-section + .profile-section {
   margin-top: 24px;
 }
@@ -3572,38 +3584,39 @@ input[type="range"] {
 }
 
 .profile-favorites-tabs {
-  display: flex;
-  align-items: flex-end;
-  gap: 0;
-  margin: 0 0 14px;
-  border-bottom: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
 }
 
 .profile-favorites-tab {
   margin: 0;
-  padding: 10px 16px;
+  padding: 8px 14px;
   border: 1px solid transparent;
-  border-bottom: 0;
-  border-radius: 7px 7px 0 0;
+  border-radius: 999px;
   color: var(--ink-soft);
   background: transparent;
-  font-size: 0.9rem;
-  font-weight: 800;
+  font-size: 0.82rem;
+  font-weight: 850;
   cursor: pointer;
-  transform: translateY(1px);
+  transform: none;
 }
 
 .profile-favorites-tab.active {
-  border-color: var(--teal) var(--line) var(--panel);
-  border-top-width: 3px;
-  color: var(--teal-strong);
-  background: linear-gradient(180deg, rgba(137, 221, 213, 0.22), var(--panel) 58%);
-  box-shadow: 0 -1px 0 rgba(137, 221, 213, 0.3), 0 1px 0 var(--panel);
+  border-color: rgba(13, 107, 115, 0.38);
+  color: #ffffff;
+  background: var(--teal);
+  box-shadow: 0 6px 16px rgba(13, 107, 115, 0.18);
 }
 
 .profile-favorites-tab:not(.active):hover {
   color: var(--ink);
-  background: var(--panel-soft);
+  background: var(--surface);
 }
 
 .profile-favorites-panel[hidden] {
