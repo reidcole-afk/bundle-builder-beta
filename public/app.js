@@ -602,6 +602,7 @@ const DEXSCREENER_TIMEOUT_MS = 14000;
 const DEXSCREENER_ROW_TIMEOUT_MS = 4200;
 const MARKET_CHART_CANDIDATE_LIMIT = 12;
 const VICI_COINS_API_BASE_URL = "https://office.viciswap.io/vs2/api/coins";
+const VICI_SWAP_VS2_BASE_URL = "https://office.viciswap.io/vs2/";
 const VICI_COINS_API_CACHE_MS = 1000 * 60 * 10;
 const VICI_COINS_API_TIMEOUT_MS = 9000;
 const viciNetworkChainIds = {
@@ -1845,6 +1846,17 @@ function normalizeAllocationWeights(allocation) {
   return normalized.map(({ ticker, weight, role }) => [ticker, weight, role]);
 }
 
+function normalizeEqualAllocationWeights(allocation) {
+  if (!allocation.length) return [];
+  const baseWeight = Math.floor(100 / allocation.length);
+  let remainder = 100 - baseWeight * allocation.length;
+  return allocation.map(([ticker, originalWeight, role]) => {
+    const weight = baseWeight + (remainder > 0 ? 1 : 0);
+    remainder = Math.max(0, remainder - 1);
+    return [ticker, weight, role, originalWeight];
+  });
+}
+
 function getViciMarketCandidates(network = getPreferences().network) {
   const normalizedNetwork = normalizeNetwork(network);
   return getSupportedTickersForNetwork(normalizedNetwork).map((ticker) => marketCandidateForTicker(ticker, normalizedNetwork));
@@ -2102,6 +2114,7 @@ function renderPrimary(bundle) {
           ${icon("alert")} Risk note
         </button>
       </div>
+      <p class="viciswap-split-note">ViciSwap opens these selected coins as an equal split. Use the machine percentages below as manual guidance.</p>
       <div class="review-reminder-control">
         <div>
           <strong>Set a review alert</strong>
@@ -2259,10 +2272,11 @@ function escapeHtml(value) {
 
 function getBaseAdjustedAllocation(bundle, network = chooseBundleNetwork(bundle), preferences = getPreferences()) {
   const allocation = getNetworkSafeAllocation(getViciSwapAllocation(bundle, preferences, network), network);
-  if (!preferences.diversityEnabled) return allocation;
+  const machineAllocation = preferences.diversityEnabled
+    ? normalizeAllocationWeights(getNetworkSafeAllocation(allocation.slice(0, Math.max(3, Math.min(preferences.coinCount, allocation.length))), network))
+    : allocation;
 
-  const desiredCount = Math.max(3, Math.min(preferences.coinCount, allocation.length));
-  return normalizeAllocationWeights(getNetworkSafeAllocation(allocation.slice(0, desiredCount), network));
+  return normalizeEqualAllocationWeights(machineAllocation);
 }
 
 function allocationOverrideFingerprint(bundle, network, allocation) {
@@ -2314,7 +2328,7 @@ function rebalanceAllocation(ticker, requestedWeight) {
     assigned -= 1;
   }
   const shareByIndex = new Map(shares.map((item) => [item.index, item.weight]));
-  manualAllocationOverride = current.map(([coin, weight, role], index) => [coin, index === targetIndex ? targetWeight : shareByIndex.get(index), role]);
+  manualAllocationOverride = current.map(([coin, weight, role, recommendedWeight], index) => [coin, index === targetIndex ? targetWeight : shareByIndex.get(index), role, recommendedWeight]);
   manualAllocationKey = allocationOverrideFingerprint(currentBundle, network, base);
   renderPrimary(currentBundle);
 }
@@ -2322,13 +2336,14 @@ function rebalanceAllocation(ticker, requestedWeight) {
 function getAllocationPlan(allocation, totalAmount = getPreferences().bundleAmount) {
   const preferences = safePreferences();
   const totalCents = Math.round(normalizeBundleAmount(totalAmount) * 100);
-  const planned = allocation.map(([ticker, weight, role]) => {
+  const planned = allocation.map(([ticker, weight, role, recommendedWeight]) => {
     const exactCents = (totalCents * weight) / 100;
     const priceInfo = getCoinPriceInfo(ticker);
     return {
       ticker,
       weight,
       role,
+      recommendedWeight: Math.round(finiteOrNull(recommendedWeight) || weight),
       cents: Math.floor(exactCents),
       fractionalCents: exactCents - Math.floor(exactCents),
       price: priceInfo?.price || null,
@@ -2346,10 +2361,11 @@ function getAllocationPlan(allocation, totalAmount = getPreferences().bundleAmou
       item.cents += 1;
     });
 
-  return planned.map(({ ticker, weight, role, cents, price, priceSource, networks, dataScore, signalSummary }) => ({
+  return planned.map(({ ticker, weight, role, recommendedWeight, cents, price, priceSource, networks, dataScore, signalSummary }) => ({
     ticker,
     weight,
     role,
+    recommendedWeight,
     amount: cents / 100,
     price,
     priceSource,
@@ -2439,11 +2455,11 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
 
   allocationBars.innerHTML = `
     <div class="allocation-editor-head">
-      <div><strong>Adjust allocation</strong><span>Change one percentage and the remaining coins rebalance to keep the bundle at 100%.</span></div>
+      <div><strong>ViciSwap equal split</strong><span>ViciSwap opens these coins evenly. The machine's suggested weighting is shown as guidance for manual reference.</span></div>
       <button type="button" data-reset-allocation>Reset</button>
     </div>
   ` + allocationPlan
-    .map(({ ticker, weight, role, amount, quantity, price, priceSource, networks, signalSummary, thesisProfile, safetyProfile, bestFor }, index) => {
+    .map(({ ticker, weight, recommendedWeight, role, amount, quantity, price, priceSource, networks, signalSummary, thesisProfile, safetyProfile, bestFor }, index) => {
       const color = colors[index % colors.length];
       const selectedNetwork = getPreferences().network;
       const otherNetworks = (networks || []).filter((network) => network !== selectedNetwork);
@@ -2466,7 +2482,8 @@ function renderAllocation(bundle, allocationPlan = getAllocationPlan(getAdjusted
             </span>
             <span class="allocation-value">
               <strong>${formatCurrency(amount)}</strong>
-              <label class="allocation-weight-input"><input type="number" min="1" max="99" step="1" value="${weight}" data-allocation-weight="${ticker}" aria-label="${ticker} allocation percentage" /><span>%</span></label>
+              <label class="allocation-weight-input"><input type="number" min="1" max="99" step="1" value="${weight}" data-allocation-weight="${ticker}" aria-label="${ticker} ViciSwap split percentage" /><span>% split</span></label>
+              <span class="allocation-guidance">Machine suggests ${recommendedWeight}%</span>
               <span>${formatQuantity(quantity, ticker)}</span>
               <span>${formatPriceLine(price, priceSource)}</span>
             </span>
@@ -2704,10 +2721,10 @@ function pitchFor(bundle) {
   const bundleNetwork = preferences.network;
   const allocationRows = getAllocationPlan(getAdjustedAllocation(bundle, bundleNetwork, preferences), preferences.bundleAmount);
   const allocation = allocationRows
-    .map(({ ticker, weight, amount, quantity, networks }) => {
+    .map(({ ticker, weight, recommendedWeight, amount, quantity, networks }) => {
       const otherNetworks = (networks || []).filter((network) => network !== bundleNetwork);
       const networkNote = otherNetworks.length ? `${bundleNetwork}; also ${otherNetworks.join("/")}` : bundleNetwork;
-      return `${ticker} ${weight}% (${formatCurrency(amount)}, ${formatQuantity(quantity, ticker)}, Receive: ${networkNote})`;
+      return `${ticker} ${weight}% ViciSwap split; machine suggests ${recommendedWeight}% (${formatCurrency(amount)}, ${formatQuantity(quantity, ticker)}, Receive: ${networkNote})`;
     })
     .join(", ");
   const tokenNotes = allocationRows
@@ -2716,7 +2733,7 @@ function pitchFor(bundle) {
       return `- ${ticker}: ${thesisProfile.role}. ${thesisProfile.why} Watch: ${thesisProfile.watch}`;
     })
     .join("\n");
-  return `${bundle.name}: ${bundle.thesis}\n\nNetwork: ${bundleNetwork}\nTotal bundle value: ${formatCurrency(preferences.bundleAmount)}\n\nSuggested allocation: ${allocation}\n\nWhy these coins:\n${tokenNotes}\n\nWhy use it: ${bundle.action}\n\nBuilder note: ${bundle.vcPlan}\n\nRisk note: ${bundle.disclosure}\n\nAlways verify route, slippage, and token availability in ViciSwap before swapping.`;
+  return `${bundle.name}: ${bundle.thesis}\n\nNetwork: ${bundleNetwork}\nTotal bundle value: ${formatCurrency(preferences.bundleAmount)}\n\nViciSwap handoff: coins open as an equal split. Bundle Builder's suggested weights are guidance for manual reference.\n\nAllocation guide: ${allocation}\n\nWhy these coins:\n${tokenNotes}\n\nWhy use it: ${bundle.action}\n\nBuilder note: ${bundle.vcPlan}\n\nRisk note: ${bundle.disclosure}\n\nAlways verify route, slippage, and token availability in ViciSwap before swapping.`;
 }
 
 async function copyPitch(bundleId) {
@@ -3219,7 +3236,7 @@ function qualityAdjustedPulseScore(candidate = {}) {
   else if (Number.isFinite(direction.score) && direction.score <= 35) score -= 18;
   else if (Number.isFinite(direction.score) && direction.score >= 65) score += 10;
   if (Number.isFinite(change24h) && change24h <= -6 && volume < 500_000) score -= 14;
-  if (Number.isFinite(direction.score) && direction.score <= 10 && !setup?.boughtPullback) score -= 45;
+  if (Number.isFinite(direction.score) && direction.score <= 10 && !setup?.boughtPullback && !setup?.baseForming) score -= 45;
   if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6) score -= 20;
   if (volume > 0 && volume < 75_000 && Number.isFinite(change24h) && change24h < 0) score -= 18;
   if (Number.isFinite(setup?.score) && setup.score < 1 && Number.isFinite(direction.score) && direction.score <= 30) score -= 18;
@@ -3248,11 +3265,12 @@ function marketTimingScore(candidate = {}, setup = {}) {
   if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.45;
   if (setup?.constructive) score += 12;
   if (setup?.boughtPullback) score += 13;
+  if (setup?.baseForming) score += 10;
   if (setup?.extended && !setup?.fading) score += 3;
   if (setup?.extended && setup?.fading) score -= 22;
   if (stats?.recentReturn >= 1.2 && stats?.consistency >= 0.5) score += 9;
   if (stats?.recentReturn <= -1.4) score -= 14;
-  if (stats?.pullbackFromHigh >= 0.12 && !setup?.boughtPullback) score -= 10;
+  if (stats?.pullbackFromHigh >= 0.12 && !setup?.boughtPullback && !setup?.baseForming) score -= 10;
   const rounded = Math.round(clamp(score, 0, 100));
   let label = "Timing mixed";
   if (rounded >= 75) label = "Timing strong";
@@ -3305,7 +3323,7 @@ function convictionQualityScore(candidate = {}, setup = {}, edge = {}) {
   if (volume >= 1_000_000) score += 8;
   if (liquidity >= 1_000_000) score += 8;
   if (stats?.consistency >= 0.58) score += 6;
-  if (stats?.drawdown >= 0.18 && !setup?.boughtPullback) score -= 10;
+  if (stats?.drawdown >= 0.18 && !setup?.boughtPullback && !setup?.baseForming) score -= 10;
   if (isSpeculativePulseCandidate(candidate) && (volume < 1_000_000 || liquidity < 1_000_000)) score -= 12;
   const rounded = Math.round(clamp(score, 0, 100));
   let label = "Conviction mixed";
@@ -3334,7 +3352,7 @@ function isRankablePulseCandidate(candidate = {}) {
   const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
   const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
   const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h);
-  const hasReversalEvidence = Boolean(setup?.boughtPullback || setup?.constructive);
+  const hasReversalEvidence = Boolean(setup?.boughtPullback || setup?.baseForming || setup?.constructive);
 
   if (Number.isFinite(direction.score) && direction.score <= 8 && !hasReversalEvidence) return false;
   if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6 && !hasReversalEvidence) return false;
@@ -4291,7 +4309,7 @@ document.body.addEventListener("click", (event) => {
   if (resetAllocation) {
     clearManualAllocationOverride();
     if (currentBundle) renderPrimary(currentBundle);
-    showToast("Suggested allocation restored.");
+    showToast("ViciSwap equal split restored.");
     return;
   }
   const scheduleReview = event.target.closest("[data-schedule-review]");
@@ -6329,6 +6347,12 @@ function marketSetupSignal(meta, market = {}, prices = []) {
   const fading = stats && (stats.recentReturn <= -1.4 || (stats.pullbackFromHigh >= 0.08 && stats.recentReturn < 0));
   const constructive = stats && stats.recentReturn >= 1.2 && stats.consistency >= 0.5;
   const boughtPullback = stats && stats.pullbackFromHigh >= 0.06 && stats.pullbackFromHigh <= 0.26 && stats.reboundFromLow >= 2.5 && stats.reboundSlope >= 0.28;
+  const baseForming = stats
+    && stats.pullbackFromHigh >= 0.08
+    && stats.pullbackFromHigh <= 0.55
+    && Math.abs(stats.recentReturn) <= 1.2
+    && stats.recentRange <= 0.08
+    && stats.consistency >= 0.38;
 
   let score = 0;
   const reasons = [];
@@ -6352,6 +6376,10 @@ function marketSetupSignal(meta, market = {}, prices = []) {
     score += hasVolume && hasDepth ? 3 : 1.4;
     reasons.push("pullback is being bought");
   }
+  if (baseForming) {
+    score += hasVolume && hasDepth ? 2.4 : 1.1;
+    reasons.push("base is forming after the selloff");
+  }
   if (extended && !fading && hasVolume) {
     score += 0.8;
     reasons.push("breakout still has activity behind it");
@@ -6360,13 +6388,14 @@ function marketSetupSignal(meta, market = {}, prices = []) {
     score -= 3.2;
     reasons.push("extended move is fading");
   }
-  if (change24h < -2 && !boughtPullback) score -= 1.8;
+  if (change24h < -2 && !boughtPullback && !baseForming) score -= 1.8;
   if (!hasVolume) score -= 1.6;
   if (!hasDepth && liquidityUsd > 0) score -= 1.2;
 
   score = clamp(score, -8, 9);
-  if (score >= 5.5) label = boughtPullback ? "Pullback rebound setup" : "Confirmed momentum setup";
+  if (score >= 5.5) label = boughtPullback ? "Pullback rebound setup" : baseForming ? "Reversal base setup" : "Confirmed momentum setup";
   else if (score >= 2.5) label = "Constructive setup";
+  else if (baseForming) label = "Reversal watch setup";
   else if (score <= -3) label = "Caution setup";
   else if (fading) label = "Cooling setup";
 
@@ -6378,6 +6407,7 @@ function marketSetupSignal(meta, market = {}, prices = []) {
     fading: Boolean(fading),
     constructive: Boolean(constructive),
     boughtPullback: Boolean(boughtPullback),
+    baseForming: Boolean(baseForming),
     hasVolume,
     hasDepth,
   };
@@ -6400,6 +6430,8 @@ function setupReadRating(setup) {
     label = "Strong but extended";
   } else if (setup.boughtPullback) {
     label = "Bought pullback";
+  } else if (setup.baseForming) {
+    label = "Reversal base";
   } else if (setup.constructive && setup.hasVolume) {
     label = "Constructive";
   }
@@ -6713,8 +6745,12 @@ function shortenText(value, limit = 120) {
 }
 
 function entryFlagIcon(tone = "neutral", label = "") {
-  if (/momentum confirmed/i.test(String(label))) {
+  const normalizedLabel = String(label);
+  if (/momentum confirmed/i.test(normalizedLabel)) {
     return `<span class="entry-fire-icon" aria-hidden="true">🔥</span>`;
+  }
+  if (/reversal/i.test(normalizedLabel)) {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16h8a5 5 0 0 0 0-10H9" /><path d="M9 2 5 6l4 4" /><path d="M17 16l3 3-3 3" /></svg>`;
   }
   if (tone === "neutral") {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>`;
@@ -6856,6 +6892,7 @@ function appendSetupNote(reason, setup) {
   const rating = setupReadRating(setup);
   const prefix = rating ? `Setup read: ${rating.score}/10, ${rating.label.toLowerCase()}` : "Setup read";
   if (setup.boughtPullback) return `${reason} ${prefix}; pullback is being bought with ${reasons}.`;
+  if (setup.baseForming) return `${reason} ${prefix}; selling has slowed into a tight base with ${reasons}.`;
   if (setup.extended && setup.fading) return `${reason} ${prefix}; move is extended and cooling, so the machine is cautious about chasing.`;
   if (setup.extended) return `${reason} ${prefix}; momentum is strong, but the coin is near an elevated short-term zone.`;
   if (setup.constructive && setup.hasVolume) return `${reason} ${prefix}; constructive price action with volume support.`;
@@ -6888,6 +6925,9 @@ function chartTrajectoryLabel(prices) {
   if (stats.pullbackFromHigh >= 0.08 && stats.reboundFromLow >= 4.5 && stats.reboundSlope >= 0.7) {
     return { tone: "rebound", text: "pullback is being bought with a sharp rebound from the recent low." };
   }
+  if (stats.pullbackFromHigh >= 0.08 && Math.abs(stats.recentReturn) <= 1.2 && stats.recentRange <= 0.08) {
+    return { tone: "base", text: "selling has slowed into a tight base, so this is a reversal watch rather than a clean breakdown." };
+  }
   if (stats.recentReturn >= 1.5 && stats.consistency >= 0.52) {
     return { tone: "constructive", text: "recent slope is still constructive." };
   }
@@ -6915,6 +6955,7 @@ function chartTrajectoryStats(prices) {
   const recentHigh = Math.max(...recent);
   const fullHigh = Math.max(...series);
   const recentLow = Math.min(...recent);
+  const recentRange = recentHigh && recentLow ? (recentHigh - recentLow) / recentLow : 0;
   const pullbackFromHigh = recentEnd && fullHigh ? (fullHigh - recentEnd) / fullHigh : 0;
   const reboundFromLow = recentEnd && recentLow ? ((recentEnd - recentLow) / recentLow) * 100 : 0;
   const reboundIndex = recent.lastIndexOf(recentLow);
@@ -6932,6 +6973,7 @@ function chartTrajectoryStats(prices) {
     pullbackFromHigh: Number.isFinite(pullbackFromHigh) ? pullbackFromHigh : 0,
     reboundFromLow: Number.isFinite(reboundFromLow) ? reboundFromLow : 0,
     reboundSlope: Number.isFinite(reboundSlope) ? reboundSlope : 0,
+    recentRange: Number.isFinite(recentRange) ? recentRange : 0,
     recentHigh,
     consistency,
   };
@@ -7778,6 +7820,11 @@ function plainMarketRead(ticker, change, volume, liquidity, setup = null) {
       ? `${thesis.marketRead} The extra setup read is that the recent pullback is being bought with enough volume and depth to deserve attention.`
       : `${ticker} is showing a bought-pullback setup: the move cooled off, then buyers stepped back in with enough volume and depth to deserve attention.`;
   }
+  if (setup?.baseForming && setup?.hasVolume && setup?.hasDepth) {
+    return thesis?.marketRead
+      ? `${thesis.marketRead} The extra setup read is that selling has slowed into a tight base after the drop, so the machine treats it as a reversal watch instead of a pure falling-knife setup.`
+      : `${ticker} is forming a tight base after the drop. That does not guarantee a pump, but it is real reversal evidence if volume and liquidity keep holding.`;
+  }
   if (setup?.extended && setup?.fading) {
     return thesis?.marketRead
       ? `${thesis.marketRead} The move looks extended and is starting to fade, so the machine treats this as a watchlist setup rather than a clean chase.`
@@ -7819,6 +7866,7 @@ function timingScoreText(candidate = {}, score = 50, setup = {}, stats = null) {
   if (score <= 25) return `${ticker} has weak timing right now. The machine would wait for stabilization before treating this as a buy.`;
   if (score <= 40) return `${ticker} has a cautious timing read${Number.isFinite(change24h) ? ` after a ${formatPercent(change24h)} 24h move` : ""}. It needs a cleaner bounce or stronger follow-through.`;
   if (setup?.boughtPullback) return `${ticker} is in the middle zone, but the pullback is being bought, so the next check is whether the rebound keeps working.`;
+  if (setup?.baseForming) return `${ticker} is basing after a sharp drop. The machine is watching for a break above the base with volume before calling it a clean buy.`;
   if (stats?.recentReturn < 0) return `${ticker} is mixed on timing because the recent slope is softening. Wait for the next push before adding size.`;
   return `${ticker} is mixed on timing. It is not a clean buy or avoid signal yet.`;
 }
@@ -7880,7 +7928,13 @@ function entryTimingSignal(favorite = {}, setup = {}, trajectory = null) {
       text: `${ticker} has cooled off and started rebounding with usable depth. That is usually a cleaner setup than buying a vertical spike.`,
     };
   }
-  if (trajectory?.tone === "bearish" || (change24h <= -4 && !setup?.boughtPullback)) {
+  if (setup?.baseForming && setup?.hasVolume && setup?.hasDepth) {
+    return {
+      label: "Reversal watch",
+      text: `${ticker} sold off, then flattened into a tighter base with usable volume and depth. The next bullish confirmation would be a break above the base with volume.`,
+    };
+  }
+  if (trajectory?.tone === "bearish" || (change24h <= -4 && !setup?.boughtPullback && !setup?.baseForming)) {
     return {
       label: "Falling-knife caution",
       text: `${ticker} is dropping without enough rebound confirmation yet. The machine wants proof of buyer support before treating the dip as attractive.`,
@@ -8144,14 +8198,27 @@ function makeViciSwapUrl(bundle, allocation = getAdjustedAllocation(bundle), net
   const preferences = getPreferences();
   const safeAllocation = getNetworkSafeAllocation(allocation, network);
   const allocationPlan = getAllocationPlan(safeAllocation, preferences.bundleAmount);
+  const chainId = viciNetworkChainIds[normalizeNetwork(network)];
+  const tokenAddresses = allocationPlan
+    .map(({ ticker }) => tokenAddressForNetwork(ticker, network))
+    .filter(Boolean);
+  if (chainId && tokenAddresses.length === allocationPlan.length) {
+    const params = new URLSearchParams({
+      chainid: String(chainId),
+      bundle: tokenAddresses.join(","),
+    });
+    return `${VICI_SWAP_VS2_BASE_URL}?${params.toString()}`;
+  }
   const handoff = {
     source: "vici-bundle-builder",
     name: bundle.name,
     network,
     totalUsd: Number(preferences.bundleAmount.toFixed(2)),
-    tokens: allocationPlan.map(({ ticker, weight, role, amount, quantity, price, priceSource, networks }) => ({
+    split: "equal",
+    tokens: allocationPlan.map(({ ticker, weight, recommendedWeight, role, amount, quantity, price, priceSource, networks }) => ({
       ticker,
       weight,
+      recommendedWeight,
       role,
       amountUsd: Number(amount.toFixed(2)),
       quantity: quantity ? Number(quantity.toFixed(8)) : null,
@@ -8166,9 +8233,7 @@ function makeViciSwapUrl(bundle, allocation = getAdjustedAllocation(bundle), net
     network,
     amount: preferences.bundleAmount.toFixed(2),
     tokens: allocationPlan.map(({ ticker }) => ticker).join(","),
-    weights: allocationPlan.map(({ weight }) => weight).join(","),
-    amounts: allocationPlan.map(({ amount }) => amount.toFixed(2)).join(","),
-    quantities: allocationPlan.map(({ quantity }) => (quantity ? quantity.toFixed(8) : "")).join(","),
+    split: "equal",
     payload: btoa(JSON.stringify(handoff)),
   });
   return `https://app.viciswap.io/?${params.toString()}`;
@@ -8181,10 +8246,10 @@ async function copyViciSwapHandoff(bundleId) {
   const bundleNetwork = chooseBundleNetwork(bundle, preferences);
   const allocation = getNetworkSafeAllocation(getAdjustedAllocation(bundle, bundleNetwork, preferences), bundleNetwork);
   const allocationPlan = getAllocationPlan(allocation, preferences.bundleAmount);
-  const readable = `${bundle.name}\nNetwork: ${bundleNetwork}\nTotal: ${formatCurrency(preferences.bundleAmount)}\n${allocationPlan.map(({ ticker, weight, amount, quantity, networks }) => {
+  const readable = `${bundle.name}\nNetwork: ${bundleNetwork}\nTotal: ${formatCurrency(preferences.bundleAmount)}\nViciSwap split: equal across selected coins\n${allocationPlan.map(({ ticker, weight, recommendedWeight, amount, quantity, networks }) => {
     const otherNetworks = (networks || []).filter((network) => network !== bundleNetwork);
     const networkNote = otherNetworks.length ? `${bundleNetwork}; also ${otherNetworks.join("/")}` : bundleNetwork;
-    return `${ticker}: ${weight}% - ${formatCurrency(amount)} - ${formatQuantity(quantity, ticker)} - Receive: ${networkNote}`;
+    return `${ticker}: ${weight}% equal split - machine suggests ${recommendedWeight}% - ${formatCurrency(amount)} - ${formatQuantity(quantity, ticker)} - Receive: ${networkNote}`;
   }).join("\n")}`;
   try {
     await navigator.clipboard.writeText(readable);
@@ -8424,6 +8489,7 @@ function openViciReview(bundleId, viciSwapUrl) {
   reviewChecklist.innerHTML = [
     `Same-network Receive tokens only: ${bundleNetwork}.`,
     `${allocationPlan.length} tokens confirmed from ${supportSourceForNetwork(bundleNetwork)}.`,
+    "ViciSwap currently opens selected coins as an equal split. Bundle Builder percentages are guidance for manual reference.",
     "Assistant can prefill visible fields only. It will not approve, sign, or execute a swap.",
     "Safety screen is basic and does not replace contract review, liquidity review, or rug-pull analysis.",
     "Review ViciSwap quote, route, slippage, fees, token amounts, and wallet approvals before continuing.",
@@ -8439,13 +8505,13 @@ function openViciReview(bundleId, viciSwapUrl) {
   }
 }
 
-function renderReviewToken({ ticker, weight, amount, networks, safetyProfile }) {
+function renderReviewToken({ ticker, weight, recommendedWeight, amount, networks, safetyProfile }) {
   const network = getPreferences().network;
   const networkLabel = networks?.includes(network) ? network : "network pending";
   return `
     <div class="review-token safety-${safetyProfile.level}">
       <strong>${escapeHtml(ticker)}</strong>
-      <span>${weight}% - ${formatCurrency(amount)} - Receive: ${escapeHtml(networkLabel)}</span>
+      <span>${weight}% equal split - machine suggests ${recommendedWeight}% - ${formatCurrency(amount)} - Receive: ${escapeHtml(networkLabel)}</span>
       <em>${escapeHtml(safetyProfile.label)}: ${escapeHtml(safetyProfile.liquidityLabel)}; ${escapeHtml(safetyProfile.contractLabel)}</em>
     </div>
   `;

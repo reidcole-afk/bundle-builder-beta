@@ -2776,6 +2776,22 @@ input[type="range"] {
   font-size: 0.76rem;
 }
 
+.allocation-value .allocation-guidance {
+  color: var(--teal);
+  font-weight: 900;
+}
+
+.viciswap-split-note {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink-soft);
+  background: var(--panel-soft);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 .bar-track {
   height: 11px;
   overflow: hidden;
