@@ -943,6 +943,12 @@ const profileClose = document.getElementById("profileClose");
 const profileDisplayName = document.getElementById("profileDisplayName");
 const profileSaveName = document.getElementById("profileSaveName");
 const profileDialogTitle = document.getElementById("profileDialogTitle");
+const profileSyncStatus = document.getElementById("profileSyncStatus");
+const profileEmail = document.getElementById("profileEmail");
+const profileLoginCode = document.getElementById("profileLoginCode");
+const profileRequestCode = document.getElementById("profileRequestCode");
+const profileVerifyCode = document.getElementById("profileVerifyCode");
+const profileLogout = document.getElementById("profileLogout");
 const profileFavoriteList = document.getElementById("profileFavoriteList");
 const profileFavoriteBundleList = document.getElementById("profileFavoriteBundleList");
 const profileBundleList = document.getElementById("profileBundleList");
@@ -979,6 +985,7 @@ let pulseChartWarmSeq = 0;
 let pulseLoadingActive = false;
 let marketPulseReady = false;
 let selectedPulseWindow = "24h";
+let selectedPulseReadWindow = "7d";
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -991,11 +998,21 @@ const reviewAlertsStorageKey = "viciBundleBuilderReviewAlertsV1";
 const recentBundlesStorageKey = "viciBundleBuilderRecentBundlesV1";
 const localProfileStorageKey = "viciBundleBuilderLocalProfileV1";
 const favoriteCoinsStorageKey = "viciBundleBuilderFavoriteCoinsV1";
+const profileSessionStorageKey = "viciBundleBuilderProfileSessionV1";
 const tourSeenStorageKey = "viciBundleBuilderTourSeenV1";
+const pulseReadWindows = [
+  { key: "1d", label: "1d" },
+  { key: "3d", label: "3d" },
+  { key: "7d", label: "7d" },
+  { key: "1m", label: "1M" },
+];
 let selectedCoinPreferences = new Set();
 let manualAllocationOverride = null;
 let manualAllocationKey = "";
 let tourIndex = 0;
+let profileSession = readProfileSession();
+let profileSyncTimer = null;
+let profileSyncInFlight = false;
 const tourSlides = [
   {
     icon: "sliders",
@@ -1180,8 +1197,13 @@ function chooseBundleNetwork(bundle, preferences = getPreferences()) {
 
 function getViciSwapAllocation(bundle, preferences = getPreferences(), network = chooseBundleNetwork(bundle, preferences)) {
   const selectedTickers = selectedTickersForNetwork(preferences, network);
-  const supportedAllocation = getNetworkSafeAllocation(bundle.allocation, network)
+  const modelAllocation = getNetworkSafeAllocation(bundle.allocation, network)
     .filter(([ticker]) => !selectedTickers.length || selectedTickers.some((selected) => areEquivalentTickers(selected, ticker)));
+  const selectedAllocation = selectedTickers.map((ticker) => {
+    const modelMatch = modelAllocation.find(([modelTicker]) => areEquivalentTickers(modelTicker, ticker));
+    return modelMatch || [ticker, fallbackWeightForTicker(ticker, preferences), roleForTicker(ticker)];
+  });
+  const supportedAllocation = selectedAllocation.length ? selectedAllocation : modelAllocation;
   const desiredCount = getDesiredSupportedCoinCount(preferences, network);
   return normalizeAllocationWeights(fillAllocationToCount(supportedAllocation, network, desiredCount, preferences));
 }
@@ -1635,7 +1657,9 @@ function fillAllocationToCount(allocation, network, desiredCount, preferences) {
   const filled = allocation.slice();
   const selectedTickers = selectedTickersForNetwork(preferences, network);
   const fallbackTickers = getNetworkCandidateTickers(network);
-  const candidates = selectedTickers.length ? selectedTickers : fallbackTickers;
+  const candidates = selectedTickers.length && filled.length < desiredCount
+    ? [...selectedTickers, ...fallbackTickers]
+    : fallbackTickers;
 
   for (const ticker of candidates) {
     if (filled.length >= desiredCount) break;
@@ -2408,7 +2432,7 @@ function safetyProfileForTicker(ticker, { amount = 0, priceSource = "" } = {}) {
       ? "Vici ecosystem asset"
       : "Basic list check only";
 
-  const dataLabel = hasLiveVolume || livePrice ? "Live data" : "Cached data";
+  const dataLabel = hasLiveVolume || livePrice ? "Live data" : "Cached estimate";
   const needsReview = isSpeculative || highVolatility || (!hasLiveVolume && !isStable && !isCore);
   const level = needsReview ? "review" : "pass";
   const label = needsReview ? "Review" : "Basic pass";
@@ -2891,8 +2915,229 @@ function writeLocalArray(key, value) {
   }
 }
 
+function readProfileSession() {
+  try {
+    const session = JSON.parse(localStorage.getItem(profileSessionStorageKey) || "{}");
+    return session && typeof session === "object" ? session : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveProfileSession(session) {
+  profileSession = session && typeof session === "object" ? session : {};
+  try {
+    if (profileSession.token) localStorage.setItem(profileSessionStorageKey, JSON.stringify(profileSession));
+    else localStorage.removeItem(profileSessionStorageKey);
+  } catch {
+    // The local-only profile still works if session storage is blocked.
+  }
+}
+
+function currentProfileSnapshot() {
+  return {
+    profile: readLocalProfile(),
+    favoriteCoins: readLocalArray(favoriteCoinsStorageKey),
+    recentBundles: readLocalArray(recentBundlesStorageKey),
+    reviewAlerts: readLocalArray(reviewAlertsStorageKey),
+    builderPreferences: readStoredBuilderPreferences(),
+  };
+}
+
+function readStoredBuilderPreferences() {
+  try {
+    const preferences = JSON.parse(localStorage.getItem(builderPreferencesStorageKey) || "{}");
+    return preferences && typeof preferences === "object" ? preferences : {};
+  } catch {
+    return {};
+  }
+}
+
+function applyProfileSnapshot(snapshot = {}) {
+  if (snapshot.profile) {
+    try {
+      localStorage.setItem(localProfileStorageKey, JSON.stringify(snapshot.profile));
+    } catch {
+      // Keep the current local profile if storage is blocked.
+    }
+  }
+  if (Array.isArray(snapshot.favoriteCoins)) writeLocalArray(favoriteCoinsStorageKey, snapshot.favoriteCoins);
+  if (Array.isArray(snapshot.recentBundles)) writeLocalArray(recentBundlesStorageKey, snapshot.recentBundles);
+  if (Array.isArray(snapshot.reviewAlerts)) writeLocalArray(reviewAlertsStorageKey, snapshot.reviewAlerts);
+  if (snapshot.builderPreferences && typeof snapshot.builderPreferences === "object") {
+    try {
+      localStorage.setItem(builderPreferencesStorageKey, JSON.stringify(snapshot.builderPreferences));
+    } catch {
+      // Preferences remain in memory for this session.
+    }
+  }
+}
+
+function isProfileSignedIn() {
+  return Boolean(profileSession?.token);
+}
+
+function queueProfileSync() {
+  if (!isProfileSignedIn()) {
+    updateProfileLoginUi();
+    return;
+  }
+  window.clearTimeout(profileSyncTimer);
+  profileSyncTimer = window.setTimeout(() => pushProfileSnapshot().catch(() => {}), 650);
+}
+
+async function profileApi(path, options = {}) {
+  const headers = { accept: "application/json", ...(options.headers || {}) };
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  if (profileSession?.token) headers.Authorization = `Bearer ${profileSession.token}`;
+  const response = await fetch(path, { ...options, headers });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) throw new Error(payload.error || `Request failed (${response.status})`);
+  return payload;
+}
+
+async function requestProfileCode() {
+  const email = String(profileEmail?.value || "").trim();
+  if (!email) {
+    showToast("Enter your email first.");
+    return;
+  }
+  profileRequestCode.disabled = true;
+  try {
+    const payload = await profileApi("/api/v1/auth/request-code", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    profileLoginCode?.focus();
+    showToast(payload.devCode ? `Dev login code: ${payload.devCode}` : "Check your email for the login code.");
+    updateProfileLoginUi(payload.devCode ? `Dev code: ${payload.devCode}` : "Code sent. Check your email.");
+  } catch (error) {
+    showToast(error.message || "Could not send login code.");
+  } finally {
+    profileRequestCode.disabled = false;
+  }
+}
+
+async function verifyProfileCode() {
+  const email = String(profileEmail?.value || "").trim();
+  const code = String(profileLoginCode?.value || "").trim();
+  if (!email || !code) {
+    showToast("Enter your email and code.");
+    return;
+  }
+  profileVerifyCode.disabled = true;
+  try {
+    const payload = await profileApi("/api/v1/auth/verify-code", {
+      method: "POST",
+      body: JSON.stringify({ email, code }),
+    });
+    saveProfileSession({
+      token: payload.token,
+      email: payload.profile?.email || email,
+      profileId: payload.profile?.id || "",
+      signedInAt: new Date().toISOString(),
+    });
+    const serverSnapshot = payload.profile?.snapshot || {};
+    const hasServerData = ["favoriteCoins", "recentBundles", "reviewAlerts"].some((key) => Array.isArray(serverSnapshot[key]) && serverSnapshot[key].length)
+      || Boolean(serverSnapshot.profile?.displayName);
+    if (hasServerData) applyProfileSnapshot(serverSnapshot);
+    else await pushProfileSnapshot();
+    renderProfile();
+    updateFavoriteToggle();
+    showToast("Profile signed in and synced.");
+  } catch (error) {
+    showToast(error.message || "Could not verify login code.");
+  } finally {
+    profileVerifyCode.disabled = false;
+  }
+}
+
+async function loadProfileSnapshot() {
+  if (!isProfileSignedIn()) return;
+  try {
+    const payload = await profileApi("/api/v1/profile");
+    if (payload.profile?.snapshot) applyProfileSnapshot(payload.profile.snapshot);
+    renderProfile();
+    updateFavoriteToggle();
+  } catch (error) {
+    showToast("Profile sync is offline; this device will keep saving locally.");
+  }
+}
+
+async function pushProfileSnapshot() {
+  if (!isProfileSignedIn() || profileSyncInFlight) return;
+  profileSyncInFlight = true;
+  updateProfileLoginUi("Syncing profile...");
+  try {
+    await profileApi("/api/v1/profile", {
+      method: "PUT",
+      body: JSON.stringify(currentProfileSnapshot()),
+    });
+    updateProfileLoginUi("Profile synced.");
+  } catch {
+    updateProfileLoginUi("Profile sync offline. Local changes are still saved.");
+  } finally {
+    profileSyncInFlight = false;
+  }
+}
+
+function logoutProfile() {
+  saveProfileSession({});
+  if (profileLoginCode) profileLoginCode.value = "";
+  renderProfile();
+  showToast("Signed out. This browser will keep its local copy.");
+}
+
+function updateProfileLoginUi(message = "") {
+  const signedIn = isProfileSignedIn();
+  if (profileEmail) {
+    profileEmail.value = signedIn ? profileSession.email || "" : profileEmail.value;
+    profileEmail.disabled = signedIn;
+  }
+  if (profileLoginCode) {
+    profileLoginCode.disabled = signedIn;
+    if (signedIn) profileLoginCode.value = "";
+  }
+  if (profileRequestCode) profileRequestCode.hidden = signedIn;
+  if (profileVerifyCode) profileVerifyCode.hidden = signedIn;
+  if (profileLogout) profileLogout.hidden = !signedIn;
+  if (profileSyncStatus) {
+    profileSyncStatus.textContent = signedIn
+      ? message || `Signed in as ${profileSession.email}. Favorites, bundles, and alerts sync to the Bundle Builder prototype DB.`
+      : message || "Beta profile: data saves on this device until you sign in with email.";
+  }
+}
+
+const profileStore = {
+  readArray: readLocalArray,
+  writeArray(key, value) {
+    writeLocalArray(key, value);
+    queueProfileSync();
+  },
+  readProfile: readLocalProfile,
+  writeProfile(profile) {
+    try {
+      localStorage.setItem(localProfileStorageKey, JSON.stringify(profile));
+      queueProfileSync();
+      return true;
+    } catch {
+      showToast("This browser could not save the profile.");
+      return false;
+    }
+  },
+  descriptor() {
+    return {
+      mode: isProfileSignedIn() ? "email-profile-sync" : "browser-local",
+      apiReady: true,
+      note: isProfileSignedIn()
+        ? "Profile data saves locally first, then syncs to the Bundle Builder prototype profile DB."
+        : "Profile data is local until the user signs in with email.",
+    };
+  },
+};
+
 function readRecentBundles() {
-  return readLocalArray(recentBundlesStorageKey);
+  return profileStore.readArray(recentBundlesStorageKey);
 }
 
 function bundleDisplayName(bundle = {}) {
@@ -2907,7 +3152,7 @@ function updateRecentBundleRecord(snapshotId, updater) {
     updatedRecord = updater({ ...bundle });
     return updatedRecord;
   });
-  writeLocalArray(recentBundlesStorageKey, next);
+  profileStore.writeArray(recentBundlesStorageKey, next);
   renderProfile();
   return updatedRecord;
 }
@@ -2950,7 +3195,7 @@ function cancelRecentBundleRename() {
 }
 
 function readReviewAlerts() {
-  return readLocalArray(reviewAlertsStorageKey);
+  return profileStore.readArray(reviewAlertsStorageKey);
 }
 
 function readLocalProfile() {
@@ -2974,7 +3219,7 @@ function updatePersonalGreeting(displayName = displayNameFromProfile()) {
 }
 
 function readFavoriteCoins() {
-  return readLocalArray(favoriteCoinsStorageKey);
+  return profileStore.readArray(favoriteCoinsStorageKey);
 }
 
 function favoriteCoinKey(ticker, network = safePreferences().network) {
@@ -3135,10 +3380,33 @@ function sevenDayScoreInputs({ change24h, change7d, change30d, volume, liquidity
 }
 
 function sevenDayCoinRead(favorite = {}) {
+  return directionalCoinRead(favorite, "7d");
+}
+
+function estimateDirectionalChange(favorite = {}, window = "7d") {
+  const change24h = finiteOrNull(favorite.change24h);
+  const change7d = finiteOrNull(favorite.change7d);
+  const change30d = finiteOrNull(favorite.change30d);
+  if (window === "1d") return change24h;
+  if (window === "3d") {
+    if (Number.isFinite(change7d) && Number.isFinite(change24h)) return change24h * 0.55 + (change7d / 7 * 3) * 0.45;
+    if (Number.isFinite(change7d)) return change7d / 7 * 3;
+    return Number.isFinite(change24h) ? change24h * 1.7 : null;
+  }
+  if (window === "1m") return change30d ?? (Number.isFinite(change7d) ? change7d * 4 : Number.isFinite(change24h) ? change24h * 8 : null);
+  return change7d ?? (Number.isFinite(change24h) ? change24h * 3 : null);
+}
+
+function directionalWindowLabel(window = "7d") {
+  return ({ "1d": "1d", "3d": "3d", "7d": "7d", "1m": "1m" }[window]) || "7d";
+}
+
+function directionalCoinRead(favorite = {}, window = "7d") {
   const ticker = normalizeTicker(favorite.ticker) || "This coin";
   const change24h = finiteOrNull(favorite.change24h);
   const change7d = finiteOrNull(favorite.change7d);
   const change30d = finiteOrNull(favorite.change30d);
+  const primaryChange = estimateDirectionalChange(favorite, window);
   const volume = finiteOrNull(favorite.volume24h) || 0;
   const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
   const setup = String(favorite.marketSetup?.label || favorite.setupLabel || "").toLowerCase();
@@ -3148,9 +3416,22 @@ function sevenDayCoinRead(favorite = {}) {
   const highBeta = theme.includes("meme") || theme.includes("ai") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "VIRTUAL"].includes(ticker);
   let score = 50;
 
-  if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 1.7;
-  if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.85;
-  if (Number.isFinite(change30d)) score += clamp(change30d, -60, 80) * 0.12;
+  if (window === "1d") {
+    if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -14, 14) * 2.1;
+    if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.22;
+  } else if (window === "3d") {
+    if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -22, 28) * 1.25;
+    if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 0.7;
+    if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.35;
+  } else if (window === "1m") {
+    if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -60, 80) * 0.55;
+    if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.35;
+    if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 0.35;
+  } else {
+    if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 1.7;
+    if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.85;
+    if (Number.isFinite(change30d)) score += clamp(change30d, -60, 80) * 0.12;
+  }
   if (volume >= 3_000_000) score += 6;
   else if (volume >= 1_000_000) score += 3;
   else if (volume > 0) score -= 6;
@@ -3168,13 +3449,14 @@ function sevenDayCoinRead(favorite = {}) {
   const bearish = 100 - rounded;
   const inputs = sevenDayScoreInputs({ change24h, change7d, change30d, volume, liquidity, setup: favorite.setupLabel || favorite.marketSetup?.label || "", edge: favorite.edgeLabel || favorite.marketEdge?.label || "" });
   const action = sevenDayScoreAction(rounded, "position");
+  const windowLabel = directionalWindowLabel(window);
   return {
     score: rounded,
     bearish,
     label,
     tone,
-    chip: "7d read",
-    text: `${label} 7-day directional score: ${rounded}% bullish / ${bearish}% bearish. Signal inputs: ${inputs || "market setup and available live data"}. Machine action: ${action}.`,
+    chip: `${windowLabel} read`,
+    text: `${label} ${windowLabel} directional score: ${rounded}% bullish / ${bearish}% bearish. Signal inputs: ${inputs || "market setup and available live data"}. Machine action: ${action}.`,
   };
 }
 
@@ -3509,7 +3791,7 @@ function toggleFavoriteMarketCoin(candidate = currentFavorite) {
   const next = exists
     ? favorites.filter((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) !== record.key)
     : [record, ...favorites].slice(0, 50);
-  writeLocalArray(favoriteCoinsStorageKey, next);
+  profileStore.writeArray(favoriteCoinsStorageKey, next);
   renderProfile();
   updateFavoriteToggle();
   showToast(exists ? `${record.ticker} removed from favorites.` : `${record.ticker} saved to your profile.`);
@@ -3517,7 +3799,7 @@ function toggleFavoriteMarketCoin(candidate = currentFavorite) {
 
 function removeFavoriteCoin(ticker, network) {
   const key = favoriteCoinKey(ticker, network);
-  writeLocalArray(
+  profileStore.writeArray(
     favoriteCoinsStorageKey,
     readFavoriteCoins().filter((coin) => (coin.key || favoriteCoinKey(coin.ticker, coin.network)) !== key),
   );
@@ -3652,10 +3934,13 @@ function bundleSnapshot(bundleId) {
   const preferences = getPreferences();
   const allocation = getAdjustedAllocation(bundle, preferences.network, preferences);
   const allocationPlan = getAllocationPlan(allocation, preferences.bundleAmount);
-  const allocationSnapshot = allocationPlan.map(({ ticker, weight, amount, dataScore }) => ({
+  const allocationSnapshot = allocationPlan.map(({ ticker, weight, amount, quantity, price, priceSource, dataScore }) => ({
     ticker,
     weight,
     amountUsd: Number(amount.toFixed(2)),
+    quantity: quantity ? Number(quantity.toFixed(10)) : null,
+    startPriceUsd: price ? Number(price.toFixed(10)) : null,
+    priceSource,
     dataScore,
     ...allocationSignalSnapshot(ticker, preferences),
   }));
@@ -3690,7 +3975,7 @@ function saveRecentBundleSnapshot(bundleId) {
     && item.network === snapshot.network
     && Math.abs(new Date(item.createdAt).getTime() - Date.now()) < 60_000);
   if (duplicate) return duplicate;
-  writeLocalArray(recentBundlesStorageKey, [snapshot, ...recent].slice(0, 20));
+  profileStore.writeArray(recentBundlesStorageKey, [snapshot, ...recent].slice(0, 20));
   return snapshot;
 }
 
@@ -3717,7 +4002,7 @@ function scheduleBundleReview(bundleId, delayDays, { silent = false, snapshotId 
       : "Run a fresh market analysis at the scheduled time, then review the bundle's route, liquidity, allocation, and risk."),
     status: "pending",
   };
-  writeLocalArray(reviewAlertsStorageKey, [alert, ...alerts].slice(0, 40));
+  profileStore.writeArray(reviewAlertsStorageKey, [alert, ...alerts].slice(0, 40));
   renderProfile();
   if (!silent) showToast(`${bundleDisplayName(snapshot)} analysis scheduled for ${formatDateTime(resolvedDueAt)}.`);
 }
@@ -3755,6 +4040,16 @@ function bundlePerformanceSnapshot(bundle = {}) {
   const startValue = finiteOrNull(bundle.startValueUsd) || finiteOrNull(bundle.amountUsd)
     || allocation.reduce((sum, coin) => sum + (finiteOrNull(coin.amountUsd) || 0), 0);
   if (!startValue) return { startValue: 0, currentValue: 0, changePercent: 0, tone: "neutral" };
+  const submittedMatch = submittedBundleForRecentBundle(bundle);
+  if (submittedMatch) {
+    const performance = submittedBundlePerformance(submittedMatch);
+    return {
+      startValue: performance.startValue,
+      currentValue: performance.currentValue,
+      changePercent: performance.percent,
+      tone: performance.percent > 0.05 ? "positive" : performance.percent < -0.05 ? "caution" : "neutral",
+    };
+  }
   const livePreferences = {
     ...safePreferences(),
     network: normalizeNetwork(bundle.network || safePreferences().network),
@@ -3763,6 +4058,9 @@ function bundlePerformanceSnapshot(bundle = {}) {
   };
   const currentValue = allocation.reduce((sum, coin) => {
     const amount = finiteOrNull(coin.amountUsd) || 0;
+    const quantity = finiteOrNull(coin.quantity);
+    const currentPrice = currentPriceForSubmittedToken(coin);
+    if (quantity && currentPrice) return sum + quantity * currentPrice;
     const live = allocationSignalSnapshot(coin.ticker, livePreferences);
     const change = finiteOrNull(live?.change24h ?? coin.change24h) || 0;
     return sum + amount * (1 + change / 100);
@@ -3774,6 +4072,39 @@ function bundlePerformanceSnapshot(bundle = {}) {
     changePercent,
     tone: changePercent > 0.05 ? "positive" : changePercent < -0.05 ? "caution" : "neutral",
   };
+}
+
+function bundleCoinSignature(coins = []) {
+  return (Array.isArray(coins) ? coins : [])
+    .map((coin) => normalizeTicker(coin.ticker))
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+function submittedBundleForRecentBundle(bundle = {}) {
+  const allocation = Array.isArray(bundle.allocation) ? bundle.allocation : [];
+  if (!allocation.length) return null;
+  const signature = bundleCoinSignature(allocation);
+  const network = normalizeNetwork(bundle.network || safePreferences().network);
+  const createdAt = new Date(bundle.createdAt || 0).getTime();
+  const startValue = finiteOrNull(bundle.startValueUsd) || finiteOrNull(bundle.amountUsd)
+    || allocation.reduce((sum, coin) => sum + (finiteOrNull(coin.amountUsd) || 0), 0);
+  const candidates = readSubmittedBundlesLocal().filter((record) => {
+    if (!Array.isArray(record.coins) || !record.coins.length) return false;
+    if (normalizeNetwork(record.network || network) !== network) return false;
+    if (signature && bundleCoinSignature(record.coins) !== signature) return false;
+    return record.coins.some((coin) => finiteOrNull(coin.quantity) && currentPriceForSubmittedToken(coin));
+  });
+  const exact = candidates.find((record) => record.bundleId && bundle.bundleId && record.bundleId === bundle.bundleId);
+  if (exact) return exact;
+  return candidates.find((record) => {
+    const submittedAt = new Date(record.submittedAt || record.createdAt || 0).getTime();
+    const submittedStart = finiteOrNull(record.startValueUsd) || finiteOrNull(record.amountUsd);
+    const sameStart = !startValue || !submittedStart || Math.abs(startValue - submittedStart) < 1;
+    const closeTime = !createdAt || !submittedAt || Math.abs(createdAt - submittedAt) < 10 * 60_000;
+    return sameStart && closeTime;
+  }) || null;
 }
 
 function renderProfileBundleCard(bundle = {}) {
@@ -3808,13 +4139,17 @@ function renderProfileBundleCard(bundle = {}) {
       </header>
       <div class="profile-allocation">${(bundle.allocation || []).map((coin) => `<span>${escapeHtml(coin.ticker)} <b>${coin.weight}%</b></span>`).join("")}</div>
       ${renderProfileBundleRead(bundle)}
-      <button type="button" data-profile-remind="${escapeAttribute(bundle.id)}" data-profile-bundle="${escapeAttribute(bundle.bundleId)}">Schedule analysis</button>
+      <div class="profile-bundle-actions">
+        <button type="button" data-rebuild-bundle="${escapeAttribute(bundle.id)}">Rebuild this bundle</button>
+        <button type="button" data-profile-remind="${escapeAttribute(bundle.id)}" data-profile-bundle="${escapeAttribute(bundle.bundleId)}">Schedule analysis</button>
+      </div>
     </article>
   `;
 }
 
 function renderProfile() {
   if (!profileBundleList || !profileAlertList) return;
+  updateProfileLoginUi();
   const localProfile = readLocalProfile();
   const displayName = displayNameFromProfile(localProfile);
   updatePersonalGreeting(displayName);
@@ -3828,7 +4163,10 @@ function renderProfile() {
   const favorites = readFavoriteCoins();
   renderProfileFavoriteTabs();
   if (profileFavoriteList) {
-    profileFavoriteList.innerHTML = favorites.length ? favorites.map((coin) => {
+    const favoriteActions = favorites.length
+      ? `<div class="profile-inline-actions"><button type="button" data-create-from-favorites>Create bundle from favorite coins</button></div>`
+      : "";
+    profileFavoriteList.innerHTML = favorites.length ? `${favoriteActions}${favorites.map((coin) => {
       const ticker = normalizeTicker(coin.ticker);
       const network = normalizeNetwork(coin.network);
       const read = favoriteStoredRead(coin);
@@ -3858,7 +4196,7 @@ function renderProfile() {
           <button type="button" data-remove-favorite-coin="${escapeAttribute(ticker)}" data-remove-favorite-network="${escapeAttribute(network)}">Remove</button>
         </article>
       `;
-    }).join("") : '<p class="profile-empty">Favorite coins appear here after you star a market pulse coin.</p>';
+    }).join("")}` : '<p class="profile-empty">Favorite coins appear here after you star a market pulse coin.</p>';
   }
   if (profileFavoriteBundleList) {
     profileFavoriteBundleList.innerHTML = favoriteBundles.length
@@ -3899,6 +4237,74 @@ function renderProfileBundleRead(bundle = {}) {
   `;
 }
 
+function createBundleFromFavorites() {
+  const network = safePreferences().network;
+  const favorites = readFavoriteCoins()
+    .map((coin) => normalizeTicker(coin.ticker))
+    .filter((ticker, index, tickers) => ticker && tickers.indexOf(ticker) === index && isTickerOnNetwork(ticker, network));
+  if (!favorites.length) {
+    showToast(`No favorite coins are available on ${network}.`);
+    return;
+  }
+  selectedCoinPreferences = new Set(favorites);
+  if (diversityToggle) diversityToggle.checked = true;
+  if (coinCount) {
+    coinCount.value = String(Math.max(Number(coinCount.min || 3), Math.min(Number(coinCount.max || 12), favorites.length)));
+    coinCount.disabled = false;
+    coinCountValue.textContent = `${coinCount.value} coins`;
+  }
+  diversitySliderWrap?.setAttribute("aria-disabled", "false");
+  clearManualAllocationOverride();
+  renderCoinPreferenceChips();
+  renderNetworkGroups();
+  renderCoinRows();
+  saveBuilderPreferences();
+  closeProfile();
+  showToast(`Bundle preferences set from ${favorites.length} favorite coin${favorites.length === 1 ? "" : "s"}.`);
+  if (!recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: true });
+}
+
+function rebuildFromRecentBundle(snapshotId) {
+  const snapshot = readRecentBundles().find((bundle) => bundle.id === snapshotId);
+  if (!snapshot?.allocation?.length) {
+    showToast("That saved bundle does not have coins to rebuild.");
+    return;
+  }
+  const network = normalizeNetwork(snapshot.network || safePreferences().network);
+  if (targetNetwork && [...targetNetwork.options].some((option) => option.value === network && !option.disabled)) {
+    targetNetwork.value = network;
+  }
+  const tickers = snapshot.allocation
+    .map((coin) => normalizeTicker(coin.ticker))
+    .filter((ticker, index, list) => ticker && list.indexOf(ticker) === index && isTickerOnNetwork(ticker, network));
+  if (!tickers.length) {
+    showToast(`No saved coins are available on ${network}.`);
+    return;
+  }
+  selectedCoinPreferences = new Set(tickers);
+  if (diversityToggle) diversityToggle.checked = true;
+  if (coinCount) {
+    const min = Number(coinCount.min || 3);
+    const max = Number(coinCount.max || 12);
+    coinCount.value = String(Math.max(min, Math.min(max, tickers.length)));
+    coinCount.disabled = false;
+    coinCountValue.textContent = `${coinCount.value} coins`;
+  }
+  diversitySliderWrap?.setAttribute("aria-disabled", "false");
+  const riskControl = form.elements.namedItem("risk");
+  if (riskControl && snapshot.risk) riskControl.value = snapshot.risk;
+  const horizonControl = form.elements.namedItem("targetHorizon");
+  if (horizonControl && snapshot.targetHorizon) horizonControl.value = normalizeTargetHorizon(snapshot.targetHorizon);
+  clearManualAllocationOverride();
+  renderCoinPreferenceChips();
+  renderNetworkGroups();
+  renderCoinRows();
+  saveBuilderPreferences();
+  closeProfile();
+  showToast(`${bundleDisplayName(snapshot)} loaded into the builder.`);
+  if (bundleAmount.checkValidity()) buildBundle({ scroll: true });
+}
+
 function renderSevenDayMeter(read = {}) {
   const score = Math.round(clamp(finiteOrNull(read.score) ?? 50, 0, 100));
   const bearish = 100 - score;
@@ -3910,7 +4316,7 @@ function renderSevenDayMeter(read = {}) {
     ? `width: ${dominantScore}%; margin-left: ${100 - dominantScore}%`
     : `width: ${dominantScore}%`;
   return `
-    <div class="seven-day-meter ${escapeAttribute(tone)} ${isBearish ? "bearish" : "bullish"}" aria-label="Seven-day read ${dominantLabel}">
+    <div class="seven-day-meter ${escapeAttribute(tone)} ${isBearish ? "bearish" : "bullish"}" aria-label="${escapeAttribute(read.chip || "Directional read")} ${dominantLabel}">
       <div class="seven-day-meter-track"><span style="${fillStyle}"></span></div>
       <div class="seven-day-meter-labels"><span>Bullish</span><strong>${escapeHtml(dominantLabel)}</strong><span>Bearish</span></div>
     </div>
@@ -3919,7 +4325,7 @@ function renderSevenDayMeter(read = {}) {
 
 function updateReviewAlert(alertId, updater) {
   const alerts = readReviewAlerts().map((alert) => alert.id === alertId ? updater({ ...alert }) : alert);
-  writeLocalArray(reviewAlertsStorageKey, alerts);
+  profileStore.writeArray(reviewAlertsStorageKey, alerts);
   renderProfile();
   showDueReviewAlerts();
 }
@@ -3986,7 +4392,7 @@ function maybeQueueUrgentMarketReviews(favorites = currentFavorites) {
   });
 
   if (!created.length) return;
-  writeLocalArray(reviewAlertsStorageKey, [...created, ...existing].slice(0, 40));
+  profileStore.writeArray(reviewAlertsStorageKey, [...created, ...existing].slice(0, 40));
   renderProfile();
   showDueReviewAlerts();
 }
@@ -4186,14 +4592,22 @@ coinPreferenceCategory?.addEventListener("change", renderCoinPreferenceChips);
 profileButton?.addEventListener("click", openProfile);
 profileClose?.addEventListener("click", closeProfile);
 profileDialog?.addEventListener("cancel", closeProfile);
+profileRequestCode?.addEventListener("click", requestProfileCode);
+profileVerifyCode?.addEventListener("click", verifyProfileCode);
+profileLogout?.addEventListener("click", logoutProfile);
+profileEmail?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  profileRequestCode?.click();
+});
+profileLoginCode?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  profileVerifyCode?.click();
+});
 profileSaveName?.addEventListener("click", () => {
   const displayName = String(profileDisplayName?.value || "").trim().slice(0, 40);
-  try {
-    localStorage.setItem(localProfileStorageKey, JSON.stringify({ ...readLocalProfile(), displayName }));
-  } catch {
-    showToast("This browser could not save the profile name.");
-    return;
-  }
+  if (!profileStore.writeProfile({ ...readLocalProfile(), displayName })) return;
   renderProfile();
   showToast(displayName ? `Profile saved for ${displayName}.` : "Profile name cleared.");
 });
@@ -4284,6 +4698,23 @@ document.body.addEventListener("click", (event) => {
   const profileFavoritesTab = event.target.closest("[data-profile-favorites-tab]");
   if (profileFavoritesTab) {
     setProfileFavoritesTab(profileFavoritesTab.dataset.profileFavoritesTab);
+    return;
+  }
+  if (event.target.closest("[data-create-from-favorites]")) {
+    createBundleFromFavorites();
+    return;
+  }
+  const rebuildBundle = event.target.closest("[data-rebuild-bundle]");
+  if (rebuildBundle) {
+    rebuildFromRecentBundle(rebuildBundle.dataset.rebuildBundle);
+    return;
+  }
+  const pulseReadWindow = event.target.closest("[data-pulse-read-window]");
+  if (pulseReadWindow) {
+    selectedPulseReadWindow = pulseReadWindows.some((item) => item.key === pulseReadWindow.dataset.pulseReadWindow)
+      ? pulseReadWindow.dataset.pulseReadWindow
+      : "7d";
+    renderPulseSevenDayMeter(currentFavorite);
     return;
   }
   const favoriteToken = event.target.closest("[data-favorite-token]");
@@ -4488,17 +4919,37 @@ updateCoinPreferenceAvailability();
 renderCoinRows();
 showTermsGate();
 renderProfile();
+if (isProfileSignedIn()) loadProfileSnapshot();
 showDueReviewAlerts();
 if (hasAcceptedTerms() && !hasSeenTour()) window.setTimeout(() => openTour(), 350);
 refreshMarketPulse({ preserveSelection: false });
 refreshViciCoinsFromApi({ announce: false }).catch(() => {
   // If the office API is temporarily offline, the builder keeps using scan/starter support data.
 });
-setInterval(() => refreshMarketPulse({ preserveSelection: true, silent: true, render: false }), 1000 * 60 * 5);
+let marketPulseIntervalId = null;
+function startMarketPulseBackgroundRefresh() {
+  if (marketPulseIntervalId || document.hidden) return;
+  marketPulseIntervalId = window.setInterval(() => refreshMarketPulse({ preserveSelection: true, silent: true, render: false }), 1000 * 60 * 5);
+}
+
+function stopMarketPulseBackgroundRefresh() {
+  if (!marketPulseIntervalId) return;
+  window.clearInterval(marketPulseIntervalId);
+  marketPulseIntervalId = null;
+}
+
+startMarketPulseBackgroundRefresh();
 setInterval(showDueReviewAlerts, 1000 * 60);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) showDueReviewAlerts();
+  if (document.hidden) {
+    stopMarketPulseBackgroundRefresh();
+    return;
+  }
+  showDueReviewAlerts();
+  startMarketPulseBackgroundRefresh();
+  refreshMarketPulse({ preserveSelection: true, silent: true, render: false });
 });
+window.addEventListener("pagehide", stopMarketPulseBackgroundRefresh);
 
 let headerScrollFrame = 0;
 function syncCompactMobileHeader() {
@@ -7550,12 +8001,18 @@ function renderPulseSevenDayMeter(favorite = currentFavorite) {
     pulseSevenDayMeter.innerHTML = "";
     return;
   }
-  const read = sevenDayCoinRead(favorite);
+  const read = directionalCoinRead(favorite, selectedPulseReadWindow);
   pulseSevenDayMeter.innerHTML = `
     <div class="pulse-seven-day-head">
-      <span>${escapeHtml(read.chip)}</span>
+      <div class="pulse-read-carousel" role="tablist" aria-label="Directional read window">
+        ${pulseReadWindows.map((item) => `
+          <button type="button" class="${item.key === selectedPulseReadWindow ? "active" : ""}" data-pulse-read-window="${escapeAttribute(item.key)}" role="tab" aria-selected="${String(item.key === selectedPulseReadWindow)}">
+            ${escapeHtml(item.label)}
+          </button>
+        `).join("")}
+      </div>
     </div>
-    ${renderSevenDayMeter(read)}
+    <div class="pulse-read-motion" key="${escapeAttribute(selectedPulseReadWindow)}">${renderSevenDayMeter(read)}</div>
   `;
 }
 
@@ -7735,11 +8192,21 @@ function buildPulseInsights(favorite = {}) {
   if (!favorite || favorite.source === "Market data unavailable" || favorite.ticker === "--") {
     return [{
       label: "Status",
-      text: "Market sources are refreshing. The builder will keep using confirmed ViciSwap-supported fallback candidates until fresh data returns.",
+      text: lastMarketPulseError
+        ? `Live market data is unavailable right now: ${lastMarketPulseError}. The builder is using confirmed fallback candidates until fresh data returns.`
+        : "Market sources are refreshing. The builder will keep using confirmed ViciSwap-supported fallback candidates until fresh data returns.",
     }];
   }
 
   const insights = [];
+  if (lastMarketPulseError || /fallback|cached|price only|stale/i.test(`${favorite.source || ""} ${favorite.chartSource || ""}`)) {
+    insights.push({
+      label: "Data status",
+      text: lastMarketPulseError
+        ? `Some live market data failed to refresh: ${lastMarketPulseError}. Treat this read as provisional until the next successful refresh.`
+        : `This read is using ${favorite.chartSource || favorite.source || "cached market data"}. Verify live route, liquidity, and price before acting.`,
+    });
+  }
   const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume);
   const liquidity = finiteOrNull(favorite.liquidityUsd);
   const change = finiteOrNull(favorite.change24h);
@@ -8315,6 +8782,7 @@ async function submitTrackedBundle(bundleId) {
     }
     return null;
   } catch {
+    showToast("Bundle saved locally; server sync is not available yet.");
     saveSubmittedBundleLocal({ ...snapshot, id: snapshot.id || makeLocalSubmissionId(), submittedAt: new Date().toISOString() });
     return null;
   }
@@ -8595,6 +9063,7 @@ function formatCurrency(value) {
 
 function formatPriceLine(price, source) {
   if (!price) return "price refreshing";
+  if (/cached/i.test(source || "")) return `${source || "Cached estimate"} ${formatUsdPrice(price)} - verify live price`;
   return `${source || "Price"} ${formatUsdPrice(price)}`;
 }
 

@@ -12,15 +12,12 @@ const {
   API_VERSION,
 } = require("./recommendation-engine");
 const { collectNewsIntelligence } = require("./news-intelligence");
+const { createSubmittedBundleRepository } = require("./bundle-store");
+const { createProfileRepository } = require("./profile-store");
 
 const PORT = Number(process.env.PORT || 8788);
 const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = path.resolve(process.env.PUBLIC_DIR || path.join(__dirname, "..", "public"));
-const SUBMISSION_STORE_LIMIT = Number(process.env.BUNDLE_BUILDER_SUBMISSION_LIMIT || 500);
-const SUBMISSION_STORE_PATH = path.resolve(
-  process.env.BUNDLE_BUILDER_SUBMISSION_FILE
-    || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || path.join(os.tmpdir(), "bundle-builder-beta"), "submitted-bundles.json"),
-);
 const COINGECKO_CHART_STORE_PATH = path.resolve(
   process.env.BUNDLE_BUILDER_CHART_CACHE_FILE
     || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || path.join(os.tmpdir(), "bundle-builder-beta"), "coingecko-charts.json"),
@@ -31,6 +28,8 @@ const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHAR
 const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 5);
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 750);
 const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED !== "false";
+const submittedBundleRepository = createSubmittedBundleRepository();
+const profileRepository = createProfileRepository();
 const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
   "aerodrome-finance",
   "morpho",
@@ -162,6 +161,8 @@ async function handleRequest(request, response) {
         friendlyPortErrors: true,
         coingeckoChartWorkflowCache: true,
         catalystIntelligenceEndpoint: true,
+        profileAuthEndpoint: true,
+        profileStorage: profileRepository.descriptor(),
         coingeckoChartBackgroundPreload: {
           enabled: COINGECKO_CHART_PRELOAD_ENABLED,
           intervalMs: COINGECKO_CHART_PRELOAD_INTERVAL_MS,
@@ -325,12 +326,12 @@ async function handleRequest(request, response) {
 
     if (url.pathname === "/api/v1/submitted-bundles") {
       if (request.method === "GET") {
-        const limit = clampInteger(url.searchParams.get("limit"), 1, SUBMISSION_STORE_LIMIT, 100);
-        const records = readSubmittedBundles().slice(0, limit);
+        const limit = clampInteger(url.searchParams.get("limit"), 1, submittedBundleRepository.limit, 100);
+        const records = submittedBundleRepository.list({ limit });
         sendJson(response, 200, {
           ok: true,
           count: records.length,
-          storage: storageDescriptor(),
+          storage: submittedBundleRepository.descriptor(),
           bundles: records,
         });
         return;
@@ -338,21 +339,97 @@ async function handleRequest(request, response) {
 
       if (request.method === "POST") {
         const body = await readJsonBody(request);
-        const record = sanitizeSubmittedBundle(body);
-        if (!record.coins.length) {
+        try {
+          const record = submittedBundleRepository.upsert(body);
+          sendJson(response, 201, {
+            ok: true,
+            storage: submittedBundleRepository.descriptor(),
+            bundle: record,
+          });
+        } catch (error) {
+          if (error.code !== "EMPTY_BUNDLE") throw error;
           sendJson(response, 400, {
             ok: false,
             error: "Submitted bundle must include at least one coin.",
           });
-          return;
         }
-        const records = readSubmittedBundles();
-        const nextRecords = [record, ...records.filter((item) => item.id !== record.id)].slice(0, SUBMISSION_STORE_LIMIT);
-        writeSubmittedBundles(nextRecords);
-        sendJson(response, 201, {
+        return;
+      }
+
+      sendJson(response, 405, { ok: false, error: "Method not allowed" });
+      return;
+    }
+
+    if (url.pathname === "/api/v1/auth/request-code") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      try {
+        const login = profileRepository.requestLoginCode(body.email);
+        const payload = {
           ok: true,
-          storage: storageDescriptor(),
-          bundle: record,
+          email: login.email,
+          expiresAt: login.expiresAt,
+          delivery: emailDeliveryMode(),
+          message: emailDeliveryMode() === "dev-response"
+            ? "Dev mode: use the returned code to finish login."
+            : "Check your email for the login code.",
+        };
+        if (emailDeliveryMode() === "dev-response") payload.devCode = login.code;
+        sendJson(response, 200, payload);
+      } catch (error) {
+        if (error.code !== "INVALID_EMAIL") throw error;
+        sendJson(response, 400, { ok: false, error: error.message });
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/v1/auth/verify-code") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      try {
+        const session = profileRepository.verifyLoginCode(body.email, body.code);
+        sendJson(response, 200, {
+          ok: true,
+          token: session.token,
+          profile: session.profile,
+        });
+      } catch (error) {
+        if (error.code !== "INVALID_LOGIN_CODE") throw error;
+        sendJson(response, 400, { ok: false, error: error.message });
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/v1/profile") {
+      const token = bearerToken(request);
+      const profile = profileRepository.profileForToken(token);
+      if (!profile) {
+        sendJson(response, 401, { ok: false, error: "Profile login required." });
+        return;
+      }
+
+      if (request.method === "GET") {
+        sendJson(response, 200, {
+          ok: true,
+          storage: profileRepository.descriptor(),
+          profile,
+        });
+        return;
+      }
+
+      if (request.method === "PUT") {
+        const body = await readJsonBody(request);
+        const savedProfile = profileRepository.saveProfileSnapshot(token, body);
+        sendJson(response, 200, {
+          ok: true,
+          storage: profileRepository.descriptor(),
+          profile: savedProfile,
         });
         return;
       }
@@ -383,7 +460,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -423,7 +500,7 @@ if (require.main === module) {
 
 function setCorsHeaders(response) {
   response.setHeader("Access-Control-Allow-Origin", process.env.CORS_ORIGIN || "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   response.setHeader("Access-Control-Max-Age", "86400");
 }
@@ -433,99 +510,14 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload, null, 2));
 }
 
-function readSubmittedBundles() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(SUBMISSION_STORE_PATH, "utf8"));
-    return Array.isArray(parsed) ? parsed.map(sanitizeStoredBundle).filter(Boolean) : [];
-  } catch (error) {
-    if (error.code === "ENOENT") return [];
-    throw error;
-  }
+function bearerToken(request) {
+  const header = String(request.headers.authorization || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
 }
 
-function writeSubmittedBundles(records) {
-  fs.mkdirSync(path.dirname(SUBMISSION_STORE_PATH), { recursive: true });
-  fs.writeFileSync(SUBMISSION_STORE_PATH, JSON.stringify(records.map(sanitizeStoredBundle).filter(Boolean), null, 2));
-}
-
-function sanitizeSubmittedBundle(input = {}) {
-  const now = new Date().toISOString();
-  const id = makeSubmissionId(input.id || input.bundleNumber);
-  const coins = Array.isArray(input.coins) ? input.coins.slice(0, 24).map(sanitizeSubmittedCoin).filter(Boolean) : [];
-  const startValueUsd = finiteNumber(input.startValueUsd)
-    || coins.reduce((sum, coin) => sum + (finiteNumber(coin.amountUsd) || 0), 0);
-  return {
-    id,
-    bundleNumber: id,
-    source: "bundle-builder-beta",
-    submittedAt: now,
-    bundleId: safeText(input.bundleId, 80),
-    bundleName: safeText(input.bundleName, 120) || "Bundle Builder allocation",
-    network: safeText(input.network, 30) || "Base",
-    amountUsd: finiteNumber(input.amountUsd) || startValueUsd,
-    startValueUsd,
-    preferences: sanitizeObject(input.preferences, 12),
-    fitScore: finiteNumber(input.fitScore),
-    riskIndex: finiteNumber(input.riskIndex),
-    thesis: safeText(input.thesis, 500),
-    coins,
-  };
-}
-
-function sanitizeStoredBundle(input = {}) {
-  if (!input || typeof input !== "object") return null;
-  const coins = Array.isArray(input.coins) ? input.coins.map(sanitizeSubmittedCoin).filter(Boolean) : [];
-  if (!coins.length) return null;
-  return {
-    id: safeText(input.id || input.bundleNumber, 32) || makeSubmissionId(),
-    bundleNumber: safeText(input.bundleNumber || input.id, 32) || makeSubmissionId(),
-    source: safeText(input.source, 60) || "bundle-builder-beta",
-    submittedAt: safeText(input.submittedAt, 40) || new Date().toISOString(),
-    bundleId: safeText(input.bundleId, 80),
-    bundleName: safeText(input.bundleName, 120) || "Bundle Builder allocation",
-    network: safeText(input.network, 30) || "Base",
-    amountUsd: finiteNumber(input.amountUsd) || null,
-    startValueUsd: finiteNumber(input.startValueUsd) || coins.reduce((sum, coin) => sum + (finiteNumber(coin.amountUsd) || 0), 0),
-    preferences: sanitizeObject(input.preferences, 12),
-    fitScore: finiteNumber(input.fitScore),
-    riskIndex: finiteNumber(input.riskIndex),
-    thesis: safeText(input.thesis, 500),
-    coins,
-  };
-}
-
-function sanitizeSubmittedCoin(input = {}) {
-  const ticker = safeText(input.ticker, 16).toUpperCase();
-  if (!/^[A-Z0-9.]{2,16}$/.test(ticker)) return null;
-  return {
-    ticker,
-    name: safeText(input.name, 120),
-    network: safeText(input.network, 30) || "Base",
-    allocationPercent: finiteNumber(input.allocationPercent) || finiteNumber(input.weight) || 0,
-    amountUsd: finiteNumber(input.amountUsd) || finiteNumber(input.amount) || 0,
-    quantity: finiteNumber(input.quantity),
-    startPriceUsd: finiteNumber(input.startPriceUsd) || finiteNumber(input.priceUsd) || finiteNumber(input.price),
-    priceSource: safeText(input.priceSource, 80),
-    role: safeText(input.role, 140),
-    safetyLabel: safeText(input.safetyLabel, 120),
-  };
-}
-
-function makeSubmissionId(value) {
-  const existing = safeText(value, 32).replace(/^#/, "");
-  if (/^\d{8,20}$/.test(existing)) return existing;
-  const random = Math.floor(Math.random() * 9000) + 1000;
-  return `${Date.now()}${random}`.slice(0, 17);
-}
-
-function storageDescriptor() {
-  return {
-    mode: process.env.BUNDLE_BUILDER_SUBMISSION_FILE || process.env.BUNDLE_BUILDER_DATA_DIR ? "configured-file" : "ephemeral-file",
-    durable: Boolean(process.env.BUNDLE_BUILDER_SUBMISSION_FILE || process.env.BUNDLE_BUILDER_DATA_DIR),
-    note: process.env.BUNDLE_BUILDER_SUBMISSION_FILE || process.env.BUNDLE_BUILDER_DATA_DIR
-      ? "Submitted bundle snapshots are stored in the configured server file."
-      : "Submitted bundle snapshots are stored on the server filesystem for beta testing and may reset on redeploys.",
-  };
+function emailDeliveryMode() {
+  return process.env.BUNDLE_BUILDER_EMAIL_DELIVERY === "provider" ? "provider" : "dev-response";
 }
 
 function parseCoinGeckoPreloadIds(value) {

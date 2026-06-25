@@ -446,8 +446,25 @@
           </div>
           <button class="dialog-icon-close" type="button" id="profileClose" aria-label="Close profile">&times;</button>
         </div>
-        <div class="profile-local-note">
-          Beta profile: no login is required. Data stays on this device; cross-device sync will require a secure account or wallet profile later.
+        <div class="profile-local-note" id="profileSyncStatus">
+          Beta profile: data saves on this device until you sign in with email.
+        </div>
+        <div class="profile-login-panel" id="profileLoginPanel">
+          <div>
+            <label for="profileEmail">Email profile</label>
+            <div class="profile-login-row">
+              <input id="profileEmail" type="email" autocomplete="email" placeholder="you@example.com" />
+              <button type="button" id="profileRequestCode">Send code</button>
+            </div>
+          </div>
+          <div>
+            <label for="profileLoginCode">Login code</label>
+            <div class="profile-login-row">
+              <input id="profileLoginCode" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code" />
+              <button type="button" id="profileVerifyCode">Verify</button>
+            </div>
+          </div>
+          <button type="button" id="profileLogout" hidden>Sign out</button>
         </div>
         <div class="profile-identity">
           <label for="profileDisplayName">Display name <span>(optional)</span></label>

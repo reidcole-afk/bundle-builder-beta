@@ -6,6 +6,7 @@ This package can run as one hosted Node service:
 - `/health` reports service health.
 - `/api/v1/tokens?network=base` returns supported Base tokens when the ViciSwap eligibility API is available.
 - `/api/v1/bundle` returns the JSON recommendation for ViciSwap integration.
+- `/api/v1/auth/request-code`, `/api/v1/auth/verify-code`, and `/api/v1/profile` support the standalone Bundle Builder email profile prototype.
 
 ## Recommended Path
 
@@ -35,9 +36,47 @@ BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD=20
 BUNDLE_BUILDER_MODERATE_MAX_DIFF_THOUSAND_USD=35
 BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD=60
 BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
+BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
+BUNDLE_BUILDER_AUTH_SECRET=replace-with-a-long-random-secret
+BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response
 ```
 
 The host usually provides `PORT` automatically. Set `PORT` only if the host asks for it.
+
+## Prototype Profile DB
+
+Bundle Builder now includes a standalone prototype profile store in `src/profile-store.js`. It is intentionally separate from ViciSwap production data. Users can enter an email, request a 6-digit code, verify it, and sync:
+
+- display name
+- favorite coins
+- favorite bundles and recent bundle history
+- renamed bundles
+- review alerts
+- builder preferences
+
+The current beta stores those profile snapshots in `profiles.json` under `BUNDLE_BUILDER_DATA_DIR`. On a managed host, point `BUNDLE_BUILDER_DATA_DIR` at a durable mounted disk. If the host does not provide durable storage, profile data may reset on redeploy.
+
+For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast. To make this real for public users, connect an email provider such as Resend, Postmark, SendGrid, or AWS SES and change the delivery mode when that provider is wired in.
+
+## Database-Ready Storage Seam
+
+The beta API routes submitted bundle snapshots through `src/bundle-store.js` and profile snapshots through `src/profile-store.js`. They still use JSON files today so the deploy stays simple, but the server routes call repositories instead of reading or writing storage directly.
+
+Submitted bundle repository methods:
+
+- `list({ limit })`
+- `upsert(bundleSnapshot)`
+- `descriptor()`
+
+Profile repository methods:
+
+- `requestLoginCode(email)`
+- `verifyLoginCode(email, code)`
+- `profileForToken(token)`
+- `saveProfileSnapshot(token, snapshot)`
+- `descriptor()`
+
+When the DB/Python refactor starts, replace these repositories with database-backed adapters that preserve the method names and record shape. That keeps `/api/v1/submitted-bundles` and `/api/v1/profile` stable while the backing store moves to SQLite, Postgres, or a Python-managed service.
 
 ## DNS Handoff
 
@@ -85,6 +124,19 @@ Then verify:
 ```text
 https://YOUR-HOST/health
 https://YOUR-HOST/api/v1/bundle?network=base&risk=moderate&focus=defi&coinCount=6&amountUsd=100
+```
+
+To test the prototype email profile flow locally or on a staging deploy:
+
+```text
+POST /api/v1/auth/request-code
+body: { "email": "you@example.com" }
+
+POST /api/v1/auth/verify-code
+body: { "email": "you@example.com", "code": "123456" }
+
+GET /api/v1/profile
+Authorization: Bearer YOUR_TOKEN
 ```
 
 Expected beta behavior:

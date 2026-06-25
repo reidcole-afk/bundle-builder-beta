@@ -102,6 +102,34 @@ global.fetch = async (url) => {
   assert.equal(submittedFeed.body.ok, true);
   assert(submittedFeed.body.bundles.some((bundle) => bundle.bundleName === "Test Bundle"));
 
+  const loginRequest = await postJson("/api/v1/auth/request-code", { email: "tester@example.com" });
+  assert.equal(loginRequest.statusCode, 200);
+  assert.equal(loginRequest.body.ok, true);
+  assert.match(loginRequest.body.devCode, /^\d{6}$/);
+
+  const loginVerify = await postJson("/api/v1/auth/verify-code", { email: "tester@example.com", code: loginRequest.body.devCode });
+  assert.equal(loginVerify.statusCode, 200);
+  assert.equal(loginVerify.body.ok, true);
+  assert(loginVerify.body.token);
+
+  const savedProfile = await putJson("/api/v1/profile", {
+    profile: { displayName: "Tester" },
+    favoriteCoins: [{ ticker: "AERO", network: "Base" }],
+    recentBundles: [{ id: "bundle-1", name: "AERO test", allocation: [{ ticker: "AERO", weight: 100 }] }],
+    reviewAlerts: [{ id: "review-1", status: "pending" }],
+    builderPreferences: { network: "Base" },
+  }, loginVerify.body.token);
+  assert.equal(savedProfile.statusCode, 200);
+  assert.equal(savedProfile.body.ok, true);
+  assert.equal(savedProfile.body.profile.snapshot.favoriteCoins[0].ticker, "AERO");
+
+  const loadedProfile = await getJson("/api/v1/profile", {
+    authorization: `Bearer ${loginVerify.body.token}`,
+  });
+  assert.equal(loadedProfile.statusCode, 200);
+  assert.equal(loadedProfile.body.profile.email, "tester@example.com");
+  assert.equal(loadedProfile.body.profile.snapshot.profile.displayName, "Tester");
+
   global.fetch = async (url) => {
     const target = String(url);
     if (target.includes("/api/v3/coins/aerodrome-finance/market_chart")) throw new Error("simulated CoinGecko chart outage");
@@ -186,8 +214,17 @@ global.fetch = async (url) => {
     process.exitCode = 1;
   });
 
-function getJson(path) {
-  return getRaw(path).then(({ statusCode, headers, body }) => ({ statusCode, headers, body: JSON.parse(body) }));
+function getJson(path, headers) {
+  return getRaw(path, headers ? { headers: { host: "localhost", ...headers } } : undefined)
+    .then(({ statusCode, headers: responseHeaders, body }) => ({ statusCode, headers: responseHeaders, body: JSON.parse(body) }));
+}
+
+function putJson(path, payload, token) {
+  return getRaw(path, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json", host: "localhost", authorization: `Bearer ${token}` },
+  }).then(({ statusCode, headers, body }) => ({ statusCode, headers, body: JSON.parse(body) }));
 }
 
 function postJson(path, payload) {
