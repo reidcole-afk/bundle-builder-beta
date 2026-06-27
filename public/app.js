@@ -6136,7 +6136,7 @@ async function fetchCoinGeckoChartRow(meta) {
 
 async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false, days = 1 } = {}) {
   const windowKey = coinGeckoDaysToWindow(days);
-  const payload = await fetchBackendMarketChart({ id: coinGeckoId, windowKey, force });
+  const payload = await fetchBackendMarketChart({ id: coinGeckoId, windowKey, force, source: "coingecko" });
   const prices = normalizePriceSeries(payload.prices);
   if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
   return {
@@ -6149,13 +6149,14 @@ async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false, days = 1
   };
 }
 
-async function fetchBackendMarketChart({ id = "", chainId = "", pairAddress = "", windowKey = "24h", force = false } = {}) {
+async function fetchBackendMarketChart({ id = "", chainId = "", pairAddress = "", windowKey = "24h", force = false, source = "" } = {}) {
   const params = new URLSearchParams({
     window: sourceWindowForProjection(windowKey),
   });
   if (id) params.set("id", id);
   if (chainId) params.set("chainId", chainId);
   if (pairAddress) params.set("pairAddress", pairAddress);
+  if (source) params.set("source", source);
   if (force) params.set("force", "true");
   const payload = await fetchJsonUrl(`/api/v1/market-chart?${params.toString()}`);
   const prices = normalizePriceSeries(payload.prices);
@@ -8030,6 +8031,7 @@ async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
       chainId,
       pairAddress,
       windowKey,
+      source: "geckoterminal",
     });
     return {
       prices: normalizePriceSeries(payload.prices),
@@ -8408,10 +8410,10 @@ function stepPulseWindow(direction) {
 }
 
 function pulsePricesForWindow(favorite = {}, key = "24h") {
-  if (key === "24h") return normalizePriceSeries(favorite.prices);
+  if (key === "24h") return normalizePriceSeries(favorite.windowPrices?.["24h"] || favorite.prices);
   if (isProjectedPulseWindow(key)) {
     const sourceKey = sourceWindowForProjection(key);
-    if (sourceKey === "24h") return normalizePriceSeries(favorite.prices);
+    if (sourceKey === "24h") return normalizePriceSeries(favorite.windowPrices?.["24h"] || favorite.prices);
     return normalizePriceSeries(favorite.windowPrices?.[sourceKey]);
   }
   return normalizePriceSeries(favorite.windowPrices?.[key]);
@@ -8457,10 +8459,10 @@ function markPulseWindowTemporarilyUnavailable(requestKey) {
 function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseWindow) {
   if (isProjectedPulseWindow(key)) {
     const sourceKey = sourceWindowForProjection(key);
-    if (sourceKey !== "24h") ensurePulseWindowChart(favorite, sourceKey);
+    ensurePulseWindowChart(favorite, sourceKey);
     return;
   }
-  if (!favorite || key === "24h" || pulsePricesForWindow(favorite, key).length >= 2) return;
+  if (!favorite || pulsePricesForWindow(favorite, key).length >= 2) return;
   const requestKey = pulseWindowLoadKey(favorite, key);
   if (pendingPulseWindowLoads.has(requestKey) || isPulseWindowTemporarilyUnavailable(requestKey)) return;
 
@@ -8554,8 +8556,8 @@ function renderPulseWindowChart(favorite = currentFavorite) {
     const sourceKey = sourceWindowForProjection(selectedPulseWindow);
     const requestKey = pulseWindowLoadKey(favorite, sourceKey);
     const hasSourceChart = pulsePricesForWindow(favorite, sourceKey).length >= 2;
-    const canLoadSource = sourceKey === "24h" || (favorite.pairAddress || favorite.id);
-    if (sourceKey !== "24h" && !hasSourceChart) {
+    const canLoadSource = Boolean(favorite.pairAddress || favorite.id);
+    if (!hasSourceChart) {
       const unavailable = !canLoadSource || isPulseWindowTemporarilyUnavailable(requestKey);
       pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">${unavailable ? `${pulseWindowLabel(sourceKey)} chart unavailable. Retry shortly.` : `Loading ${escapeHtml(favorite.ticker || "coin")} ${pulseWindowLabel(sourceKey)} chart for scenario...`}</div>`;
       if (!unavailable) ensurePulseWindowChart(favorite, sourceKey);
@@ -8570,7 +8572,7 @@ function renderPulseWindowChart(favorite = currentFavorite) {
   const prices = pulsePricesForWindow(favorite, selectedPulseWindow);
   const change = pulseChangeForWindow(favorite, selectedPulseWindow);
   const requestKey = pulseWindowLoadKey(favorite, selectedPulseWindow);
-  if (selectedPulseWindow !== "24h" && prices.length < 2) {
+  if (prices.length < 2) {
     const unavailable = isPulseWindowTemporarilyUnavailable(requestKey) || (!favorite.pairAddress && !favorite.id);
     pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">${unavailable ? `${pulseWindowLabel(selectedPulseWindow)} chart unavailable` : `Loading ${escapeHtml(favorite.ticker || "coin")} ${pulseWindowLabel(selectedPulseWindow)} chart...`}</div>`;
     if (!unavailable) ensurePulseWindowChart(favorite, selectedPulseWindow);
@@ -8582,7 +8584,7 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
   if (isProjectedPulseWindow(key)) return projectedPulseScenario(favorite, key).projectedChange;
-  if (key === "24h") return finiteOrNull(favorite.change24h);
+  if (key === "24h") return priceSeriesChange(pulsePricesForWindow(favorite, "24h")) ?? finiteOrNull(favorite.change24h);
   const direct = finiteOrNull(favorite.changeWindows?.[key]);
   if (direct !== null) return direct;
   const window = pulseWindowOptions.find((option) => option.key === key);
@@ -9699,8 +9701,31 @@ function projectionSeed(ticker = "") {
   return (hash / 997) * Math.PI * 2;
 }
 
+function projectionActualPointLimit(key = "next7d") {
+  if (key === "next1mo") return 180;
+  if (key === "next7d") return 168;
+  if (key === "next24h") return 96;
+  return 120;
+}
+
+function samplePriceSeries(prices = [], limit = 120) {
+  const series = normalizePriceSeries(prices);
+  const maxPoints = Math.max(2, Math.round(finiteOrNull(limit) || 120));
+  if (series.length <= maxPoints) return series;
+  const sampled = [];
+  let lastIndex = -1;
+  for (let index = 0; index < maxPoints; index += 1) {
+    const sourceIndex = Math.round((index / (maxPoints - 1)) * (series.length - 1));
+    if (sourceIndex !== lastIndex) {
+      sampled.push(series[sourceIndex]);
+      lastIndex = sourceIndex;
+    }
+  }
+  return sampled;
+}
+
 function makeProjectedPulseChart(scenario = {}) {
-  const actual = normalizePriceSeries(scenario.sourcePrices).slice(-84);
+  const actual = samplePriceSeries(scenario.sourcePrices, projectionActualPointLimit(scenario.key));
   const projected = normalizePriceSeries(scenario.projectedPrices);
   const width = 420;
   const height = 176;

@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.73");
+  assert.equal(health.body.version, "0.1.74");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -98,6 +98,12 @@ global.fetch = async (url) => {
   assert.equal(normalizedGeckoTerminalChart.body.window, "24h");
   assert.equal(normalizedGeckoTerminalChart.body.source, "GeckoTerminal");
   assert.deepEqual(normalizedGeckoTerminalChart.body.prices, [1, 1.1]);
+
+  const preferredPoolChart = await getJson("/api/v1/market-chart?id=aerodrome-finance&chainId=base&pairAddress=0x0000000000000000000000000000000000000001&window=24h&source=geckoterminal&force=true");
+  assert.equal(preferredPoolChart.statusCode, 200);
+  assert.equal(preferredPoolChart.body.ok, true);
+  assert.equal(preferredPoolChart.body.source, "GeckoTerminal");
+  assert.deepEqual(preferredPoolChart.body.prices, [1, 1.1]);
 
   const submittedBundle = await postJson("/api/v1/submitted-bundles", {
     bundleName: "Test Bundle",

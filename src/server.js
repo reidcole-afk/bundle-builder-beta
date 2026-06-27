@@ -206,6 +206,7 @@ async function handleRequest(request, response) {
           chainId: url.searchParams.get("chainId") || url.searchParams.get("chainid"),
           pairAddress: url.searchParams.get("pairAddress") || url.searchParams.get("pair"),
           window: url.searchParams.get("window") || url.searchParams.get("range"),
+          source: url.searchParams.get("source") || url.searchParams.get("prefer"),
           force: isTruthy(url.searchParams.get("force")),
         });
         sendJson(response, 200, {
@@ -906,25 +907,26 @@ async function getNormalizedMarketChart(options = {}) {
   const id = safeText(options.id, 120).toLowerCase();
   const chainId = normalizeMarketChartChainId(options.chainId);
   const pairAddress = normalizeContractAddress(options.pairAddress);
+  const sourcePreference = normalizeMarketChartSource(options.source);
   if (!isAllowedCoinGeckoId(id) && (!chainId || !pairAddress)) {
     const error = new Error("Missing supported chart source. Provide id, or chainId plus pairAddress.");
     error.statusCode = 400;
     throw error;
   }
 
-  const cacheKey = marketChartCacheKey({ id, chainId, pairAddress, window });
+  const cacheKey = marketChartCacheKey({ id, chainId, pairAddress, window, sourcePreference });
   const cached = marketChartCache.get(cacheKey);
   const now = Date.now();
   if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_CACHE_MS) {
     return { ...cached.value, cacheStatus: "fresh-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString() };
   }
   if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_STALE_MS) {
-    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, cacheKey });
+    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
     return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: "Serving cached chart while a background refresh runs" };
   }
 
   try {
-    const value = await fetchNormalizedMarketChart({ id, chainId, pairAddress, window });
+    const value = await fetchNormalizedMarketChart({ id, chainId, pairAddress, window, sourcePreference });
     marketChartCache.set(cacheKey, { value, cachedAt: now });
     return { ...value, cacheStatus: "refreshed", cached: false, cachedAt: new Date(now).toISOString() };
   } catch (error) {
@@ -945,8 +947,18 @@ function refreshNormalizedMarketChartInBackground(options) {
   refresh.catch(() => {});
 }
 
-async function fetchNormalizedMarketChart({ id, chainId, pairAddress, window }) {
+async function fetchNormalizedMarketChart({ id, chainId, pairAddress, window, sourcePreference }) {
   const errors = [];
+  sourcePreference = normalizeMarketChartSource(sourcePreference);
+  const preferPoolChart = shouldPreferGeckoTerminalChart(window, sourcePreference, Boolean(chainId && pairAddress));
+  if (preferPoolChart) {
+    try {
+      return await fetchGeckoTerminalMarketChart({ chainId, pairAddress, window });
+    } catch (error) {
+      errors.push(`GeckoTerminal: ${error.message || "failed"}`);
+    }
+  }
+
   if (isAllowedCoinGeckoId(id)) {
     try {
       const days = marketChartWindowToCoinGeckoDays(window);
@@ -972,7 +984,7 @@ async function fetchNormalizedMarketChart({ id, chainId, pairAddress, window }) 
     }
   }
 
-  if (chainId && pairAddress) {
+  if (chainId && pairAddress && !preferPoolChart) {
     try {
       const chart = await fetchGeckoTerminalMarketChart({ chainId, pairAddress, window });
       return chart;
@@ -1031,6 +1043,20 @@ function normalizeMarketChartWindow(value) {
   return "24h";
 }
 
+function normalizeMarketChartSource(value) {
+  const text = String(value || "auto").trim().toLowerCase();
+  if (["geckoterminal", "gecko-terminal", "pool", "dex"].includes(text)) return "geckoterminal";
+  if (["coingecko", "coin-gecko", "coin"].includes(text)) return "coingecko";
+  return "auto";
+}
+
+function shouldPreferGeckoTerminalChart(window, sourcePreference, hasPool) {
+  if (!hasPool) return false;
+  if (sourcePreference === "geckoterminal") return true;
+  if (sourcePreference === "coingecko") return false;
+  return ["5m", "15m", "30m", "1h", "3h", "6h", "12h", "24h"].includes(normalizeMarketChartWindow(window));
+}
+
 function marketChartWindowToCoinGeckoDays(window) {
   if (window === "3d") return "3";
   if (window === "7d") return "7";
@@ -1063,8 +1089,8 @@ function normalizeContractAddress(value) {
   return /^0x[a-f0-9]{40}$/.test(text) ? text : "";
 }
 
-function marketChartCacheKey({ id, chainId, pairAddress, window }) {
-  return `${safeText(id, 120).toLowerCase() || "no-id"}:${chainId || "no-chain"}:${pairAddress || "no-pair"}:${normalizeMarketChartWindow(window)}`;
+function marketChartCacheKey({ id, chainId, pairAddress, window, sourcePreference }) {
+  return `${safeText(id, 120).toLowerCase() || "no-id"}:${chainId || "no-chain"}:${pairAddress || "no-pair"}:${normalizeMarketChartWindow(window)}:${normalizeMarketChartSource(sourcePreference)}`;
 }
 
 async function fetchMarketProxyJson(targetUrl) {
