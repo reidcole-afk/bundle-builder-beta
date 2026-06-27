@@ -9530,7 +9530,8 @@ function projectedPulseScenario(favorite = {}, key = "next7d") {
       : setup?.extended && setup?.fading ? -0.22
         : setup?.fading ? -0.12
           : 0;
-  const rawChange = (scorePressure * 12 + trendPressure * 9 + setupPressure * 10) * depthBoost * horizonScale;
+  const lifetimeBias = lifetimeProjectionBias(favorite, key);
+  const rawChange = ((scorePressure * 12 + trendPressure * 9 + setupPressure * 10) * depthBoost * horizonScale) + lifetimeBias;
   const projectedChange = roundTo(clamp(rawChange, key === "next1mo" ? -38 : -8, key === "next1mo" ? 44 : 9), 2);
   const confidenceBase = 42
     + Math.min(18, Math.max(0, series.length - 12) * 0.5)
@@ -9539,7 +9540,7 @@ function projectedPulseScenario(favorite = {}, key = "next7d") {
     - (key === "next1mo" ? 6 : 0);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
-  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}` });
+  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}`, key, confidenceScore, lifetimeBias });
   const cards = key === "next1mo"
     ? [
         { label: "7-Day", price: scenarioPriceAtRatio(projectedPrices, 7 / 30), change: interpolateWindowChange(0, projectedChange, 7 / 30) ?? 0 },
@@ -9595,7 +9596,8 @@ function projectedSevenDayScenario(favorite = {}) {
       : setup?.extended && setup?.fading ? -0.22
         : setup?.fading ? -0.12
           : 0;
-  const rawChange = (scorePressure * 12 + trendPressure * 9 + setupPressure * 10) * depthBoost;
+  const lifetimeBias = lifetimeProjectionBias(favorite, "next7d");
+  const rawChange = (scorePressure * 12 + trendPressure * 9 + setupPressure * 10) * depthBoost + lifetimeBias;
   const projectedChange = roundTo(clamp(rawChange, -22, 24), 2);
   const confidenceBase = 42
     + Math.min(18, Math.max(0, series.length - 12) * 0.5)
@@ -9603,7 +9605,7 @@ function projectedSevenDayScenario(favorite = {}) {
     + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
-  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker });
+  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker, key: "next7d", confidenceScore, lifetimeBias });
   const currentPrice = series.at(-1) || finiteOrNull(favorite.currentPrice) || null;
   const oneDayChange = interpolateWindowChange(0, projectedChange, 1 / 7) ?? 0;
   const threeDayChange = interpolateWindowChange(0, projectedChange, 3 / 7) ?? 0;
@@ -9638,31 +9640,164 @@ function scenarioPriceAtDay(projectedPrices = [], day = 7) {
 function buildProjectionSeries(sourcePrices = [], projectedChange = 0, context = {}) {
   const series = normalizePriceSeries(sourcePrices);
   if (series.length < 2) return [];
-  const steps = Math.max(18, Math.min(34, Math.round(series.length * 0.42)));
+  const steps = projectionPointCount(series.length, context.key || "next7d");
   const start = series.at(-1);
   const target = start * (1 + (projectedChange || 0) / 100);
   const stats = context.stats || null;
   const setup = context.setup || {};
   const score = finiteOrNull(context.read?.score) ?? 50;
   const seed = projectionSeed(context.ticker || "");
+  const horizonKey = context.key || "next7d";
+  const lifetimeBias = finiteOrNull(context.lifetimeBias) || 0;
   const recentSlope = stats?.recentReturn ? clamp(stats.recentReturn / 100, -0.08, 0.08) : 0;
   const volatility = priceReturnVolatility(series);
-  const amplitude = start * clamp(volatility * 1.35, 0.008, 0.07);
+  const rangeVolatility = priceRangeVolatility(series);
+  const confidenceScore = finiteOrNull(context.confidenceScore) ?? finiteOrNull(context.read?.score) ?? 58;
+  const uncertaintyBoost = clamp((72 - confidenceScore) / 42, 0, 0.55);
+  const amplitude = start * clamp(
+    (volatility * projectionVolatilityScale(horizonKey)) + (rangeVolatility * 0.18) + uncertaintyBoost * 0.012,
+    0.012,
+    0.16,
+  );
   const bullishBias = projectedChange >= 0;
   const projection = [];
+  const texture = recentReturnTexture(series, steps, seed);
   for (let index = 0; index < steps; index += 1) {
     const t = index / (steps - 1 || 1);
     const smooth = t * t * (3 - 2 * t);
     const drift = start + (target - start) * smooth;
-    const chop = Math.sin(t * Math.PI * 3.2 + seed) * amplitude * (0.95 - t * 0.25)
-      + Math.sin(t * Math.PI * 7.4 + seed * 0.73) * amplitude * 0.34;
-    const recentBend = start * recentSlope * Math.sin(Math.PI * t) * 0.22;
+    const fade = 1.05 - t * 0.2;
+    const chop = Math.sin(t * Math.PI * 4.1 + seed) * amplitude * fade
+      + Math.sin(t * Math.PI * 9.7 + seed * 0.73) * amplitude * 0.46
+      + Math.sin(t * Math.PI * 15.2 + seed * 1.17) * amplitude * 0.18;
+    const microChop = projectionMicroChop({ t, amplitude, seed, index, steps, horizonKey });
+    const textureChop = texture[index] * amplitude * 0.42 * (0.95 - t * 0.18);
+    const recentBend = start * recentSlope * Math.sin(Math.PI * t) * 0.42;
     const setupBend = projectionSetupBend({ t, amplitude, setup, bullishBias, score });
-    projection.push(Math.max(0.0000001, drift + chop + recentBend + setupBend));
+    const breakoutBend = projectionBreakoutBend({ t, amplitude, projectedChange, score, setup });
+    const earlyBias = projectionEarlyBias({ t, amplitude, projectedChange, score, setup, recentSlope });
+    const macroBend = projectionMacroBend({ t, start, projectedChange, lifetimeBias, horizonKey });
+    projection.push(Math.max(0.0000001, drift + chop + microChop + textureChop + recentBend + setupBend + breakoutBend + earlyBias + macroBend));
   }
   projection[0] = start;
+  shapeProjectionOpening(projection, start, projectedChange, amplitude, setup);
+  anchorProjectionEndpoints(projection, start, target, amplitude, projectedChange);
   projection[projection.length - 1] = target;
   return projection;
+}
+
+function anchorProjectionEndpoints(projection = [], start = 0, target = 0, amplitude = 0, projectedChange = 0) {
+  if (projection.length < 4 || !start || !target) return;
+  const lastIndex = projection.length - 1;
+  const openingCount = Math.min(Math.max(8, Math.round(projection.length * 0.1)), lastIndex - 1);
+  const openingDrift = (target - start) * 0.16;
+  for (let index = 1; index <= openingCount; index += 1) {
+    const t = index / openingCount;
+    const smooth = t * t * (3 - 2 * t);
+    const anchor = start + openingDrift * smooth;
+    const tolerance = amplitude * (0.1 + t * 0.34);
+    projection[index] = clamp(projection[index], anchor - tolerance, anchor + tolerance);
+  }
+
+  const closingCount = Math.min(Math.max(10, Math.round(projection.length * 0.14)), lastIndex - 1);
+  const startClose = Math.max(1, lastIndex - closingCount);
+  for (let index = startClose; index < lastIndex; index += 1) {
+    const t = (index - startClose + 1) / closingCount;
+    const smooth = t * t * (3 - 2 * t);
+    const anchorWeight = 0.22 + smooth * 0.68;
+    const tolerance = amplitude * (0.22 + (1 - t) * 0.26);
+    const blended = projection[index] * (1 - anchorWeight) + target * anchorWeight;
+    projection[index] = clamp(blended, target - tolerance, target + tolerance);
+  }
+  projection[0] = start;
+  projection[lastIndex] = target;
+}
+
+function projectionPointCount(sourceLength = 0, key = "next7d") {
+  if (key === "next24h") return Math.max(96, Math.min(150, Math.round(sourceLength * 1.05)));
+  if (key === "next1mo") return Math.max(108, Math.min(170, Math.round(sourceLength * 0.95)));
+  return Math.max(104, Math.min(160, Math.round(sourceLength * 0.95)));
+}
+
+function projectionMicroChop({ t, amplitude, seed, index, steps, horizonKey }) {
+  const density = horizonKey === "next24h" ? 34.5 : horizonKey === "next1mo" ? 42.5 : 38.5;
+  const fade = 0.94 - t * 0.18;
+  const alternating = Math.sin((index / Math.max(1, steps - 1)) * Math.PI * density + seed * 1.9) * amplitude * 0.16 * fade;
+  const fine = Math.sin(t * Math.PI * (density * 1.7) + seed * 2.7) * amplitude * 0.09 * fade;
+  const needle = Math.sin(t * Math.PI * (density * 2.55) + seed * 0.41) * amplitude * 0.035 * fade;
+  return alternating + fine + needle;
+}
+
+function recentReturnTexture(prices = [], steps = 100, seed = 0) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 4 || steps < 2) return Array.from({ length: steps }, () => 0);
+  const returns = [];
+  for (let index = 1; index < series.length; index += 1) {
+    if (series[index - 1]) returns.push((series[index] - series[index - 1]) / series[index - 1]);
+  }
+  if (!returns.length) return Array.from({ length: steps }, () => 0);
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const centered = returns.map((value) => clamp((value - mean) * 48, -1.15, 1.15));
+  const recent = centered.slice(-Math.min(48, centered.length));
+  const offset = Math.floor((Math.abs(Math.sin(seed)) * 1000) % Math.max(1, recent.length));
+  return Array.from({ length: steps }, (_, index) => {
+    const raw = recent[(index + offset) % recent.length] || 0;
+    const previous = recent[(index + offset - 1 + recent.length) % recent.length] || 0;
+    return raw * 0.72 + previous * 0.28;
+  });
+}
+
+function lifetimeProjectionBias(favorite = {}, key = "next7d") {
+  const contextScore = finiteOrNull(allTimeContextScore(favorite)) || 0;
+  const drawdown = allTimeDrawdownPercent(favorite);
+  const change30d = finiteOrNull(favorite.change30d ?? favorite.price_change_percentage_30d_in_currency);
+  const change7d = finiteOrNull(favorite.change7d ?? favorite.price_change_percentage_7d_in_currency);
+  const change24h = finiteOrNull(favorite.change24h ?? favorite.price_change_percentage_24h_in_currency ?? favorite.price_change_percentage_24h);
+  const scale = key === "next1mo" ? 1.05 : key === "next7d" ? 0.55 : 0.18;
+  let bias = contextScore * scale;
+  if (Number.isFinite(change30d)) bias += clamp(change30d, -70, 90) * (key === "next1mo" ? 0.045 : 0.018);
+  if (Number.isFinite(change7d)) bias += clamp(change7d, -35, 45) * (key === "next1mo" ? 0.018 : 0.035);
+  if (Number.isFinite(change24h)) bias += clamp(change24h, -18, 18) * (key === "next24h" ? 0.055 : 0.012);
+  if (Number.isFinite(drawdown) && drawdown <= -85 && !(Number.isFinite(change30d) && change30d > 15)) {
+    bias -= key === "next1mo" ? 2.4 : key === "next7d" ? 1.1 : 0.35;
+  }
+  return roundTo(clamp(bias, key === "next1mo" ? -7 : -3.5, key === "next1mo" ? 5.5 : 3.5), 2);
+}
+
+function projectionMacroBend({ t, start, projectedChange, lifetimeBias, horizonKey }) {
+  const macroWeight = horizonKey === "next1mo" ? 0.42 : horizonKey === "next7d" ? 0.28 : 0.12;
+  const bias = clamp((lifetimeBias || 0) / 12, -0.7, 0.7);
+  const direction = clamp((projectedChange || 0) / 24, -0.8, 0.8);
+  const pressure = bias * 0.65 + direction * 0.35;
+  const curve = Math.sin(Math.PI * clamp(t, 0, 1)) * (0.35 + t * 0.55);
+  return start * pressure * macroWeight * curve * 0.08;
+}
+
+function shapeProjectionOpening(projection = [], start = 0, projectedChange = 0, amplitude = 0, setup = {}) {
+  if (!projection.length || !start) return;
+  const openingCount = Math.min(Math.max(4, Math.round(projection.length * 0.22)), projection.length - 1);
+  if (openingCount <= 1) return;
+  const constructive = projectedChange >= 0 && !(setup?.extended && setup?.fading);
+  const bearish = projectedChange < 0 || (setup?.extended && setup?.fading);
+  for (let index = 1; index <= openingCount; index += 1) {
+    const t = index / openingCount;
+    const softRamp = t * t * (3 - 2 * t);
+    if (constructive) {
+      const floor = start - amplitude * (0.16 + 0.18 * t);
+      const preferred = start + amplitude * 0.18 * softRamp;
+      projection[index] = Math.max(projection[index], Math.min(preferred, floor + amplitude * 0.55));
+      projection[index] = Math.max(projection[index], floor);
+    } else if (bearish) {
+      const ceiling = start + amplitude * (0.18 + 0.14 * t);
+      projection[index] = Math.min(projection[index], ceiling);
+    }
+  }
+}
+
+function projectionVolatilityScale(key = "next7d") {
+  if (key === "next24h") return 2.75;
+  if (key === "next1mo") return 1.85;
+  return 2.25;
 }
 
 function priceReturnVolatility(prices = []) {
@@ -9677,19 +9812,53 @@ function priceReturnVolatility(prices = []) {
   return Math.sqrt(variance);
 }
 
+function priceRangeVolatility(prices = []) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 2) return 0.03;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const last = series.at(-1) || series[0] || 1;
+  if (!last) return 0.03;
+  return clamp((max - min) / last, 0, 0.6);
+}
+
 function projectionSetupBend({ t, amplitude, setup, bullishBias, score }) {
   const early = Math.sin(Math.PI * clamp(t, 0, 1));
   if (setup?.baseForming || setup?.boughtPullback) {
-    const dip = -amplitude * 0.7 * Math.exp(-Math.pow((t - 0.18) / 0.16, 2));
-    const lift = amplitude * (score >= 58 ? 0.85 : 0.38) * Math.exp(-Math.pow((t - 0.68) / 0.23, 2));
+    const dipDirection = bullishBias ? -0.24 : -0.95;
+    const dip = amplitude * dipDirection * Math.exp(-Math.pow((t - 0.18) / 0.15, 2));
+    const lift = amplitude * (score >= 58 ? 1.1 : 0.58) * Math.exp(-Math.pow((t - 0.68) / 0.22, 2));
     return dip + lift;
   }
   if (setup?.extended && setup?.fading) {
-    const relief = amplitude * 0.55 * Math.exp(-Math.pow((t - 0.22) / 0.18, 2));
-    const fade = -amplitude * 0.9 * Math.exp(-Math.pow((t - 0.72) / 0.26, 2));
+    const relief = amplitude * 0.72 * Math.exp(-Math.pow((t - 0.22) / 0.17, 2));
+    const fade = -amplitude * 1.12 * Math.exp(-Math.pow((t - 0.72) / 0.24, 2));
     return relief + fade;
   }
-  return bullishBias ? -amplitude * 0.28 * early * (1 - t) : amplitude * 0.3 * early * (1 - t);
+  return bullishBias ? -amplitude * 0.38 * early * (1 - t) : amplitude * 0.4 * early * (1 - t);
+}
+
+function projectionEarlyBias({ t, amplitude, projectedChange, score, setup, recentSlope }) {
+  const early = clamp(1 - t / 0.28, 0, 1);
+  if (!early) return 0;
+  const direction = projectedChange >= 0 ? 1 : -1;
+  const scoreDirection = (score || 50) >= 52 ? 1 : (score || 50) <= 48 ? -1 : direction;
+  const slopeDirection = recentSlope >= 0.002 ? 1 : recentSlope <= -0.002 ? -1 : 0;
+  const setupDirection = setup?.extended && setup?.fading ? -1
+    : setup?.constructive || setup?.baseForming || setup?.boughtPullback ? 1
+      : 0;
+  const blendedDirection = clamp(direction * 0.52 + scoreDirection * 0.2 + slopeDirection * 0.13 + setupDirection * 0.15, -1, 1);
+  const strength = projectedChange >= 0 ? 0.62 : 0.5;
+  return amplitude * blendedDirection * strength * early;
+}
+
+function projectionBreakoutBend({ t, amplitude, projectedChange, score, setup }) {
+  const conviction = clamp((Math.abs(projectedChange || 0) / 18) + Math.abs((score || 50) - 50) / 80, 0, 1.1);
+  if (conviction < 0.22) return 0;
+  const direction = projectedChange >= 0 ? 1 : -1;
+  const pulse = Math.exp(-Math.pow((t - 0.78) / 0.16, 2));
+  const setupMultiplier = setup?.constructive || setup?.baseForming || setup?.boughtPullback ? 1.15 : setup?.fading ? 0.78 : 1;
+  return direction * amplitude * conviction * setupMultiplier * pulse;
 }
 
 function projectionSeed(ticker = "") {
@@ -9773,7 +9942,7 @@ function makeProjectedPulseChart(scenario = {}) {
         ${gridLines}
         <path d="${actualArea}" fill="${color}" opacity="0.11"></path>
         <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path>
-        <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="3.2" stroke-dasharray="7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"></path>
         <line x1="${nowX.toFixed(1)}" y1="${padTop}" x2="${nowX.toFixed(1)}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 6"></line>
         <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4.6" fill="#fff" stroke="${color}" stroke-width="3"></circle>
         <circle cx="${terminalX.toFixed(1)}" cy="${terminalY.toFixed(1)}" r="4.8" fill="#fff" stroke="${projectedColor}" stroke-width="2.6"></circle>
