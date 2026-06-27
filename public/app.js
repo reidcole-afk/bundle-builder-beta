@@ -582,7 +582,7 @@ const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
 const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
 const MARKET_CHART_CACHE_MS = 1000 * 60 * 15;
 const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 6;
-const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 60 * 2;
+const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 30;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
 const MARKET_PULSE_TIMEOUT_MS = 18000;
 const MARKET_STATS_TIMEOUT_MS = 9000;
@@ -1046,12 +1046,14 @@ const tourSlides = [
   },
 ];
 const pulseWindowOptions = [
+  { key: "next1mo", label: "Next 1M", minutes: 43200, projected: true, sourceKey: "1mo", horizonDays: 30 },
   { key: "1mo", label: "1M", minutes: 43200 },
   { key: "next7d", label: "Next 7d", minutes: 10080, projected: true },
   { key: "7d", label: "7d", minutes: 10080 },
   { key: "3d", label: "3d", minutes: 4320 },
   { key: "24h", label: "24h", minutes: 1440 },
   { key: "12h", label: "12h", minutes: 720 },
+  { key: "next24h", label: "Next 24h", minutes: 1440, projected: true, sourceKey: "24h", horizonDays: 1 },
   { key: "6h", label: "6h", minutes: 360 },
   { key: "3h", label: "3h", minutes: 180 },
   { key: "1h", label: "1h", minutes: 60 },
@@ -4741,6 +4743,7 @@ tourNext?.addEventListener("click", () => {
 
 pulseRefresh?.addEventListener("click", () => {
   pulseRefresh.disabled = true;
+  unavailablePulseWindows.clear();
   refreshMarketPulse({ preserveSelection: true }).finally(() => {
     pulseRefresh.disabled = false;
   });
@@ -7846,22 +7849,23 @@ async function loadPulseChart(candidate) {
 
   if (candidate.source === "DEX Screener" && candidate.pairAddress) {
     try {
-      return await Promise.any([
-        getPulseChartData(candidate.id).then(({ prices, updatedAt, stale }) => (
-          withCoinGeckoChart(candidate, prices, updatedAt, stale)
-        )),
-        getGeckoTerminalPulseChartData(candidate).then(({ prices, updatedAt }) => ({
-          ...candidate,
-          prices,
-          chartSource: "GeckoTerminal pool chart",
-          updatedAt,
-        })),
-      ]);
-    } catch {
+      const { prices, updatedAt } = await getGeckoTerminalPulseChartData(candidate, "24h");
+      return {
+        ...candidate,
+        prices,
+        chartSource: "GeckoTerminal pool chart",
+        updatedAt,
+      };
+    } catch (poolError) {
       if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
         return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, true);
       }
-      return candidate;
+      try {
+        const { prices, updatedAt, stale } = await getPulseChartData(candidate.id);
+        return withCoinGeckoChart(candidate, prices, updatedAt, stale);
+      } catch {
+        return { ...candidate, chartSource: poolError?.message ? `Pool chart unavailable: ${poolError.message}` : candidate.chartSource };
+      }
     }
   }
 
@@ -8266,8 +8270,26 @@ function stepPulseWindow(direction) {
 
 function pulsePricesForWindow(favorite = {}, key = "24h") {
   if (key === "24h") return normalizePriceSeries(favorite.prices);
-  if (key === "next7d") return normalizePriceSeries(favorite.windowPrices?.["7d"] || favorite.prices);
+  if (isProjectedPulseWindow(key)) {
+    const sourceKey = sourceWindowForProjection(key);
+    if (sourceKey === "24h") return normalizePriceSeries(favorite.prices);
+    return normalizePriceSeries(favorite.windowPrices?.[sourceKey]);
+  }
   return normalizePriceSeries(favorite.windowPrices?.[key]);
+}
+
+function isProjectedPulseWindow(key = selectedPulseWindow) {
+  return Boolean(pulseWindowOptions.find((option) => option.key === key)?.projected);
+}
+
+function sourceWindowForProjection(key = selectedPulseWindow) {
+  const option = pulseWindowOptions.find((item) => item.key === key);
+  if (!option?.projected) return key;
+  return option.sourceKey || (key === "next7d" ? "7d" : "24h");
+}
+
+function projectionHorizonDays(key = selectedPulseWindow) {
+  return pulseWindowOptions.find((option) => option.key === key)?.horizonDays || (key === "next7d" ? 7 : 1);
 }
 
 function priceSeriesChange(prices) {
@@ -8294,8 +8316,9 @@ function markPulseWindowTemporarilyUnavailable(requestKey) {
 }
 
 function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseWindow) {
-  if (key === "next7d") {
-    ensurePulseWindowChart(favorite, "7d");
+  if (isProjectedPulseWindow(key)) {
+    const sourceKey = sourceWindowForProjection(key);
+    if (sourceKey !== "24h") ensurePulseWindowChart(favorite, sourceKey);
     return;
   }
   if (!favorite || key === "24h" || pulsePricesForWindow(favorite, key).length >= 2) return;
@@ -8335,9 +8358,13 @@ function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseW
 }
 
 async function getPulseWindowChartData(favorite = {}, key = "7d") {
-  const attempts = [];
-  if (favorite.pairAddress) attempts.push(() => getGeckoTerminalPulseChartData(favorite, key));
-  if (favorite.id) attempts.push(() => getCoinGeckoWindowChartData(favorite.id, key));
+  const attempts = chartSourcePlanForWindow(key)
+    .map((source) => {
+      if (source === "coingecko" && favorite.id) return () => getCoinGeckoWindowChartData(favorite.id, key);
+      if (source === "geckoterminal" && favorite.pairAddress) return () => getGeckoTerminalPulseChartData(favorite, key);
+      return null;
+    })
+    .filter(Boolean);
   if (!attempts.length) throw new Error("No chart source available");
   let lastError = null;
   for (const attempt of attempts) {
@@ -8349,6 +8376,13 @@ async function getPulseWindowChartData(favorite = {}, key = "7d") {
     }
   }
   throw lastError || new Error("Chart window unavailable");
+}
+
+function chartSourcePlanForWindow(key = "24h") {
+  const normalized = sourceWindowForProjection(key);
+  if (["3d", "7d", "1mo"].includes(normalized)) return ["coingecko", "geckoterminal"];
+  if (normalized === "24h") return ["geckoterminal", "coingecko"];
+  return ["geckoterminal"];
 }
 
 async function getCoinGeckoWindowChartData(coinGeckoId, key = "7d") {
@@ -8369,24 +8403,27 @@ async function getCoinGeckoWindowChartData(coinGeckoId, key = "7d") {
 function coinGeckoDaysForWindow(key = "24h") {
   if (key === "3d") return 3;
   if (key === "7d" || key === "next7d") return 7;
-  if (key === "1mo") return 30;
+  if (key === "1mo" || key === "next1mo") return 30;
   return 1;
 }
 
 function renderPulseWindowChart(favorite = currentFavorite) {
   if (!pulseChart || !favorite) return;
-  if (selectedPulseWindow === "next7d") {
-    const requestKey = pulseWindowLoadKey(favorite, "7d");
-    const hasSevenDayChart = pulsePricesForWindow(favorite, "7d").length >= 2;
-    const shouldLoadSevenDay = !hasSevenDayChart && (favorite.pairAddress || favorite.id) && !isPulseWindowTemporarilyUnavailable(requestKey);
-    if (shouldLoadSevenDay) {
-      pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">Loading ${escapeHtml(favorite.ticker || "coin")} 7d chart for scenario...</div>`;
-      ensurePulseWindowChart(favorite, "7d");
-    } else {
-      const scenario = projectedSevenDayScenario(favorite);
-      pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeProjectedSevenDayChart(scenario)}`;
+  if (isProjectedPulseWindow(selectedPulseWindow)) {
+    const sourceKey = sourceWindowForProjection(selectedPulseWindow);
+    const requestKey = pulseWindowLoadKey(favorite, sourceKey);
+    const hasSourceChart = pulsePricesForWindow(favorite, sourceKey).length >= 2;
+    const canLoadSource = sourceKey === "24h" || (favorite.pairAddress || favorite.id);
+    if (sourceKey !== "24h" && !hasSourceChart) {
+      const unavailable = !canLoadSource || isPulseWindowTemporarilyUnavailable(requestKey);
+      pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">${unavailable ? `${pulseWindowLabel(sourceKey)} chart unavailable. Retry shortly.` : `Loading ${escapeHtml(favorite.ticker || "coin")} ${pulseWindowLabel(sourceKey)} chart for scenario...`}</div>`;
+      if (!unavailable) ensurePulseWindowChart(favorite, sourceKey);
+      pulseChart.setAttribute("aria-label", `${pulseWindowLabel(selectedPulseWindow)} scenario chart for ${favorite.ticker || "this coin"}`);
+      return;
     }
-    pulseChart.setAttribute("aria-label", `Next 7d scenario chart for ${favorite.ticker || "this coin"}`);
+    const scenario = projectedPulseScenario(favorite, selectedPulseWindow);
+    pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeProjectedPulseChart(scenario)}`;
+    pulseChart.setAttribute("aria-label", `${pulseWindowLabel(selectedPulseWindow)} scenario chart for ${favorite.ticker || "this coin"}`);
     return;
   }
   const prices = pulsePricesForWindow(favorite, selectedPulseWindow);
@@ -8403,7 +8440,7 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
-  if (key === "next7d") return projectedSevenDayScenario(favorite).projectedChange;
+  if (isProjectedPulseWindow(key)) return projectedPulseScenario(favorite, key).projectedChange;
   if (key === "24h") return finiteOrNull(favorite.change24h);
   const direct = finiteOrNull(favorite.changeWindows?.[key]);
   if (direct !== null) return direct;
@@ -9309,9 +9346,97 @@ async function confirmViciReview() {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function projectedPulseScenario(favorite = {}, key = "next7d") {
+  if (key === "next7d") {
+    const scenario = projectedSevenDayScenario(favorite);
+    return {
+      ...scenario,
+      key,
+      label: "Next 7d",
+      sourceLabel: "Last 7d",
+      terminalPrice: scenario.sevenDayPrice,
+      readWindow: "7d",
+      cards: [
+        { label: "1-Day", price: scenario.oneDayPrice, change: scenario.oneDayChange },
+        { label: "5-Day", price: scenario.fiveDayPrice, change: scenario.fiveDayChange },
+        { label: "7-Day", price: scenario.sevenDayPrice, change: scenario.projectedChange },
+      ],
+    };
+  }
+
+  const sourceKey = sourceWindowForProjection(key);
+  const sourcePrices = pulsePricesForWindow(favorite, sourceKey);
+  const series = sourceKey === "24h"
+    ? (sourcePrices.length >= 2 ? sourcePrices : normalizePriceSeries(favorite.prices))
+    : sourcePrices;
+  const readKey = key === "next1mo" ? "1M" : "1d";
+  const read = directionalCoinRead(favorite, readKey);
+  const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
+  const stats = chartTrajectoryStats(series);
+  const change24h = finiteOrNull(favorite.change24h) || 0;
+  const sourceChange = priceSeriesChange(series) ?? change24h;
+  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
+  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
+  const depthBoost = volume >= 3_000_000 && liquidity >= 1_000_000 ? 1 : volume >= 750_000 && liquidity >= 500_000 ? 0.72 : 0.48;
+  const scorePressure = ((read.score || 50) - 50) / 50;
+  const horizonScale = key === "next1mo" ? 2.15 : 0.3;
+  const trendPressure = clamp(sourceChange / (key === "next1mo" ? 55 : 14), -0.9, 0.9) * 0.42
+    + clamp(change24h / 16, -0.9, 0.9) * (key === "next1mo" ? 0.14 : 0.28);
+  const setupPressure = setup?.boughtPullback || setup?.baseForming ? 0.18
+    : setup?.constructive ? 0.12
+      : setup?.extended && setup?.fading ? -0.22
+        : setup?.fading ? -0.12
+          : 0;
+  const rawChange = (scorePressure * 12 + trendPressure * 9 + setupPressure * 10) * depthBoost * horizonScale;
+  const projectedChange = roundTo(clamp(rawChange, key === "next1mo" ? -38 : -8, key === "next1mo" ? 44 : 9), 2);
+  const confidenceBase = 42
+    + Math.min(18, Math.max(0, series.length - 12) * 0.5)
+    + Math.min(18, Math.abs((read.score || 50) - 50) * 0.38)
+    + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8)
+    - (key === "next1mo" ? 6 : 0);
+  const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
+  const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
+  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}` });
+  const cards = key === "next1mo"
+    ? [
+        { label: "7-Day", price: scenarioPriceAtRatio(projectedPrices, 7 / 30), change: interpolateWindowChange(0, projectedChange, 7 / 30) ?? 0 },
+        { label: "14-Day", price: scenarioPriceAtRatio(projectedPrices, 14 / 30), change: interpolateWindowChange(0, projectedChange, 14 / 30) ?? 0 },
+        { label: "1-Month", price: scenarioPriceAtRatio(projectedPrices, 1), change: projectedChange },
+      ]
+    : [
+        { label: "6-Hour", price: scenarioPriceAtRatio(projectedPrices, 0.25), change: interpolateWindowChange(0, projectedChange, 0.25) ?? 0 },
+        { label: "12-Hour", price: scenarioPriceAtRatio(projectedPrices, 0.5), change: interpolateWindowChange(0, projectedChange, 0.5) ?? 0 },
+        { label: "24-Hour", price: scenarioPriceAtRatio(projectedPrices, 1), change: projectedChange },
+      ];
+
+  return {
+    sourcePrices: series,
+    projectedPrices,
+    projectedChange,
+    confidence,
+    confidenceScore,
+    read,
+    setup,
+    ticker: favorite.ticker || "",
+    key,
+    label: pulseWindowLabel(key),
+    sourceLabel: sourceKey === "1mo" ? "Last 1M" : "Last 24h",
+    readWindow: readKey,
+    terminalPrice: projectedPrices.at(-1) || null,
+    cards,
+  };
+}
+
+function scenarioPriceAtRatio(projectedPrices = [], ratio = 1) {
+  const series = normalizePriceSeries(projectedPrices);
+  if (!series.length) return null;
+  const index = Math.round(clamp(ratio, 0, 1) * (series.length - 1));
+  return series[index] || null;
+}
+
 function projectedSevenDayScenario(favorite = {}) {
   const sourcePrices = pulsePricesForWindow(favorite, "7d");
-  const series = sourcePrices.length >= 2 ? sourcePrices : normalizePriceSeries(favorite.prices);
+  const series = sourcePrices;
   const read = directionalCoinRead(favorite, "7d");
   const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
   const stats = chartTrajectoryStats(series);
@@ -9335,14 +9460,36 @@ function projectedSevenDayScenario(favorite = {}) {
     + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
+  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker });
+  const currentPrice = series.at(-1) || finiteOrNull(favorite.currentPrice) || null;
+  const oneDayChange = interpolateWindowChange(0, projectedChange, 1 / 7) ?? 0;
+  const threeDayChange = interpolateWindowChange(0, projectedChange, 3 / 7) ?? 0;
+  const fiveDayChange = interpolateWindowChange(0, projectedChange, 5 / 7) ?? 0;
   return {
     sourcePrices: series,
-    projectedPrices: buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker }),
+    projectedPrices,
+    currentPrice,
+    oneDayPrice: scenarioPriceAtDay(projectedPrices, 1),
+    threeDayPrice: scenarioPriceAtDay(projectedPrices, 3),
+    fiveDayPrice: scenarioPriceAtDay(projectedPrices, 5),
+    sevenDayPrice: projectedPrices.at(-1) || null,
+    oneDayChange,
+    threeDayChange,
+    fiveDayChange,
     projectedChange,
     confidence,
     confidenceScore,
     read,
+    setup,
+    ticker: favorite.ticker || "",
   };
+}
+
+function scenarioPriceAtDay(projectedPrices = [], day = 7) {
+  const series = normalizePriceSeries(projectedPrices);
+  if (!series.length) return null;
+  const index = Math.round(clamp(day / 7, 0, 1) * (series.length - 1));
+  return series[index] || null;
 }
 
 function buildProjectionSeries(sourcePrices = [], projectedChange = 0, context = {}) {
@@ -9411,26 +9558,29 @@ function projectionSeed(ticker = "") {
   return (hash / 997) * Math.PI * 2;
 }
 
-function makeProjectedSevenDayChart(scenario = {}) {
+function makeProjectedPulseChart(scenario = {}) {
   const actual = normalizePriceSeries(scenario.sourcePrices).slice(-84);
   const projected = normalizePriceSeries(scenario.projectedPrices);
-  const width = 360;
-  const height = 132;
-  const pad = 14;
-  const nowX = width * 0.52;
-  const futureEnd = width - pad;
+  const width = 420;
+  const height = 176;
+  const padX = 24;
+  const padTop = 16;
+  const padBottom = 28;
+  const nowX = width * 0.58;
+  const futureEnd = width - padX;
   const actualEnd = nowX;
   const allPrices = [...actual, ...projected];
-  if (actual.length < 2 || projected.length < 2) return makeSparkline(actual, priceSeriesChange(actual), "Next 7d scenario");
+  if (actual.length < 2 || projected.length < 2) return makeSparkline(actual, priceSeriesChange(actual), `${scenario.label || "Next"} scenario`);
   const min = Math.min(...allPrices);
   const max = Math.max(...allPrices);
   const rawSpan = max - min || 1;
-  const chartMin = min - rawSpan * 0.1;
-  const chartMax = max + rawSpan * 0.1;
+  const chartMin = min - rawSpan * 0.14;
+  const chartMax = max + rawSpan * 0.16;
   const span = chartMax - chartMin || 1;
-  const yFor = (price) => chartMax === chartMin ? height / 2 : height - pad - ((price - chartMin) / span) * (height - pad * 2);
+  const chartHeight = height - padTop - padBottom;
+  const yFor = (price) => chartMax === chartMin ? height / 2 : height - padBottom - ((price - chartMin) / span) * chartHeight;
   const actualPoints = actual.map((price, index) => {
-    const x = pad + (index / (actual.length - 1)) * (actualEnd - pad);
+    const x = padX + (index / (actual.length - 1)) * (actualEnd - padX);
     return [x, yFor(price)];
   });
   const projectedPoints = projected.map((price, index) => {
@@ -9439,20 +9589,52 @@ function makeProjectedSevenDayChart(scenario = {}) {
   });
   const actualLine = actualPoints.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
   const projectedLine = projectedPoints.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const actualArea = `${actualLine} L ${actualEnd.toFixed(1)} ${height - padBottom} L ${padX} ${height - padBottom} Z`;
   const actualChange = priceSeriesChange(actual) || 0;
   const color = actualChange >= 0 ? "#1f8a5f" : "#c8503e";
-  const projectedColor = "#7b8798";
+  const projectedColor = scenario.projectedChange >= 0 ? "#667085" : "#7b8798";
+  const gridLines = [0.25, 0.5, 0.75].map((ratio) => {
+    const y = padTop + ratio * chartHeight;
+    return `<line x1="${padX}" y1="${y.toFixed(1)}" x2="${futureEnd}" y2="${y.toFixed(1)}" stroke="#d8e1ee" stroke-width="1" stroke-dasharray="3 5"></line>`;
+  }).join("");
+  const terminalX = projectedPoints.at(-1)[0];
+  const terminalY = projectedPoints.at(-1)[1];
+  const forecastText = scenario.label || "Next 7d";
   return `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Next 7d scenario chart">
-      <rect x="${nowX.toFixed(1)}" y="${pad}" width="${(futureEnd - nowX).toFixed(1)}" height="${height - pad * 2}" fill="#eef2f7" opacity="0.5"></rect>
-      <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="3"></path>
-      <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="3" stroke-dasharray="6 6" stroke-linecap="round"></path>
-      <line x1="${nowX.toFixed(1)}" y1="${pad}" x2="${nowX.toFixed(1)}" y2="${height - pad}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 5"></line>
-      <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4" fill="${color}"></circle>
-      <circle cx="${projectedPoints.at(-1)[0].toFixed(1)}" cy="${projectedPoints.at(-1)[1].toFixed(1)}" r="4" fill="#f8fafc" stroke="${projectedColor}" stroke-width="2"></circle>
-      <text x="${(nowX - 5).toFixed(1)}" y="${height - 7}" text-anchor="end" fill="#64748b" font-size="9" font-weight="800">Now</text>
-      <text x="${(nowX + 8).toFixed(1)}" y="${height - 7}" text-anchor="start" fill="#64748b" font-size="9" font-weight="800">Scenario</text>
-    </svg>
+    <div class="pulse-forecast-panel graph-only">
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(forecastText)} machine scenario chart">
+        <rect x="${nowX.toFixed(1)}" y="${padTop}" width="${(futureEnd - nowX).toFixed(1)}" height="${chartHeight}" fill="#f1f5f9" opacity="0.78"></rect>
+        ${gridLines}
+        <path d="${actualArea}" fill="${color}" opacity="0.11"></path>
+        <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="3.2" stroke-dasharray="7 7" stroke-linecap="round" stroke-linejoin="round"></path>
+        <line x1="${nowX.toFixed(1)}" y1="${padTop}" x2="${nowX.toFixed(1)}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 6"></line>
+        <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4.6" fill="#fff" stroke="${color}" stroke-width="3"></circle>
+        <circle cx="${terminalX.toFixed(1)}" cy="${terminalY.toFixed(1)}" r="4.8" fill="#fff" stroke="${projectedColor}" stroke-width="2.6"></circle>
+      </svg>
+    </div>
+  `;
+}
+
+function makeProjectedSevenDayChart(scenario = {}) {
+  return makeProjectedPulseChart({
+    ...scenario,
+    label: scenario.label || "Next 7d",
+    sourceLabel: scenario.sourceLabel || "Last 7d",
+    terminalPrice: scenario.terminalPrice || scenario.sevenDayPrice,
+    readWindow: scenario.readWindow || "7d",
+  });
+}
+
+function forecastCardMarkup(label, price, change) {
+  const numeric = finiteOrNull(change) || 0;
+  const tone = numeric >= 0 ? "positive" : "negative";
+  return `
+    <div class="pulse-forecast-card ${tone}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(formatUsdPrice(price))}</strong>
+      <em>${escapeHtml(formatPercent(numeric))}</em>
+    </div>
   `;
 }
 

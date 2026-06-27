@@ -1748,8 +1748,29 @@ body.pulse-ai-modal-open {
   text-align: center;
 }
 
+.pulse-forecast-panel {
+  display: block;
+  padding: 8px;
+}
+
+.pulse-forecast-panel svg {
+  height: 176px;
+  border-radius: 8px;
+  background: #fff;
+}
+
 :root[data-theme="dark"] .pulse-window-message {
   color: rgba(226, 238, 252, 0.72);
+}
+
+:root[data-theme="dark"] .pulse-forecast-panel svg {
+  background: rgba(10, 20, 34, 0.68);
+}
+
+@media (max-width: 560px) {
+  .pulse-forecast-panel {
+    padding: 6px;
+  }
 }
 
 @keyframes pulseGraphLine {
