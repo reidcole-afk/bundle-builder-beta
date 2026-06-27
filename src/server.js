@@ -14,6 +14,7 @@ const {
 const { collectNewsIntelligence } = require("./news-intelligence");
 const { createSubmittedBundleRepository } = require("./bundle-store");
 const { createProfileRepository } = require("./profile-store");
+const { createPulseSnapshotRepository } = require("./pulse-snapshot-store");
 
 const PORT = Number(process.env.PORT || 8788);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -34,6 +35,7 @@ const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STA
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
+const pulseSnapshotRepository = createPulseSnapshotRepository();
 const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
   "aerodrome-finance",
   "morpho",
@@ -172,6 +174,8 @@ async function handleRequest(request, response) {
         catalystIntelligenceEndpoint: true,
         profileAuthEndpoint: true,
         profileStorage: profileRepository.descriptor(),
+        machineAccuracyEndpoint: true,
+        pulseSnapshotStorage: pulseSnapshotRepository.descriptor(),
         coingeckoChartBackgroundPreload: {
           enabled: COINGECKO_CHART_PRELOAD_ENABLED,
           intervalMs: COINGECKO_CHART_PRELOAD_INTERVAL_MS,
@@ -396,6 +400,53 @@ async function handleRequest(request, response) {
       return;
     }
 
+    if (url.pathname === "/api/v1/pulse-snapshots") {
+      if (request.method === "GET") {
+        const limit = clampInteger(url.searchParams.get("limit"), 1, 600, 50);
+        const snapshots = pulseSnapshotRepository.listSnapshots({ limit });
+        sendJson(response, 200, {
+          ok: true,
+          count: snapshots.length,
+          storage: pulseSnapshotRepository.descriptor(),
+          snapshots,
+          accuracy: pulseSnapshotRepository.accuracySummary(),
+        });
+        return;
+      }
+
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+        try {
+          const snapshot = pulseSnapshotRepository.saveSnapshot(body);
+          sendJson(response, 201, {
+            ok: true,
+            storage: pulseSnapshotRepository.descriptor(),
+            snapshot,
+            accuracy: pulseSnapshotRepository.accuracySummary(),
+          });
+        } catch (error) {
+          if (error.code !== "EMPTY_PULSE_SNAPSHOT") throw error;
+          sendJson(response, 400, {
+            ok: false,
+            error: "Pulse snapshot must include at least one coin.",
+          });
+        }
+        return;
+      }
+
+      sendJson(response, 405, { ok: false, error: "Method not allowed" });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v1/machine-accuracy") {
+      sendJson(response, 200, {
+        ok: true,
+        storage: pulseSnapshotRepository.descriptor(),
+        accuracy: pulseSnapshotRepository.accuracySummary(),
+      });
+      return;
+    }
+
     if (url.pathname === "/api/v1/auth/request-code") {
       if (request.method !== "POST") {
         sendJson(response, 405, { ok: false, error: "Method not allowed" });
@@ -499,7 +550,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
     });
   } catch (error) {
     sendJson(response, 500, {

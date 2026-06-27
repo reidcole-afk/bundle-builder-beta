@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.79");
+  assert.equal(health.body.version, "0.1.80");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -20,6 +20,7 @@ global.fetch = async (url) => {
   assert.equal(health.body.coingeckoChartWorkflowCache, true);
   assert.equal(health.body.normalizedMarketChartEndpoint, true);
   assert.equal(health.body.catalystIntelligenceEndpoint, true);
+  assert.equal(health.body.machineAccuracyEndpoint, true);
   assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
@@ -122,6 +123,25 @@ global.fetch = async (url) => {
   assert.equal(submittedFeed.statusCode, 200);
   assert.equal(submittedFeed.body.ok, true);
   assert(submittedFeed.body.bundles.some((bundle) => bundle.bundleName === "Test Bundle"));
+
+  const pulseSnapshot = await postJson("/api/v1/pulse-snapshots", {
+    network: "Base",
+    selectedWindow: "24h",
+    selectedReadWindow: "7d",
+    coins: [
+      { ticker: "AERO", name: "Aerodrome Finance", rank: 1, priceUsd: 0.5, projected24hChange: 2, projected7dChange: 4, projected30dChange: 9 },
+      { ticker: "MORPHO", name: "Morpho", rank: 2, priceUsd: 2, projected24hChange: -1, projected7dChange: 1, projected30dChange: 3 },
+    ],
+  });
+  assert.equal(pulseSnapshot.statusCode, 201);
+  assert.equal(pulseSnapshot.body.ok, true);
+  assert.equal(pulseSnapshot.body.snapshot.coins.length, 2);
+  assert.equal(pulseSnapshot.body.accuracy.totalSnapshots >= 1, true);
+
+  const machineAccuracy = await getJson("/api/v1/machine-accuracy");
+  assert.equal(machineAccuracy.statusCode, 200);
+  assert.equal(machineAccuracy.body.ok, true);
+  assert.equal(machineAccuracy.body.accuracy.horizons.length, 3);
 
   const loginRequest = await postJson("/api/v1/auth/request-code", { email: "tester@example.com" });
   assert.equal(loginRequest.statusCode, 200);

@@ -954,6 +954,7 @@ const profileSyncNow = document.getElementById("profileSyncNow");
 const profileLogout = document.getElementById("profileLogout");
 const profileFavoriteList = document.getElementById("profileFavoriteList");
 const profileFavoriteBundleList = document.getElementById("profileFavoriteBundleList");
+const profileMachineAccuracy = document.getElementById("profileMachineAccuracy");
 const profileBundleList = document.getElementById("profileBundleList");
 const profileAlertList = document.getElementById("profileAlertList");
 const appHeader = document.querySelector(".app-header");
@@ -989,6 +990,7 @@ let pulseLoadingActive = false;
 let marketPulseReady = false;
 let selectedPulseWindow = "24h";
 let selectedPulseReadWindow = "7d";
+let machineAccuracySummary = null;
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -1002,6 +1004,7 @@ const recentBundlesStorageKey = "viciBundleBuilderRecentBundlesV1";
 const localProfileStorageKey = "viciBundleBuilderLocalProfileV1";
 const favoriteCoinsStorageKey = "viciBundleBuilderFavoriteCoinsV1";
 const profileSessionStorageKey = "viciBundleBuilderProfileSessionV1";
+const pulseSnapshotsStorageKey = "viciBundleBuilderPulseSnapshotsV1";
 const tourSeenStorageKey = "viciBundleBuilderTourSeenV1";
 const pulseReadWindows = [
   { key: "1d", label: "1d" },
@@ -3222,6 +3225,264 @@ const profileStore = {
   },
 };
 
+function readPulseSnapshots() {
+  return readLocalArray(pulseSnapshotsStorageKey);
+}
+
+function writePulseSnapshots(snapshots = []) {
+  writeLocalArray(pulseSnapshotsStorageKey, snapshots.slice(-600));
+}
+
+function saveLocalPulseSnapshot(snapshot = {}) {
+  const normalized = normalizePulseSnapshot(snapshot);
+  if (!normalized.coins.length) return null;
+  const snapshots = readPulseSnapshots();
+  const last = snapshots[snapshots.length - 1];
+  if (last?.fingerprint === normalized.fingerprint) {
+    snapshots[snapshots.length - 1] = normalized;
+  } else {
+    snapshots.push(normalized);
+  }
+  writePulseSnapshots(snapshots);
+  machineAccuracySummary = computeMachineAccuracySummary(snapshots);
+  return normalized;
+}
+
+function normalizePulseSnapshot(snapshot = {}) {
+  const createdAt = new Date(snapshot.createdAt || Date.now()).toISOString();
+  const coins = Array.isArray(snapshot.coins)
+    ? snapshot.coins.slice(0, 20).map(normalizePulseSnapshotCoin).filter((coin) => coin.ticker)
+    : [];
+  const network = normalizeNetwork(snapshot.network || safePreferences().network);
+  const selectedWindow = String(snapshot.selectedWindow || selectedPulseWindow || "24h");
+  const minuteBucket = createdAt.slice(0, 16);
+  return {
+    id: snapshot.id || `pulse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt,
+    source: snapshot.source || "live-market-pulse",
+    network,
+    selectedWindow,
+    selectedReadWindow: String(snapshot.selectedReadWindow || selectedPulseReadWindow || "7d"),
+    fingerprint: [minuteBucket, network, selectedWindow, coins.slice(0, 10).map((coin) => coin.ticker).join("|")].join(":"),
+    coins,
+  };
+}
+
+function normalizePulseSnapshotCoin(coin = {}) {
+  return {
+    ticker: normalizeTicker(coin.ticker),
+    name: String(coin.name || "").trim().slice(0, 80),
+    network: normalizeNetwork(coin.network || safePreferences().network),
+    rank: finiteOrNull(coin.rank),
+    priceUsd: finiteOrNull(coin.priceUsd),
+    change24h: finiteOrNull(coin.change24h),
+    change7d: finiteOrNull(coin.change7d),
+    change30d: finiteOrNull(coin.change30d),
+    volume24h: finiteOrNull(coin.volume24h),
+    liquidityUsd: finiteOrNull(coin.liquidityUsd),
+    bullishScore: finiteOrNull(coin.bullishScore),
+    projected24hChange: finiteOrNull(coin.projected24hChange),
+    projected7dChange: finiteOrNull(coin.projected7dChange),
+    projected30dChange: finiteOrNull(coin.projected30dChange),
+    action: String(coin.action || "").slice(0, 40),
+    setupLabel: String(coin.setupLabel || "").slice(0, 80),
+    edgeLabel: String(coin.edgeLabel || "").slice(0, 80),
+    source: String(coin.source || "").slice(0, 60),
+  };
+}
+
+function buildPulseSnapshotPayload(favorites = currentFavorites) {
+  const network = safePreferences().network;
+  return normalizePulseSnapshot({
+    createdAt: new Date().toISOString(),
+    source: "live-market-pulse",
+    network,
+    selectedWindow: selectedPulseWindow,
+    selectedReadWindow: selectedPulseReadWindow,
+    coins: (Array.isArray(favorites) ? favorites : []).slice(0, 10).map((favorite, index) => pulseSnapshotCoin(favorite, index)),
+  });
+}
+
+function pulseSnapshotCoin(favorite = {}, index = 0) {
+  const read = forwardScenarioCoinRead(favorite, selectedPulseReadWindow || "7d");
+  const scenario24h = projectedPulseScenario(favorite, "next24h");
+  const scenario7d = projectedPulseScenario(favorite, "next7d");
+  const scenario30d = projectedPulseScenario(favorite, "next1mo");
+  return {
+    ticker: favorite.ticker,
+    name: favorite.name,
+    network: favorite.network || safePreferences().network,
+    rank: finiteOrNull(favorite.rank) || index + 1,
+    priceUsd: currentPulsePrice(favorite),
+    change24h: finiteOrNull(favorite.change24h),
+    change7d: finiteOrNull(favorite.change7d),
+    change30d: finiteOrNull(favorite.change30d),
+    volume24h: finiteOrNull(favorite.volume24h ?? favorite.total_volume),
+    liquidityUsd: finiteOrNull(favorite.liquidityUsd),
+    bullishScore: finiteOrNull(read.score),
+    projected24hChange: finiteOrNull(scenario24h.projectedChange),
+    projected7dChange: finiteOrNull(scenario7d.projectedChange),
+    projected30dChange: finiteOrNull(scenario30d.projectedChange),
+    action: read.action || read.label || "",
+    setupLabel: favorite.marketSetup?.label || favorite.setupLabel || "",
+    edgeLabel: favorite.marketEdge?.label || favorite.edgeLabel || "",
+    source: favorite.source || "",
+  };
+}
+
+function currentPulsePrice(favorite = {}) {
+  const direct = finiteOrNull(favorite.priceUsd ?? favorite.currentPrice ?? favorite.price);
+  if (direct) return direct;
+  const prices = normalizePriceSeries(favorite.windowPrices?.["24h"] || favorite.prices);
+  return finiteOrNull(prices[prices.length - 1]);
+}
+
+async function logPulseSnapshot(favorites = currentFavorites) {
+  const payload = buildPulseSnapshotPayload(favorites);
+  if (!payload.coins.length) return;
+  if (window.location.protocol === "file:") {
+    saveLocalPulseSnapshot(payload);
+    renderMachineAccuracy();
+    return;
+  }
+  try {
+    const response = await fetch("/api/v1/pulse-snapshots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", accept: "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.accuracy) {
+      machineAccuracySummary = data.accuracy;
+      renderMachineAccuracy();
+    }
+  } catch {
+    saveLocalPulseSnapshot(payload);
+    renderMachineAccuracy();
+  }
+}
+
+async function loadMachineAccuracySummary() {
+  if (window.location.protocol === "file:") {
+    machineAccuracySummary = computeMachineAccuracySummary(readPulseSnapshots());
+    renderMachineAccuracy();
+    return;
+  }
+  try {
+    const response = await fetch("/api/v1/machine-accuracy", { headers: { accept: "application/json" } });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.accuracy) machineAccuracySummary = data.accuracy;
+  } catch {
+    machineAccuracySummary = computeMachineAccuracySummary(readPulseSnapshots());
+  }
+  renderMachineAccuracy();
+}
+
+function computeMachineAccuracySummary(snapshots = []) {
+  const normalized = (Array.isArray(snapshots) ? snapshots : []).map(normalizePulseSnapshot).filter((snapshot) => snapshot.coins.length);
+  const latest = normalized[normalized.length - 1];
+  return {
+    totalSnapshots: normalized.length,
+    totalCoins: normalized.reduce((sum, snapshot) => sum + snapshot.coins.length, 0),
+    latestSnapshotAt: latest?.createdAt || "",
+    latestRunCoins: latest?.coins.slice(0, 5) || [],
+    topCoinsBySnapshots: summarizePulseSnapshotCoins(normalized),
+    horizons: [
+      pulseOutcomeForHorizon(normalized, "24h", 24 * 60 * 60 * 1000, "projected24hChange"),
+      pulseOutcomeForHorizon(normalized, "7d", 7 * 24 * 60 * 60 * 1000, "projected7dChange"),
+      pulseOutcomeForHorizon(normalized, "30d", 30 * 24 * 60 * 60 * 1000, "projected30dChange"),
+    ],
+  };
+}
+
+function pulseOutcomeForHorizon(snapshots, label, horizonMs, projectedKey) {
+  let checked = 0;
+  let correct = 0;
+  let pending = 0;
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime)) return;
+    snapshot.coins.forEach((coin) => {
+      const startPrice = finiteOrNull(coin.priceUsd);
+      const projectedChange = finiteOrNull(coin[projectedKey]);
+      if (!startPrice || projectedChange === null) return;
+      const future = findFuturePulseCoin(snapshots, coin, startTime + horizonMs);
+      if (!future) {
+        pending += 1;
+        return;
+      }
+      const endPrice = finiteOrNull(future.priceUsd);
+      if (!endPrice) return;
+      const actualChange = ((endPrice - startPrice) / startPrice) * 100;
+      checked += 1;
+      if (pulseDirectionMatches(projectedChange, actualChange)) correct += 1;
+    });
+  });
+  return {
+    label,
+    checked,
+    pending,
+    directionAccuracy: checked ? Math.round((correct / checked) * 100) : null,
+    status: checked ? "Tracking" : "Collecting",
+  };
+}
+
+function findFuturePulseCoin(snapshots, coin, targetTime) {
+  for (const snapshot of snapshots) {
+    const snapshotTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(snapshotTime) || snapshotTime < targetTime) continue;
+    const match = snapshot.coins.find((futureCoin) => futureCoin.ticker === coin.ticker
+      && (!coin.network || !futureCoin.network || futureCoin.network === coin.network));
+    if (match) return match;
+  }
+  return null;
+}
+
+function pulseDirectionMatches(projectedChange, actualChange) {
+  if (Math.abs(projectedChange) < 1 && Math.abs(actualChange) < 1.5) return true;
+  if (projectedChange >= 0 && actualChange >= 0) return true;
+  return projectedChange < 0 && actualChange < 0;
+}
+
+function summarizePulseSnapshotCoins(snapshots = []) {
+  const counts = new Map();
+  snapshots.forEach((snapshot) => {
+    snapshot.coins.slice(0, 10).forEach((coin) => {
+      if (!coin.ticker) return;
+      const existing = counts.get(coin.ticker) || { ticker: coin.ticker, count: 0, rankTotal: 0 };
+      existing.count += 1;
+      existing.rankTotal += finiteOrNull(coin.rank) || 10;
+      counts.set(coin.ticker, existing);
+    });
+  });
+  return [...counts.values()]
+    .map((item) => ({ ...item, averageRank: Math.round((item.rankTotal / item.count) * 10) / 10 }))
+    .sort((a, b) => b.count - a.count || a.averageRank - b.averageRank)
+    .slice(0, 5);
+}
+
+function renderMachineAccuracy() {
+  if (!profileMachineAccuracy) return;
+  const summary = machineAccuracySummary || computeMachineAccuracySummary(readPulseSnapshots());
+  const horizons = Array.isArray(summary.horizons) ? summary.horizons : [];
+  const latestCoins = Array.isArray(summary.latestRunCoins) ? summary.latestRunCoins : [];
+  const topCoins = Array.isArray(summary.topCoinsBySnapshots) ? summary.topCoinsBySnapshots : [];
+  profileMachineAccuracy.innerHTML = `
+    <div class="machine-accuracy-grid">
+      <div><strong>${summary.totalSnapshots || 0}</strong><span>Pulse runs saved</span></div>
+      ${horizons.map((item) => `
+        <div>
+          <strong>${item.directionAccuracy === null || item.directionAccuracy === undefined ? "Collecting" : `${item.directionAccuracy}%`}</strong>
+          <span>${escapeHtml(item.label)} direction · ${Number(item.checked || 0)} checked</span>
+        </div>
+      `).join("")}
+    </div>
+    <p>${summary.totalSnapshots ? "The machine is saving each Live Market Pulse run and will compare later prices against its 24h, 7d, and 30d projections as new snapshots arrive." : "Open or refresh Live Market Pulse to start collecting prediction history."}</p>
+    ${latestCoins.length ? `<small>Latest saved: ${escapeHtml(latestCoins.map((coin) => coin.ticker).join(", "))}${summary.latestSnapshotAt ? ` · ${escapeHtml(formatDateTime(summary.latestSnapshotAt))}` : ""}</small>` : ""}
+    ${topCoins.length ? `<small>Most tracked: ${escapeHtml(topCoins.map((coin) => `${coin.ticker} (${coin.count})`).join(", "))}</small>` : ""}
+  `;
+}
+
 function readRecentBundles() {
   return profileStore.readArray(recentBundlesStorageKey);
 }
@@ -4347,6 +4608,7 @@ function renderProfile() {
   updatePersonalGreeting(displayName);
   if (profileDisplayName) profileDisplayName.value = displayName;
   if (profileDialogTitle) profileDialogTitle.textContent = displayName ? `${displayName}'s profile` : "Profile";
+  renderMachineAccuracy();
   const recent = readRecentBundles()
     .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
       || new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -4589,6 +4851,7 @@ function maybeQueueUrgentMarketReviews(favorites = currentFavorites) {
 
 function openProfile() {
   renderProfile();
+  loadMachineAccuracySummary();
   if (typeof profileDialog?.showModal === "function") {
     if (!profileDialog.open) profileDialog.showModal();
   } else {
@@ -5196,6 +5459,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
         currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite?.ticker));
         lastMarketPulseError = "";
         maybeQueueUrgentMarketReviews(currentFavorites);
+        logPulseSnapshot(currentFavorites);
         return;
       }
       currentFavorites = nextFavorites;
@@ -5207,6 +5471,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
       currentFavoriteIndex = Math.max(0, currentFavorites.findIndex((candidate) => candidate.ticker === currentFavorite.ticker));
       marketPulseReady = true;
       maybeQueueUrgentMarketReviews(currentFavorites);
+      logPulseSnapshot(currentFavorites);
     } catch (error) {
       if (refreshId !== marketPulseRefreshSeq) return;
       lastMarketPulseError = error?.message || String(error);
