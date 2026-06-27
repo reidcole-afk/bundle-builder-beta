@@ -29,6 +29,9 @@ const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_CO
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 1500);
 const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED !== "false";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
+const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 5);
+const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 30);
+const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
 const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
@@ -67,6 +70,7 @@ const coingeckoChartPreloadState = {
 };
 let coingeckoChartPreloadTimer = null;
 const pendingCoinGeckoChartRefreshes = new Map();
+const marketChartCache = new Map();
 const catalystCache = new Map();
 const catalystProfiles = {
   AERO: {
@@ -163,6 +167,7 @@ async function handleRequest(request, response) {
         tokensEndpointFailsClosed: true,
         friendlyPortErrors: true,
         coingeckoChartWorkflowCache: true,
+        normalizedMarketChartEndpoint: true,
         coingeckoApiKeyConfigured: Boolean(process.env.COINGECKO_API_KEY || process.env.CG_API_KEY),
         catalystIntelligenceEndpoint: true,
         profileAuthEndpoint: true,
@@ -191,6 +196,28 @@ async function handleRequest(request, response) {
         staleMs: COINGECKO_CHART_STALE_MS,
         preload: coingeckoChartPreloadState,
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v1/market-chart") {
+      try {
+        const chart = await getNormalizedMarketChart({
+          id: url.searchParams.get("id"),
+          chainId: url.searchParams.get("chainId") || url.searchParams.get("chainid"),
+          pairAddress: url.searchParams.get("pairAddress") || url.searchParams.get("pair"),
+          window: url.searchParams.get("window") || url.searchParams.get("range"),
+          force: isTruthy(url.searchParams.get("force")),
+        });
+        sendJson(response, 200, {
+          ok: true,
+          ...chart,
+        });
+      } catch (error) {
+        sendJson(response, error.statusCode || 502, {
+          ok: false,
+          error: error.message || "Market chart unavailable",
+        });
+      }
       return;
     }
 
@@ -471,7 +498,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -874,6 +901,172 @@ async function fetchJsonWithTimeout(targetUrl, timeoutMs) {
   }
 }
 
+async function getNormalizedMarketChart(options = {}) {
+  const window = normalizeMarketChartWindow(options.window);
+  const id = safeText(options.id, 120).toLowerCase();
+  const chainId = normalizeMarketChartChainId(options.chainId);
+  const pairAddress = normalizeContractAddress(options.pairAddress);
+  if (!isAllowedCoinGeckoId(id) && (!chainId || !pairAddress)) {
+    const error = new Error("Missing supported chart source. Provide id, or chainId plus pairAddress.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const cacheKey = marketChartCacheKey({ id, chainId, pairAddress, window });
+  const cached = marketChartCache.get(cacheKey);
+  const now = Date.now();
+  if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_CACHE_MS) {
+    return { ...cached.value, cacheStatus: "fresh-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString() };
+  }
+  if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_STALE_MS) {
+    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, cacheKey });
+    return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: "Serving cached chart while a background refresh runs" };
+  }
+
+  try {
+    const value = await fetchNormalizedMarketChart({ id, chainId, pairAddress, window });
+    marketChartCache.set(cacheKey, { value, cachedAt: now });
+    return { ...value, cacheStatus: "refreshed", cached: false, cachedAt: new Date(now).toISOString() };
+  } catch (error) {
+    if (cached && now - cached.cachedAt < MARKET_CHART_STALE_MS) {
+      return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: error.message || "Refresh failed; using last good chart" };
+    }
+    throw error;
+  }
+}
+
+function refreshNormalizedMarketChartInBackground(options) {
+  const refreshKey = `market-chart:${options.cacheKey}`;
+  if (pendingCoinGeckoChartRefreshes.has(refreshKey)) return;
+  const refresh = fetchNormalizedMarketChart(options)
+    .then((value) => marketChartCache.set(options.cacheKey, { value, cachedAt: Date.now() }))
+    .finally(() => pendingCoinGeckoChartRefreshes.delete(refreshKey));
+  pendingCoinGeckoChartRefreshes.set(refreshKey, refresh);
+  refresh.catch(() => {});
+}
+
+async function fetchNormalizedMarketChart({ id, chainId, pairAddress, window }) {
+  const errors = [];
+  if (isAllowedCoinGeckoId(id)) {
+    try {
+      const days = marketChartWindowToCoinGeckoDays(window);
+      const chart = await getCoinGeckoChartWorkflow(id, { days });
+      const prices = normalizePriceList(chart.prices);
+      if (prices.length >= 2) {
+        return {
+          id,
+          chainId: chainId || null,
+          pairAddress: pairAddress || null,
+          window,
+          prices,
+          totalVolumes: normalizePriceList(chart.totalVolumes),
+          marketCaps: normalizePriceList(chart.marketCaps),
+          source: "CoinGecko",
+          sourceDetail: `CoinGecko ${marketChartWindowLabel(window)} chart`,
+          updatedAt: chart.updatedAt || new Date().toISOString(),
+          confidence: chart.cacheStatus === "stale-cache" ? "medium" : "high",
+        };
+      }
+    } catch (error) {
+      errors.push(`CoinGecko: ${error.message || "failed"}`);
+    }
+  }
+
+  if (chainId && pairAddress) {
+    try {
+      const chart = await fetchGeckoTerminalMarketChart({ chainId, pairAddress, window });
+      return chart;
+    } catch (error) {
+      errors.push(`GeckoTerminal: ${error.message || "failed"}`);
+    }
+  }
+
+  throw new Error(`Market chart unavailable${errors.length ? `: ${errors.join(" | ")}` : ""}`);
+}
+
+async function fetchGeckoTerminalMarketChart({ chainId, pairAddress, window }) {
+  const config = geckoTerminalChartConfig(window);
+  const targetUrl = `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(chainId)}/pools/${encodeURIComponent(pairAddress)}/ohlcv/${encodeURIComponent(config.timeframe)}?aggregate=${encodeURIComponent(config.aggregate)}&limit=${encodeURIComponent(config.limit)}&currency=usd`;
+  const payload = await fetchJsonWithTimeout(targetUrl, MARKET_CHART_TIMEOUT_MS);
+  const rows = Array.isArray(payload?.data?.attributes?.ohlcv_list) ? payload.data.attributes.ohlcv_list : [];
+  const sortedRows = rows.slice().sort((a, b) => Number(a?.[0]) - Number(b?.[0]));
+  const prices = normalizePriceList(sortedRows.map((row) => row?.[4]));
+  if (prices.length < 2) throw new Error("GeckoTerminal chart data empty");
+  return {
+    id: null,
+    chainId,
+    pairAddress,
+    window,
+    prices,
+    totalVolumes: normalizePriceList(sortedRows.map((row) => row?.[5])),
+    marketCaps: [],
+    source: "GeckoTerminal",
+    sourceDetail: `GeckoTerminal ${marketChartWindowLabel(window)} pool chart`,
+    updatedAt: sortedRows.at(-1)?.[0] ? new Date(Number(sortedRows.at(-1)[0]) * 1000).toISOString() : new Date().toISOString(),
+    confidence: "medium",
+  };
+}
+
+function geckoTerminalChartConfig(window) {
+  return ({
+    "5m": { timeframe: "minute", aggregate: 1, limit: 5 },
+    "15m": { timeframe: "minute", aggregate: 1, limit: 15 },
+    "30m": { timeframe: "minute", aggregate: 1, limit: 30 },
+    "1h": { timeframe: "minute", aggregate: 1, limit: 60 },
+    "3h": { timeframe: "minute", aggregate: 1, limit: 180 },
+    "6h": { timeframe: "minute", aggregate: 2, limit: 180 },
+    "12h": { timeframe: "minute", aggregate: 5, limit: 144 },
+    "24h": { timeframe: "minute", aggregate: 5, limit: 288 },
+    "3d": { timeframe: "hour", aggregate: 1, limit: 72 },
+    "7d": { timeframe: "hour", aggregate: 1, limit: 168 },
+    "1mo": { timeframe: "hour", aggregate: 4, limit: 180 },
+  })[window] || { timeframe: "minute", aggregate: 5, limit: 288 };
+}
+
+function normalizeMarketChartWindow(value) {
+  const normalized = String(value || "24h").trim().toLowerCase();
+  if (["5m", "15m", "30m", "1h", "3h", "6h", "12h", "24h", "3d", "7d"].includes(normalized)) return normalized;
+  if (["1m", "1mo", "30d", "month"].includes(normalized)) return "1mo";
+  if (normalized === "1d") return "24h";
+  return "24h";
+}
+
+function marketChartWindowToCoinGeckoDays(window) {
+  if (window === "3d") return "3";
+  if (window === "7d") return "7";
+  if (window === "1mo") return "30";
+  return "1";
+}
+
+function marketChartWindowLabel(window) {
+  if (window === "1mo") return "1M";
+  return window;
+}
+
+function normalizeMarketChartChainId(value) {
+  const text = String(value || "").trim().toLowerCase();
+  const aliases = {
+    "8453": "base",
+    base: "base",
+    "42161": "arbitrum",
+    arbitrum: "arbitrum",
+    "137": "polygon",
+    polygon: "polygon",
+    "10": "optimism",
+    optimism: "optimism",
+  };
+  return aliases[text] || "";
+}
+
+function normalizeContractAddress(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return /^0x[a-f0-9]{40}$/.test(text) ? text : "";
+}
+
+function marketChartCacheKey({ id, chainId, pairAddress, window }) {
+  return `${safeText(id, 120).toLowerCase() || "no-id"}:${chainId || "no-chain"}:${pairAddress || "no-pair"}:${normalizeMarketChartWindow(window)}`;
+}
+
 async function fetchMarketProxyJson(targetUrl) {
   if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required");
   const controller = new AbortController();
@@ -1084,6 +1277,7 @@ function writeCoinGeckoChartStore(store) {
 }
 
 function sanitizeStoredCoinGeckoChart(input = {}) {
+  if (!input || typeof input !== "object") return null;
   const id = String(input.id || "").trim().toLowerCase();
   const days = normalizeCoinGeckoChartDays(input.days);
   const prices = normalizePriceList(input.prices);

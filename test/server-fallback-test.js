@@ -12,12 +12,13 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.68");
+  assert.equal(health.body.version, "0.1.73");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
   assert.equal(health.body.coingeckoChartWorkflowCache, true);
+  assert.equal(health.body.normalizedMarketChartEndpoint, true);
   assert.equal(health.body.catalystIntelligenceEndpoint, true);
   assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
   assert.equal(health.body.homepage.enabled, true);
@@ -83,6 +84,20 @@ global.fetch = async (url) => {
   assert.equal(workflowChart.statusCode, 200);
   assert.equal(workflowChart.body.ok, true);
   assert.deepEqual(workflowChart.body.prices, [1, 1.1]);
+
+  const normalizedCoinGeckoChart = await getJson("/api/v1/market-chart?id=aerodrome-finance&window=7d&force=true");
+  assert.equal(normalizedCoinGeckoChart.statusCode, 200);
+  assert.equal(normalizedCoinGeckoChart.body.ok, true);
+  assert.equal(normalizedCoinGeckoChart.body.window, "7d");
+  assert.equal(normalizedCoinGeckoChart.body.source, "CoinGecko");
+  assert.deepEqual(normalizedCoinGeckoChart.body.prices, [1, 1.1]);
+
+  const normalizedGeckoTerminalChart = await getJson("/api/v1/market-chart?chainId=base&pairAddress=0x0000000000000000000000000000000000000001&window=24h&force=true");
+  assert.equal(normalizedGeckoTerminalChart.statusCode, 200);
+  assert.equal(normalizedGeckoTerminalChart.body.ok, true);
+  assert.equal(normalizedGeckoTerminalChart.body.window, "24h");
+  assert.equal(normalizedGeckoTerminalChart.body.source, "GeckoTerminal");
+  assert.deepEqual(normalizedGeckoTerminalChart.body.prices, [1, 1.1]);
 
   const submittedBundle = await postJson("/api/v1/submitted-bundles", {
     bundleName: "Test Bundle",

@@ -399,6 +399,7 @@ svg {
 :root[data-theme="dark"] .pulse-source-actions span,
 :root[data-theme="dark"] .pulse-stats span,
 :root[data-theme="dark"] .pulse-change-control,
+:root[data-theme="dark"] .pulse-window-select,
 :root[data-theme="dark"] .pulse-ai-trigger {
   background: #223149;
   color: var(--ink);
@@ -406,9 +407,7 @@ svg {
 }
 
 :root[data-theme="dark"] .pulse-refresh,
-:root[data-theme="dark"] .pulse-nav,
-:root[data-theme="dark"] .pulse-window-step:hover,
-:root[data-theme="dark"] .pulse-window-step:focus-visible {
+:root[data-theme="dark"] .pulse-nav {
   background: #172438;
   color: var(--teal);
   border-color: var(--line);
@@ -1475,9 +1474,9 @@ body.pulse-ai-modal-open {
 .pulse-change-control {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   min-height: 30px;
-  padding: 4px 7px;
+  padding: 4px 6px;
   border-radius: 999px;
   background: var(--surface-soft);
   color: var(--ink-soft);
@@ -1485,37 +1484,28 @@ body.pulse-ai-modal-open {
   font-weight: 850;
 }
 
-.pulse-window-step {
-  display: inline-grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  color: var(--ink-soft);
-  background: transparent;
-  cursor: pointer;
+.pulse-window-select {
+  min-width: 94px;
+  min-height: 30px;
+  padding: 3px 26px 3px 10px;
+  border: 1px solid var(--line);
   border-radius: 999px;
-}
-
-.pulse-window-step:hover,
-.pulse-window-step:focus-visible {
-  color: var(--teal);
-  background: rgba(13, 107, 115, 0.08);
-  outline: none;
-}
-
-.pulse-window-step svg {
-  width: 15px;
-  height: 15px;
-}
-
-.pulse-window-label {
-  min-width: 32px;
-  text-align: center;
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, currentColor 50%) calc(100% - 14px) 50% / 5px 5px no-repeat,
+    linear-gradient(135deg, currentColor 50%, transparent 50%) calc(100% - 10px) 50% / 5px 5px no-repeat,
+    #fff;
   color: var(--ink-soft);
+  cursor: pointer;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+.pulse-window-select:hover,
+.pulse-window-select:focus-visible {
+  border-color: rgba(13, 107, 115, 0.42);
+  color: var(--teal);
+  outline: none;
 }
 
 .pulse-change-control span {

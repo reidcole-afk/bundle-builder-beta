@@ -920,8 +920,6 @@ const builderTitle = document.getElementById("builder-title");
 const favoriteCoinName = document.getElementById("favoriteCoinName");
 const favoriteCoinTicker = document.getElementById("favoriteCoinTicker");
 const favoriteCoinWindow = document.getElementById("favoriteCoinWindow");
-const pulseWindowPrev = document.getElementById("pulseWindowPrev");
-const pulseWindowNext = document.getElementById("pulseWindowNext");
 const favoriteCoinChange = document.getElementById("favoriteCoinChange");
 const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
 const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
@@ -1062,13 +1060,13 @@ const pulseWindowOptions = [
   { key: "5m", label: "5m", minutes: 5 },
 ];
 const pulseWindowChartConfig = {
-  "24h": { timeframe: "minute", aggregate: 15, limit: 96 },
+  "24h": { timeframe: "minute", aggregate: 5, limit: 288 },
   "3d": { timeframe: "hour", aggregate: 1, limit: 72 },
-  "7d": { timeframe: "hour", aggregate: 2, limit: 84 },
-  "1mo": { timeframe: "day", aggregate: 1, limit: 30 },
-  "12h": { timeframe: "minute", aggregate: 15, limit: 48 },
-  "6h": { timeframe: "minute", aggregate: 5, limit: 72 },
-  "3h": { timeframe: "minute", aggregate: 5, limit: 36 },
+  "7d": { timeframe: "hour", aggregate: 1, limit: 168 },
+  "1mo": { timeframe: "hour", aggregate: 4, limit: 180 },
+  "12h": { timeframe: "minute", aggregate: 5, limit: 144 },
+  "6h": { timeframe: "minute", aggregate: 2, limit: 180 },
+  "3h": { timeframe: "minute", aggregate: 1, limit: 180 },
   "1h": { timeframe: "minute", aggregate: 1, limit: 60 },
   "30m": { timeframe: "minute", aggregate: 1, limit: 30 },
   "15m": { timeframe: "minute", aggregate: 1, limit: 15 },
@@ -3548,6 +3546,89 @@ function directionalCoinRead(favorite = {}, window = "7d") {
   };
 }
 
+function projectedReadKeyForWindow(window = "7d") {
+  if (window === "1d") return "next24h";
+  if (window === "7d") return "next7d";
+  if (window === "1mo") return "next1mo";
+  return null;
+}
+
+function scenarioScoreFromChange(projectedChange, key = "next7d") {
+  const change = finiteOrNull(projectedChange);
+  if (change === null) return 50;
+  const divisor = key === "next1mo" ? 44 : key === "next7d" ? 24 : 9;
+  return clamp(50 + (change / divisor) * 42, 0, 100);
+}
+
+function chartPathScoreFromPrices(prices = []) {
+  const stats = chartTrajectoryStats(prices);
+  if (!stats) return 50;
+  const trend = clamp(stats.recentReturn, -14, 14) * 1.35;
+  const consistency = (stats.consistency - 0.5) * 28;
+  const rebound = clamp(stats.reboundFromLow, 0, 16) * 0.5;
+  const pullback = clamp(stats.pullbackFromHigh * 100, 0, 24) * 0.8;
+  return clamp(50 + trend + consistency + rebound - pullback, 0, 100);
+}
+
+function reliabilityScoreFromMarket(favorite = {}) {
+  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
+  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
+  const volumeScore = volume >= 3_000_000 ? 88 : volume >= 1_000_000 ? 72 : volume >= 300_000 ? 54 : volume > 0 ? 34 : 42;
+  const liquidityScore = liquidity >= 5_000_000 ? 90 : liquidity >= 1_000_000 ? 74 : liquidity >= 300_000 ? 55 : liquidity > 0 ? 32 : 42;
+  return Math.round(volumeScore * 0.55 + liquidityScore * 0.45);
+}
+
+function setupScoreFromFavorite(favorite = {}) {
+  const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
+  const rating = setupReadRating(setup);
+  const numeric = finiteOrNull(rating?.score);
+  let score = numeric === null ? 50 : numeric * 10;
+  if (setup?.extended && setup?.fading) score -= 14;
+  if (setup?.boughtPullback || setup?.baseForming) score += 8;
+  if (setup?.constructive && setup?.hasVolume) score += 6;
+  if (setup?.hasDepth === false) score -= 8;
+  return clamp(score, 0, 100);
+}
+
+function forwardScenarioCoinRead(favorite = {}, window = "7d") {
+  const baseRead = directionalCoinRead(favorite, window);
+  const scenarioKey = projectedReadKeyForWindow(window);
+  if (!scenarioKey) return baseRead;
+  const sourceKey = sourceWindowForProjection(scenarioKey);
+  const sourcePrices = pulsePricesForWindow(favorite, sourceKey);
+  if (sourceKey !== "24h" && sourcePrices.length < 2) return baseRead;
+
+  const scenario = projectedPulseScenario(favorite, scenarioKey);
+  if (normalizePriceSeries(scenario.projectedPrices).length < 2) return baseRead;
+  const scenarioScore = scenarioScoreFromChange(scenario.projectedChange, scenarioKey);
+  const chartScore = chartPathScoreFromPrices(sourcePrices.length >= 2 ? sourcePrices : favorite.prices);
+  const reliabilityScore = reliabilityScoreFromMarket(favorite);
+  const setupScore = setupScoreFromFavorite(favorite);
+  const blended = Math.round(clamp(
+    baseRead.score * 0.35
+      + scenarioScore * 0.25
+      + chartScore * 0.2
+      + reliabilityScore * 0.1
+      + setupScore * 0.1,
+    0,
+    100,
+  ));
+  const bearish = 100 - blended;
+  const label = sevenDayScoreLabel(blended);
+  const tone = sevenDayScoreTone(blended);
+  const windowLabel = directionalWindowLabel(window);
+  const action = sevenDayScoreAction(blended, "position");
+  return {
+    ...baseRead,
+    score: blended,
+    bearish,
+    label,
+    tone,
+    chip: `${windowLabel} read`,
+    text: `${label} ${windowLabel} blended score: ${blended}% bullish / ${bearish}% bearish. Blend: machine read ${baseRead.score}, scenario ${Math.round(scenarioScore)}, chart path ${Math.round(chartScore)}, liquidity/volume ${Math.round(reliabilityScore)}, setup ${Math.round(setupScore)}. Machine action: ${action}.`,
+  };
+}
+
 function sevenDayBundleRead(weighted = {}) {
   if (!weighted.signalWeight) {
     return {
@@ -4749,8 +4830,9 @@ pulseRefresh?.addEventListener("click", () => {
   });
 });
 
-pulseWindowPrev?.addEventListener("click", () => stepPulseWindow(-1));
-pulseWindowNext?.addEventListener("click", () => stepPulseWindow(1));
+favoriteCoinWindow?.addEventListener("change", (event) => {
+  setPulseWindow(event.target.value);
+});
 
 pulsePrev?.addEventListener("click", () => movePulseCandidate(-1));
 pulseNext?.addEventListener("click", () => movePulseCandidate(1));
@@ -6053,8 +6135,8 @@ async function fetchCoinGeckoChartRow(meta) {
 }
 
 async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false, days = 1 } = {}) {
-  const forceParam = force ? "&force=true" : "";
-  const payload = await fetchJsonUrl(`/api/v1/coingecko-chart?id=${encodeURIComponent(coinGeckoId)}&days=${encodeURIComponent(days)}${forceParam}`);
+  const windowKey = coinGeckoDaysToWindow(days);
+  const payload = await fetchBackendMarketChart({ id: coinGeckoId, windowKey, force });
   const prices = normalizePriceSeries(payload.prices);
   if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
   return {
@@ -6062,9 +6144,31 @@ async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false, days = 1
     totalVolumes: normalizePriceSeries(payload.totalVolumes),
     marketCaps: normalizePriceSeries(payload.marketCaps),
     updatedAt: payload.updatedAt || new Date().toISOString(),
-    stale: Boolean(payload.stale),
+    stale: Boolean(payload.stale || payload.cacheStatus === "stale-cache"),
     cacheStatus: payload.cacheStatus || "",
   };
+}
+
+async function fetchBackendMarketChart({ id = "", chainId = "", pairAddress = "", windowKey = "24h", force = false } = {}) {
+  const params = new URLSearchParams({
+    window: sourceWindowForProjection(windowKey),
+  });
+  if (id) params.set("id", id);
+  if (chainId) params.set("chainId", chainId);
+  if (pairAddress) params.set("pairAddress", pairAddress);
+  if (force) params.set("force", "true");
+  const payload = await fetchJsonUrl(`/api/v1/market-chart?${params.toString()}`);
+  const prices = normalizePriceSeries(payload.prices);
+  if (prices.length < 2) throw new Error("Backend market chart empty");
+  return payload;
+}
+
+function coinGeckoDaysToWindow(days = 1) {
+  const normalized = String(days || "1");
+  if (normalized === "3") return "3d";
+  if (normalized === "7") return "7d";
+  if (normalized === "30") return "1mo";
+  return "24h";
 }
 
 async function fetchCoinGeckoChartWithBestSource(coinGeckoId, { force = false, days = 1 } = {}) {
@@ -7920,11 +8024,24 @@ async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
   const chainId = normalizeDexChainId(candidate.chainId || dexScreenerChainIds[normalizeNetwork(candidate.network)]);
   const pairAddress = normalizeContractAddress(candidate.pairAddress);
   if (!chainId || !pairAddress) throw new Error("Missing GeckoTerminal pool address");
+  if (window.location.protocol !== "file:") {
+    const payload = await fetchBackendMarketChart({
+      id: candidate.id || "",
+      chainId,
+      pairAddress,
+      windowKey,
+    });
+    return {
+      prices: normalizePriceSeries(payload.prices),
+      updatedAt: payload.updatedAt || candidate.updatedAt,
+      source: payload.sourceDetail || `${payload.source || "Backend"} ${pulseWindowLabel(windowKey)} chart`,
+    };
+  }
   const config = pulseWindowChartConfig[windowKey] || pulseWindowChartConfig["24h"];
   const cacheKey = `geckoterminal:${chainId}:${pairAddress}:${windowKey}`;
   const cached = pulseChartCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < MARKET_CHART_CACHE_MS) {
-    return { prices: cached.prices, updatedAt: cached.updatedAt || candidate.updatedAt };
+    return { prices: cached.prices, updatedAt: cached.updatedAt || candidate.updatedAt, source: `Cached GeckoTerminal ${pulseWindowLabel(windowKey)} chart` };
   }
 
   const timeframe = config.timeframe || "minute";
@@ -7942,7 +8059,7 @@ async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
   if (prices.length < 2) throw new Error("GeckoTerminal chart data empty");
   const updatedAt = sortedRows.at(-1)?.[0] ? new Date(Number(sortedRows.at(-1)[0]) * 1000).toISOString() : new Date().toISOString();
   setPulseChartCache(cacheKey, { prices, cachedAt: Date.now(), updatedAt });
-  return { prices, updatedAt };
+  return { prices, updatedAt, source: `GeckoTerminal ${pulseWindowLabel(windowKey)} chart` };
 }
 
 async function getPulseChartData(coinGeckoId) {
@@ -8191,7 +8308,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       : `${favorite.name} is the #${favorite.rank} market favorite`;
   favoriteCoinTicker.textContent = favorite.ticker;
   renderPulseChange(favorite);
-  favoriteCoinUpdated.textContent = marketTimestampLabel(favorite);
+  favoriteCoinUpdated.textContent = selectedPulseWindowSourceLabel(favorite);
   if (favoriteCoinEdge) {
     const edgeLabel = favorite.marketEdge?.label || "";
     favoriteCoinEdge.hidden = !edgeLabel;
@@ -8232,7 +8349,7 @@ function renderPulseSevenDayMeter(favorite = currentFavorite) {
     pulseSevenDayMeter.innerHTML = "";
     return;
   }
-  const read = directionalCoinRead(favorite, selectedPulseReadWindow);
+  const read = forwardScenarioCoinRead(favorite, selectedPulseReadWindow);
   pulseSevenDayMeter.innerHTML = `
     <div class="pulse-seven-day-head">
       <div class="pulse-read-carousel" role="tablist" aria-label="Directional read window">
@@ -8249,7 +8366,7 @@ function renderPulseSevenDayMeter(favorite = currentFavorite) {
 
 function renderPulseChange(favorite = currentFavorite) {
   if (!favoriteCoinChange) return;
-  if (favoriteCoinWindow) favoriteCoinWindow.textContent = pulseWindowLabel(selectedPulseWindow);
+  if (favoriteCoinWindow) favoriteCoinWindow.value = selectedPulseWindow;
   const change = pulseChangeForWindow(favorite, selectedPulseWindow);
   favoriteCoinChange.classList.remove("positive", "negative", "neutral");
   favoriteCoinChange.classList.add(changeClass(change));
@@ -8257,15 +8374,37 @@ function renderPulseChange(favorite = currentFavorite) {
   favoriteCoinChange.title = Number.isFinite(change)
     ? `${pulseWindowLabel(selectedPulseWindow)} change: ${formatPercent(change)}`
     : `${pulseWindowLabel(selectedPulseWindow)} change unavailable`;
+  if (favoriteCoinUpdated) favoriteCoinUpdated.textContent = selectedPulseWindowSourceLabel(favorite);
+}
+
+function selectedPulseWindowSourceLabel(favorite = currentFavorite) {
+  if (!favorite) return "No market data";
+  const sourceKey = isProjectedPulseWindow(selectedPulseWindow)
+    ? sourceWindowForProjection(selectedPulseWindow)
+    : selectedPulseWindow;
+  if (sourceKey === "24h") return marketTimestampLabel(favorite);
+  const prices = pulsePricesForWindow(favorite, sourceKey);
+  if (prices.length < 2) return `${favorite.source || "Market data"} · ${pulseWindowLabel(sourceKey)} chart loading`;
+  const updatedDate = favorite.windowUpdatedAt?.[sourceKey] ? new Date(favorite.windowUpdatedAt[sourceKey]) : null;
+  const updated = updatedDate && Number.isFinite(updatedDate.getTime())
+    ? `updated ${updatedDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+    : "timestamp unavailable";
+  const source = favorite.windowSources?.[sourceKey] || `${pulseWindowLabel(sourceKey)} chart`;
+  return `${favorite.source || "Market data"} · ${updated} · ${source}`;
+}
+
+function setPulseWindow(key = "24h") {
+  if (!pulseWindowOptions.some((option) => option.key === key)) return;
+  selectedPulseWindow = key;
+  renderPulseChange(currentFavorite);
+  renderPulseWindowChart(currentFavorite);
+  ensurePulseWindowChart(currentFavorite, selectedPulseWindow);
 }
 
 function stepPulseWindow(direction) {
   const currentIndex = Math.max(0, pulseWindowOptions.findIndex((option) => option.key === selectedPulseWindow));
   const nextIndex = (currentIndex + direction + pulseWindowOptions.length) % pulseWindowOptions.length;
-  selectedPulseWindow = pulseWindowOptions[nextIndex].key;
-  renderPulseChange(currentFavorite);
-  renderPulseWindowChart(currentFavorite);
-  ensurePulseWindowChart(currentFavorite, selectedPulseWindow);
+  setPulseWindow(pulseWindowOptions[nextIndex].key);
 }
 
 function pulsePricesForWindow(favorite = {}, key = "24h") {
@@ -8326,7 +8465,7 @@ function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseW
   if (pendingPulseWindowLoads.has(requestKey) || isPulseWindowTemporarilyUnavailable(requestKey)) return;
 
   const request = getPulseWindowChartData(favorite, key)
-    .then(({ prices, updatedAt }) => {
+    .then(({ prices, updatedAt, source }) => {
       const normalizedPrices = normalizePriceSeries(prices);
       if (normalizedPrices.length < 2) throw new Error("Exact chart window is empty");
       currentFavorites = currentFavorites.map((candidate) => {
@@ -8335,6 +8474,7 @@ function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseW
           ...candidate,
           windowPrices: { ...(candidate.windowPrices || {}), [key]: normalizedPrices },
           changeWindows: { ...(candidate.changeWindows || {}), [key]: priceSeriesChange(normalizedPrices) },
+          windowSources: { ...(candidate.windowSources || {}), [key]: source || `${pulseWindowLabel(key)} chart` },
           windowUpdatedAt: { ...(candidate.windowUpdatedAt || {}), [key]: updatedAt },
         };
       });
@@ -8397,6 +8537,7 @@ async function getCoinGeckoWindowChartData(coinGeckoId, key = "7d") {
   return {
     prices,
     updatedAt: chartData.updatedAt || new Date().toISOString(),
+    source: `${chartData.stale ? "Cached " : ""}CoinGecko ${pulseWindowLabel(key)} chart`,
   };
 }
 
