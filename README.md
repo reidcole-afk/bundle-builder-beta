@@ -282,7 +282,7 @@ This is intentional. It keeps the production REST API from recommending tokens f
 - If the configured port is already in use, the server now prints a short recovery message instead of a raw Node stack trace. Use `PORT=8790 npm start` or stop the existing server.
 - ViciSwap should still verify token route, liquidity, slippage, fees, allowances, and final quote before execution.
 - Add an API key or server-side allowlist before public launch if the endpoint is hosted publicly.
-- If CoinGecko rate limits become a concern, set `COINGECKO_API_KEY` and optionally `COINGECKO_API_BASE_URL`/`COINGECKO_API_KEY_HEADER` in the server environment.
+- If CoinGecko rate limits become a concern, set `COINGECKO_API_KEY` and optionally `COINGECKO_API_BASE_URL`/`COINGECKO_API_KEY_HEADER` in the server environment. The server caches chart windows and preloads common 1d/3d/7d/30d windows on a slower background schedule so users are not asking CoinGecko again on every click.
 - If Rich provides a host, set `PORT`, `HOST`, and optionally `CORS_ORIGIN` in the server environment.
 - Optional environment knobs: `BUNDLE_BUILDER_ALLOWED_NETWORKS`, `BUNDLE_BUILDER_MIN_LIQUIDITY_USD`, `BUNDLE_BUILDER_MIN_VOLUME_24H_USD`, `BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT`, `BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT`.
 

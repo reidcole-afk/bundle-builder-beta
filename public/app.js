@@ -580,8 +580,9 @@ const BUILDER_TOKEN_UNIVERSE_MESSAGE = "VICI_TOKEN_UNIVERSE";
 const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
 const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
-const MARKET_CHART_CACHE_MS = 1000 * 60 * 5;
-const MARKET_CHART_STALE_MS = 1000 * 60 * 15;
+const MARKET_CHART_CACHE_MS = 1000 * 60 * 15;
+const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 6;
+const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 60 * 2;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
 const MARKET_PULSE_TIMEOUT_MS = 18000;
 const MARKET_STATS_TIMEOUT_MS = 9000;
@@ -982,7 +983,7 @@ let editingBundleNameId = "";
 let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
 let pendingPulseWindowLoads = new Map();
-let unavailablePulseWindows = new Set();
+let unavailablePulseWindows = new Map();
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseChartWarmSeq = 0;
@@ -1008,7 +1009,7 @@ const pulseReadWindows = [
   { key: "1d", label: "1d" },
   { key: "3d", label: "3d" },
   { key: "7d", label: "7d" },
-  { key: "1m", label: "1M" },
+  { key: "1mo", label: "1M" },
 ];
 let selectedCoinPreferences = new Set();
 let manualAllocationOverride = null;
@@ -1045,7 +1046,8 @@ const tourSlides = [
   },
 ];
 const pulseWindowOptions = [
-  { key: "1m", label: "1m", minutes: 43200 },
+  { key: "1mo", label: "1M", minutes: 43200 },
+  { key: "next7d", label: "Next 7d", minutes: 10080, projected: true },
   { key: "7d", label: "7d", minutes: 10080 },
   { key: "3d", label: "3d", minutes: 4320 },
   { key: "24h", label: "24h", minutes: 1440 },
@@ -1061,7 +1063,7 @@ const pulseWindowChartConfig = {
   "24h": { timeframe: "minute", aggregate: 15, limit: 96 },
   "3d": { timeframe: "hour", aggregate: 1, limit: 72 },
   "7d": { timeframe: "hour", aggregate: 2, limit: 84 },
-  "1m": { timeframe: "day", aggregate: 1, limit: 30 },
+  "1mo": { timeframe: "day", aggregate: 1, limit: 30 },
   "12h": { timeframe: "minute", aggregate: 15, limit: 48 },
   "6h": { timeframe: "minute", aggregate: 5, limit: 72 },
   "3h": { timeframe: "minute", aggregate: 5, limit: 36 },
@@ -3477,12 +3479,12 @@ function estimateDirectionalChange(favorite = {}, window = "7d") {
     if (Number.isFinite(change7d)) return change7d / 7 * 3;
     return Number.isFinite(change24h) ? change24h * 1.7 : null;
   }
-  if (window === "1m") return change30d ?? (Number.isFinite(change7d) ? change7d * 4 : Number.isFinite(change24h) ? change24h * 8 : null);
+  if (window === "1mo") return change30d ?? (Number.isFinite(change7d) ? change7d * 4 : Number.isFinite(change24h) ? change24h * 8 : null);
   return change7d ?? (Number.isFinite(change24h) ? change24h * 3 : null);
 }
 
 function directionalWindowLabel(window = "7d") {
-  return ({ "1d": "1d", "3d": "3d", "7d": "7d", "1m": "1m" }[window]) || "7d";
+  return ({ "1d": "1d", "3d": "3d", "7d": "7d", "1mo": "1M" }[window]) || "7d";
 }
 
 function directionalCoinRead(favorite = {}, window = "7d") {
@@ -3507,7 +3509,7 @@ function directionalCoinRead(favorite = {}, window = "7d") {
     if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -22, 28) * 1.25;
     if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 0.7;
     if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.35;
-  } else if (window === "1m") {
+  } else if (window === "1mo") {
     if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -60, 80) * 0.55;
     if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.35;
     if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 0.35;
@@ -3613,6 +3615,7 @@ function qualityAdjustedPulseScore(candidate = {}) {
   score += (practical.marketTiming.score - 50) * 0.22;
   score += (practical.executionSafety.score - 50) * 0.24;
   score += (practical.convictionQuality.score - 50) * 0.2;
+  score += allTimeContextScore(candidate) * 0.9;
   return roundTo(score, 2);
 }
 
@@ -4110,6 +4113,21 @@ function formatDateTime(value) {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
+function formatExactDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
+function alertTimingLabel(alert = {}) {
+  if (alert.kind === "urgent-risk-review") {
+    return `Urgent · Detected ${formatExactDateTime(alert.detectedAt || alert.createdAt || alert.dueAt)}`;
+  }
+  const due = new Date(alert.dueAt).getTime();
+  const isDue = Number.isFinite(due) && due <= Date.now();
+  return isDue ? `Due now · ${formatDateTime(alert.dueAt)}` : `Due ${formatDateTime(alert.dueAt)}`;
+}
+
 function renderProfileFavoriteTabs() {
   document.querySelectorAll("[data-profile-favorites-tab]").forEach((button) => {
     const isActive = button.dataset.profileFavoritesTab === activeProfileFavoritesTab;
@@ -4298,11 +4316,9 @@ function renderProfile() {
     ? recent.map(renderProfileBundleCard).join("")
     : '<p class="profile-empty">Bundles appear here after you complete the ViciSwap review handoff.</p>';
   profileAlertList.innerHTML = alerts.length ? alerts.map((alert) => {
-    const due = new Date(alert.dueAt).getTime();
-    const isDue = Number.isFinite(due) && due <= Date.now();
     return `
-      <article class="profile-alert-card ${isDue ? "is-due" : ""}">
-        <div><strong>${alert.kind === "urgent-risk-review" ? "Urgent market review" : "Scheduled analysis"}: ${escapeHtml(alert.bundleName || "Bundle")}</strong><span>${isDue ? `Due now · ${formatDateTime(alert.dueAt)}` : `Due ${formatDateTime(alert.dueAt)}`}</span><small>${escapeHtml(alert.analysis || "Recheck the market before making a decision.")}</small></div>
+      <article class="profile-alert-card ${alert.kind === "urgent-risk-review" ? "is-due urgent" : new Date(alert.dueAt).getTime() <= Date.now() ? "is-due" : ""}">
+        <div><strong>${alert.kind === "urgent-risk-review" ? "Urgent market review" : "Scheduled analysis"}: ${escapeHtml(alert.bundleName || "Bundle")}</strong><span>${escapeHtml(alertTimingLabel(alert))}</span><small>${escapeHtml(alert.analysis || "Recheck the market before making a decision.")}</small></div>
         <div class="profile-alert-actions">
           <button type="button" data-dismiss-alert="${escapeAttribute(alert.id)}">Dismiss</button>
         </div>
@@ -4430,7 +4446,7 @@ function showDueReviewAlerts() {
   const dueAlerts = readReviewAlerts().filter((alert) => alert.status === "pending" && new Date(alert.dueAt).getTime() <= Date.now());
   notificationCenter.innerHTML = dueAlerts.slice(0, 3).map((alert) => `
     <aside class="review-notification ${alert.kind === "urgent-risk-review" ? "urgent" : ""}" role="status">
-      <div><strong>${alert.kind === "urgent-risk-review" ? "Urgent market review" : "Scheduled bundle analysis"}</strong><span>${formatDateTime(alert.dueAt)} · ${escapeHtml(alert.bundleName || "Your bundle")}</span><span>${escapeHtml(alert.analysis || "Recheck the market, route, liquidity, and allocation before deciding whether to hold, rebalance, or exit.")}</span></div>
+      <div><strong>${alert.kind === "urgent-risk-review" ? "Urgent market review" : "Scheduled bundle analysis"}</strong><span>${escapeHtml(alertTimingLabel(alert))} · ${escapeHtml(alert.bundleName || "Your bundle")}</span><span>${escapeHtml(alert.analysis || "Recheck the market, route, liquidity, and allocation before deciding whether to hold, rebalance, or exit.")}</span></div>
       <div><button type="button" data-open-profile>Review</button><button type="button" data-dismiss-alert="${escapeAttribute(alert.id)}" aria-label="Dismiss reminder">&times;</button></div>
     </aside>
   `).join("");
@@ -5123,6 +5139,7 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
       pulseChartWarmSeq += 1;
       renderMarketPulse(currentFavorite, currentFavorites);
       loadVisiblePulseChartInBackground(refreshId);
+      warmPulseWindowCharts(currentFavorite);
       warmPulseChartsAround(currentFavoriteIndex);
     }
     if (render) renderCoinRows();
@@ -5299,7 +5316,10 @@ function loadVisiblePulseChartInBackground(refreshId = marketPulseRefreshSeq) {
     .then((loaded) => {
       if (refreshId !== marketPulseRefreshSeq || selectionId !== pulseSelectionSeq) return;
       const prepared = applyLoadedPulseCandidate(loaded);
-      if (prepared && currentFavorite?.ticker === prepared.ticker) renderMarketPulse(prepared, currentFavorites);
+      if (prepared && currentFavorite?.ticker === prepared.ticker) {
+        renderMarketPulse(prepared, currentFavorites);
+        warmPulseWindowCharts(prepared);
+      }
     })
     .catch(() => null)
     .finally(() => {
@@ -5327,12 +5347,25 @@ function warmPulseChartsAround(index = currentFavoriteIndex) {
       try {
         const loaded = await loadPulseChart(candidate);
         if (warmId !== pulseChartWarmSeq) return;
-        applyLoadedPulseCandidate(loaded);
+        const prepared = applyLoadedPulseCandidate(loaded);
+        if (prepared) warmPulseWindowCharts(prepared, ["7d"]);
       } catch {
         // Keep the existing candidate; this is only a background cache warmer.
       }
     }
   })();
+}
+
+function warmPulseWindowCharts(candidate = currentFavorite, windows = ["3d", "7d", "1mo"]) {
+  if (!candidate?.ticker || candidate.ticker === "--") return;
+  const ticker = normalizeTicker(candidate.ticker);
+  windows.forEach((key, index) => {
+    window.setTimeout(() => {
+      const active = currentFavorites.find((item) => normalizeTicker(item.ticker) === ticker) || candidate;
+      if (!active || pulsePricesForWindow(active, key).length >= 2) return;
+      ensurePulseWindowChart(active, key);
+    }, 650 * index);
+  });
 }
 
 async function enrichPulseDeckWithCatalysts(deck, network) {
@@ -5965,6 +5998,12 @@ async function fetchCoinGeckoSimpleRows(candidates) {
         total_volume: finiteOrNull(row?.usd_24h_vol),
         price_change_percentage_24h: finiteOrNull(row?.usd_24h_change),
         price_change_percentage_24h_in_currency: finiteOrNull(row?.usd_24h_change),
+        ath: null,
+        ath_change_percentage: null,
+        ath_date: null,
+        atl: null,
+        atl_change_percentage: null,
+        atl_date: null,
         sparkline_in_7d: { price: [] },
         last_updated: updatedAt ? new Date(updatedAt * 1000).toISOString() : new Date().toISOString(),
       };
@@ -5986,8 +6025,7 @@ async function fetchCoinGeckoChartRows(candidates) {
 }
 
 async function fetchCoinGeckoChartRow(meta) {
-  const chartData = await fetchBackendCoinGeckoChart(meta.id)
-    .catch(() => fetchDirectCoinGeckoChart(meta.id));
+  const chartData = await fetchCoinGeckoChartWithBestSource(meta.id);
   const prices = normalizePriceSeries(chartData.prices);
   if (prices.length < 2) return null;
   const currentPrice = prices.at(-1);
@@ -6011,9 +6049,9 @@ async function fetchCoinGeckoChartRow(meta) {
   };
 }
 
-async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false } = {}) {
+async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false, days = 1 } = {}) {
   const forceParam = force ? "&force=true" : "";
-  const payload = await fetchJsonUrl(`/api/v1/coingecko-chart?id=${encodeURIComponent(coinGeckoId)}${forceParam}`);
+  const payload = await fetchJsonUrl(`/api/v1/coingecko-chart?id=${encodeURIComponent(coinGeckoId)}&days=${encodeURIComponent(days)}${forceParam}`);
   const prices = normalizePriceSeries(payload.prices);
   if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
   return {
@@ -6026,8 +6064,15 @@ async function fetchBackendCoinGeckoChart(coinGeckoId, { force = false } = {}) {
   };
 }
 
-async function fetchDirectCoinGeckoChart(coinGeckoId) {
-  const chartUrl = `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart?vs_currency=usd&days=1`;
+async function fetchCoinGeckoChartWithBestSource(coinGeckoId, { force = false, days = 1 } = {}) {
+  if (window.location.protocol !== "file:") {
+    return fetchBackendCoinGeckoChart(coinGeckoId, { force, days });
+  }
+  return fetchDirectCoinGeckoChart(coinGeckoId, days);
+}
+
+async function fetchDirectCoinGeckoChart(coinGeckoId, days = 1) {
+  const chartUrl = `https://api.coingecko.com/api/v3/coins/${coinGeckoId}/market_chart?vs_currency=usd&days=${encodeURIComponent(days)}`;
   const chart = await fetchMarketJson(chartUrl);
   const priceRows = Array.isArray(chart.prices) ? chart.prices : [];
   const prices = normalizePriceSeries(priceRows.map(([, price]) => price));
@@ -6585,6 +6630,12 @@ function buildMarketSignal(meta, market) {
     change24h: finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h) || 0,
     change7d: finiteOrNull(market.price_change_percentage_7d_in_currency) || 0,
     change30d: finiteOrNull(market.price_change_percentage_30d_in_currency) || 0,
+    ath: finiteOrNull(market.ath),
+    athChangePercentage: finiteOrNull(market.ath_change_percentage),
+    athDate: market.ath_date || null,
+    atl: finiteOrNull(market.atl),
+    atlChangePercentage: finiteOrNull(market.atl_change_percentage),
+    atlDate: market.atl_date || null,
     updatedAt: market.last_updated || null,
     ...chartStats,
   };
@@ -6887,6 +6938,7 @@ function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
   const setup = marketSetupSignal(meta, market, prices);
   const pullback = pullbackQualityScore(prices, { volume24h, liquidityUsd });
   const theme = durableThemeScore(meta, { change24h, volume24h, liquidityUsd });
+  const lifetime = allTimeContextScore({ ...meta, ...market, volume24h, liquidityUsd, prices, marketSetup: setup });
   const speculativePenalty = speculativePulsePenalty(meta, { volume24h, liquidityUsd });
   const edgeScore = finiteOrNull(edge?.score) || 0;
   return meta.baseScore
@@ -6898,6 +6950,7 @@ function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
     + pullback
     + setup.score * 0.65
     + theme
+    + lifetime
     + edgeScore * 0.22
     - speculativePenalty;
 }
@@ -7379,6 +7432,49 @@ function durableThemeScore(meta, { change24h = 0, volume24h = 0, liquidityUsd = 
   return score;
 }
 
+function allTimeContextScore(candidate = {}) {
+  const drawdown = allTimeDrawdownPercent(candidate);
+  if (!Number.isFinite(drawdown)) return 0;
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const change30d = finiteOrNull(candidate.change30d ?? candidate.price_change_percentage_30d_in_currency);
+  const change7d = finiteOrNull(candidate.change7d ?? candidate.price_change_percentage_7d_in_currency);
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  const hasDepth = volume >= 1_000_000 && liquidity >= 750_000;
+  const hasRecovery = (Number.isFinite(change30d) && change30d >= 12)
+    || (Number.isFinite(change7d) && change7d >= 8)
+    || Boolean(setup?.boughtPullback || setup?.baseForming || setup?.constructive);
+  let score = 0;
+
+  if (drawdown <= -90) score -= 9;
+  else if (drawdown <= -80) score -= 7;
+  else if (drawdown <= -65) score -= 4.5;
+  else if (drawdown <= -45) score -= 2;
+
+  if (score < 0 && hasDepth) score *= 0.72;
+  if (score < 0 && hasRecovery) score *= 0.62;
+  if (drawdown > -35 && hasDepth && hasRecovery) score += 1.2;
+  return roundTo(score, 2);
+}
+
+function allTimeDrawdownPercent(candidate = {}) {
+  const direct = finiteOrNull(candidate.athChangePercentage ?? candidate.ath_change_percentage);
+  if (Number.isFinite(direct)) return direct;
+  const price = finiteOrNull(candidate.currentPrice ?? candidate.current_price ?? candidate.price);
+  const ath = finiteOrNull(candidate.ath);
+  if (!price || !ath || ath <= 0) return null;
+  return ((price - ath) / ath) * 100;
+}
+
+function allTimeContextText(candidate = {}) {
+  const drawdown = allTimeDrawdownPercent(candidate);
+  if (!Number.isFinite(drawdown)) return "";
+  if (drawdown <= -80) return `lifetime context is heavy: ${formatPercent(drawdown)} from ATH`;
+  if (drawdown <= -55) return `still far below ATH: ${formatPercent(drawdown)}`;
+  if (drawdown > -35) return `holding relatively closer to ATH: ${formatPercent(drawdown)}`;
+  return "";
+}
+
 function speculativePulsePenalty(meta, { volume24h = 0, liquidityUsd = 0 } = {}) {
   const ticker = normalizeTicker(meta?.ticker);
   const theme = String(meta?.theme || "").toLowerCase();
@@ -7430,6 +7526,8 @@ function marketEdgeSignal(meta, market = {}, prices = []) {
     const trajectoryLabel = chartTrajectoryLabel(prices);
     if (trajectoryLabel?.tone !== "neutral") details.push(trajectoryLabel.text);
   }
+  const lifetimeText = allTimeContextText(market);
+  if (lifetimeText) details.push(lifetimeText);
   if (themeScore > 1) details.push(`${String(meta.theme || "market").toUpperCase()} narrative has momentum`);
   if (!details.length) details.push("market signal is mixed");
   return {
@@ -7580,6 +7678,12 @@ function buildPulseCandidate(meta, market, source, rank = 1, network = getPrefer
     change24h,
     change7d,
     change30d,
+    ath: finiteOrNull(market.ath),
+    athChangePercentage: finiteOrNull(market.ath_change_percentage),
+    athDate: market.ath_date || null,
+    atl: finiteOrNull(market.atl),
+    atlChangePercentage: finiteOrNull(market.atl_change_percentage),
+    atlDate: market.atl_date || null,
     changeWindows: market.changeWindows || {},
     prices: sparklinePrices,
     reason: buildFavoriteReason(meta, market, rank, source),
@@ -7608,6 +7712,12 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
     change24h,
     change7d,
     change30d,
+    ath: finiteOrNull(market.ath),
+    athChangePercentage: finiteOrNull(market.ath_change_percentage),
+    athDate: market.ath_date || null,
+    atl: finiteOrNull(market.atl),
+    atlChangePercentage: finiteOrNull(market.atl_change_percentage),
+    atlDate: market.atl_date || null,
     changeWindows: market.changeWindows || {},
     prices,
     reason: buildDexScreenerFavoriteReason(meta, market, network, rank),
@@ -7836,14 +7946,10 @@ async function getPulseChartData(coinGeckoId) {
   if (existing) return existing;
   const request = (async () => {
     const chartData = await withTimeout(
-      fetchBackendCoinGeckoChart(coinGeckoId),
+      fetchCoinGeckoChartWithBestSource(coinGeckoId),
       MARKET_CHART_TIMEOUT_MS,
       "Bundle Builder chart workflow timed out",
-    ).catch(() => withTimeout(
-      fetchDirectCoinGeckoChart(coinGeckoId),
-      MARKET_CHART_TIMEOUT_MS,
-      "CoinGecko chart timed out",
-    ));
+    );
     const prices = normalizePriceSeries(chartData.prices);
     if (prices.length < 2) throw new Error("Chart data empty");
     const updatedAt = chartData.updatedAt || new Date().toISOString();
@@ -7996,7 +8102,10 @@ async function selectPulseCandidate(ticker) {
     const loadedFavorite = await loadPulseChart(selected);
     if (selectionId !== pulseSelectionSeq || currentFavorite?.ticker !== selected.ticker) return;
     const prepared = applyLoadedPulseCandidate(loadedFavorite);
-    if (prepared) renderMarketPulse(prepared, currentFavorites);
+    if (prepared) {
+      renderMarketPulse(prepared, currentFavorites);
+      warmPulseWindowCharts(prepared);
+    }
     warmPulseChartsAround(currentFavoriteIndex);
   } finally {
     if (selectionId === pulseSelectionSeq) stopPulseLoading();
@@ -8157,6 +8266,7 @@ function stepPulseWindow(direction) {
 
 function pulsePricesForWindow(favorite = {}, key = "24h") {
   if (key === "24h") return normalizePriceSeries(favorite.prices);
+  if (key === "next7d") return normalizePriceSeries(favorite.windowPrices?.["7d"] || favorite.prices);
   return normalizePriceSeries(favorite.windowPrices?.[key]);
 }
 
@@ -8170,12 +8280,29 @@ function pulseWindowLoadKey(favorite = {}, key = "24h") {
   return `${normalizeTicker(favorite.ticker)}:${normalizeContractAddress(favorite.pairAddress)}:${key}`;
 }
 
+function isPulseWindowTemporarilyUnavailable(requestKey) {
+  const failedAt = unavailablePulseWindows.get(requestKey);
+  if (!failedAt) return false;
+  if (Date.now() - failedAt < MARKET_CHART_FAILURE_COOLDOWN_MS) return true;
+  unavailablePulseWindows.delete(requestKey);
+  return false;
+}
+
+function markPulseWindowTemporarilyUnavailable(requestKey) {
+  if (!requestKey) return;
+  unavailablePulseWindows.set(requestKey, Date.now());
+}
+
 function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseWindow) {
+  if (key === "next7d") {
+    ensurePulseWindowChart(favorite, "7d");
+    return;
+  }
   if (!favorite || key === "24h" || pulsePricesForWindow(favorite, key).length >= 2) return;
   const requestKey = pulseWindowLoadKey(favorite, key);
-  if (!favorite.pairAddress || pendingPulseWindowLoads.has(requestKey) || unavailablePulseWindows.has(requestKey)) return;
+  if (pendingPulseWindowLoads.has(requestKey) || isPulseWindowTemporarilyUnavailable(requestKey)) return;
 
-  const request = getGeckoTerminalPulseChartData(favorite, key)
+  const request = getPulseWindowChartData(favorite, key)
     .then(({ prices, updatedAt }) => {
       const normalizedPrices = normalizePriceSeries(prices);
       if (normalizedPrices.length < 2) throw new Error("Exact chart window is empty");
@@ -8198,7 +8325,7 @@ function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseW
       }
     })
     .catch(() => {
-      unavailablePulseWindows.add(requestKey);
+      markPulseWindowTemporarilyUnavailable(requestKey);
       if (normalizeTicker(currentFavorite?.ticker) === normalizeTicker(favorite.ticker) && selectedPulseWindow === key) {
         renderPulseWindowChart(currentFavorite);
       }
@@ -8207,13 +8334,66 @@ function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseW
   pendingPulseWindowLoads.set(requestKey, request);
 }
 
+async function getPulseWindowChartData(favorite = {}, key = "7d") {
+  const attempts = [];
+  if (favorite.pairAddress) attempts.push(() => getGeckoTerminalPulseChartData(favorite, key));
+  if (favorite.id) attempts.push(() => getCoinGeckoWindowChartData(favorite.id, key));
+  if (!attempts.length) throw new Error("No chart source available");
+  let lastError = null;
+  for (const attempt of attempts) {
+    try {
+      const result = await attempt();
+      if (normalizePriceSeries(result?.prices).length >= 2) return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Chart window unavailable");
+}
+
+async function getCoinGeckoWindowChartData(coinGeckoId, key = "7d") {
+  const days = coinGeckoDaysForWindow(key);
+  const chartData = await withTimeout(
+    fetchCoinGeckoChartWithBestSource(coinGeckoId, { days }),
+    MARKET_CHART_TIMEOUT_MS,
+    "Bundle Builder CoinGecko window chart timed out",
+  );
+  const prices = normalizePriceSeries(chartData.prices);
+  if (prices.length < 2) throw new Error("CoinGecko window chart empty");
+  return {
+    prices,
+    updatedAt: chartData.updatedAt || new Date().toISOString(),
+  };
+}
+
+function coinGeckoDaysForWindow(key = "24h") {
+  if (key === "3d") return 3;
+  if (key === "7d" || key === "next7d") return 7;
+  if (key === "1mo") return 30;
+  return 1;
+}
+
 function renderPulseWindowChart(favorite = currentFavorite) {
   if (!pulseChart || !favorite) return;
+  if (selectedPulseWindow === "next7d") {
+    const requestKey = pulseWindowLoadKey(favorite, "7d");
+    const hasSevenDayChart = pulsePricesForWindow(favorite, "7d").length >= 2;
+    const shouldLoadSevenDay = !hasSevenDayChart && (favorite.pairAddress || favorite.id) && !isPulseWindowTemporarilyUnavailable(requestKey);
+    if (shouldLoadSevenDay) {
+      pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">Loading ${escapeHtml(favorite.ticker || "coin")} 7d chart for scenario...</div>`;
+      ensurePulseWindowChart(favorite, "7d");
+    } else {
+      const scenario = projectedSevenDayScenario(favorite);
+      pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeProjectedSevenDayChart(scenario)}`;
+    }
+    pulseChart.setAttribute("aria-label", `Next 7d scenario chart for ${favorite.ticker || "this coin"}`);
+    return;
+  }
   const prices = pulsePricesForWindow(favorite, selectedPulseWindow);
   const change = pulseChangeForWindow(favorite, selectedPulseWindow);
   const requestKey = pulseWindowLoadKey(favorite, selectedPulseWindow);
   if (selectedPulseWindow !== "24h" && prices.length < 2) {
-    const unavailable = unavailablePulseWindows.has(requestKey) || !favorite.pairAddress;
+    const unavailable = isPulseWindowTemporarilyUnavailable(requestKey) || (!favorite.pairAddress && !favorite.id);
     pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">${unavailable ? `${pulseWindowLabel(selectedPulseWindow)} chart unavailable` : `Loading ${escapeHtml(favorite.ticker || "coin")} ${pulseWindowLabel(selectedPulseWindow)} chart...`}</div>`;
     if (!unavailable) ensurePulseWindowChart(favorite, selectedPulseWindow);
   } else {
@@ -8223,6 +8403,7 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
+  if (key === "next7d") return projectedSevenDayScenario(favorite).projectedChange;
   if (key === "24h") return finiteOrNull(favorite.change24h);
   const direct = finiteOrNull(favorite.changeWindows?.[key]);
   if (direct !== null) return direct;
@@ -9126,6 +9307,153 @@ async function confirmViciReview() {
   submitTrackedBundle(bundleId);
   await copyViciSwapHandoff(bundleId);
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function projectedSevenDayScenario(favorite = {}) {
+  const sourcePrices = pulsePricesForWindow(favorite, "7d");
+  const series = sourcePrices.length >= 2 ? sourcePrices : normalizePriceSeries(favorite.prices);
+  const read = directionalCoinRead(favorite, "7d");
+  const setup = favorite.marketSetup || marketSetupSignal(favorite, favorite, favorite.prices);
+  const stats = chartTrajectoryStats(series);
+  const change24h = finiteOrNull(favorite.change24h) || 0;
+  const change7d = finiteOrNull(favorite.change7d) ?? priceSeriesChange(series) ?? 0;
+  const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
+  const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
+  const depthBoost = volume >= 3_000_000 && liquidity >= 1_000_000 ? 1 : volume >= 750_000 && liquidity >= 500_000 ? 0.72 : 0.48;
+  const scorePressure = ((read.score || 50) - 50) / 50;
+  const trendPressure = clamp(change7d / 35, -0.9, 0.9) * 0.38 + clamp(change24h / 16, -0.9, 0.9) * 0.24;
+  const setupPressure = setup?.boughtPullback || setup?.baseForming ? 0.18
+    : setup?.constructive ? 0.12
+      : setup?.extended && setup?.fading ? -0.22
+        : setup?.fading ? -0.12
+          : 0;
+  const rawChange = (scorePressure * 12 + trendPressure * 9 + setupPressure * 10) * depthBoost;
+  const projectedChange = roundTo(clamp(rawChange, -22, 24), 2);
+  const confidenceBase = 42
+    + Math.min(18, Math.max(0, series.length - 12) * 0.5)
+    + Math.min(18, Math.abs((read.score || 50) - 50) * 0.38)
+    + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8);
+  const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
+  const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
+  return {
+    sourcePrices: series,
+    projectedPrices: buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker }),
+    projectedChange,
+    confidence,
+    confidenceScore,
+    read,
+  };
+}
+
+function buildProjectionSeries(sourcePrices = [], projectedChange = 0, context = {}) {
+  const series = normalizePriceSeries(sourcePrices);
+  if (series.length < 2) return [];
+  const steps = Math.max(18, Math.min(34, Math.round(series.length * 0.42)));
+  const start = series.at(-1);
+  const target = start * (1 + (projectedChange || 0) / 100);
+  const stats = context.stats || null;
+  const setup = context.setup || {};
+  const score = finiteOrNull(context.read?.score) ?? 50;
+  const seed = projectionSeed(context.ticker || "");
+  const recentSlope = stats?.recentReturn ? clamp(stats.recentReturn / 100, -0.08, 0.08) : 0;
+  const volatility = priceReturnVolatility(series);
+  const amplitude = start * clamp(volatility * 1.35, 0.008, 0.07);
+  const bullishBias = projectedChange >= 0;
+  const projection = [];
+  for (let index = 0; index < steps; index += 1) {
+    const t = index / (steps - 1 || 1);
+    const smooth = t * t * (3 - 2 * t);
+    const drift = start + (target - start) * smooth;
+    const chop = Math.sin(t * Math.PI * 3.2 + seed) * amplitude * (0.95 - t * 0.25)
+      + Math.sin(t * Math.PI * 7.4 + seed * 0.73) * amplitude * 0.34;
+    const recentBend = start * recentSlope * Math.sin(Math.PI * t) * 0.22;
+    const setupBend = projectionSetupBend({ t, amplitude, setup, bullishBias, score });
+    projection.push(Math.max(0.0000001, drift + chop + recentBend + setupBend));
+  }
+  projection[0] = start;
+  projection[projection.length - 1] = target;
+  return projection;
+}
+
+function priceReturnVolatility(prices = []) {
+  const series = normalizePriceSeries(prices);
+  const returns = [];
+  for (let index = 1; index < series.length; index += 1) {
+    if (series[index - 1]) returns.push((series[index] - series[index - 1]) / series[index - 1]);
+  }
+  if (returns.length < 2) return 0.018;
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance = returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / returns.length;
+  return Math.sqrt(variance);
+}
+
+function projectionSetupBend({ t, amplitude, setup, bullishBias, score }) {
+  const early = Math.sin(Math.PI * clamp(t, 0, 1));
+  if (setup?.baseForming || setup?.boughtPullback) {
+    const dip = -amplitude * 0.7 * Math.exp(-Math.pow((t - 0.18) / 0.16, 2));
+    const lift = amplitude * (score >= 58 ? 0.85 : 0.38) * Math.exp(-Math.pow((t - 0.68) / 0.23, 2));
+    return dip + lift;
+  }
+  if (setup?.extended && setup?.fading) {
+    const relief = amplitude * 0.55 * Math.exp(-Math.pow((t - 0.22) / 0.18, 2));
+    const fade = -amplitude * 0.9 * Math.exp(-Math.pow((t - 0.72) / 0.26, 2));
+    return relief + fade;
+  }
+  return bullishBias ? -amplitude * 0.28 * early * (1 - t) : amplitude * 0.3 * early * (1 - t);
+}
+
+function projectionSeed(ticker = "") {
+  const text = String(ticker || "scenario");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) % 997;
+  }
+  return (hash / 997) * Math.PI * 2;
+}
+
+function makeProjectedSevenDayChart(scenario = {}) {
+  const actual = normalizePriceSeries(scenario.sourcePrices).slice(-84);
+  const projected = normalizePriceSeries(scenario.projectedPrices);
+  const width = 360;
+  const height = 132;
+  const pad = 14;
+  const nowX = width * 0.52;
+  const futureEnd = width - pad;
+  const actualEnd = nowX;
+  const allPrices = [...actual, ...projected];
+  if (actual.length < 2 || projected.length < 2) return makeSparkline(actual, priceSeriesChange(actual), "Next 7d scenario");
+  const min = Math.min(...allPrices);
+  const max = Math.max(...allPrices);
+  const rawSpan = max - min || 1;
+  const chartMin = min - rawSpan * 0.1;
+  const chartMax = max + rawSpan * 0.1;
+  const span = chartMax - chartMin || 1;
+  const yFor = (price) => chartMax === chartMin ? height / 2 : height - pad - ((price - chartMin) / span) * (height - pad * 2);
+  const actualPoints = actual.map((price, index) => {
+    const x = pad + (index / (actual.length - 1)) * (actualEnd - pad);
+    return [x, yFor(price)];
+  });
+  const projectedPoints = projected.map((price, index) => {
+    const x = nowX + (index / (projected.length - 1)) * (futureEnd - nowX);
+    return [x, yFor(price)];
+  });
+  const actualLine = actualPoints.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const projectedLine = projectedPoints.map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const actualChange = priceSeriesChange(actual) || 0;
+  const color = actualChange >= 0 ? "#1f8a5f" : "#c8503e";
+  const projectedColor = "#7b8798";
+  return `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Next 7d scenario chart">
+      <rect x="${nowX.toFixed(1)}" y="${pad}" width="${(futureEnd - nowX).toFixed(1)}" height="${height - pad * 2}" fill="#eef2f7" opacity="0.5"></rect>
+      <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="3"></path>
+      <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="3" stroke-dasharray="6 6" stroke-linecap="round"></path>
+      <line x1="${nowX.toFixed(1)}" y1="${pad}" x2="${nowX.toFixed(1)}" y2="${height - pad}" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4 5"></line>
+      <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4" fill="${color}"></circle>
+      <circle cx="${projectedPoints.at(-1)[0].toFixed(1)}" cy="${projectedPoints.at(-1)[1].toFixed(1)}" r="4" fill="#f8fafc" stroke="${projectedColor}" stroke-width="2"></circle>
+      <text x="${(nowX - 5).toFixed(1)}" y="${height - 7}" text-anchor="end" fill="#64748b" font-size="9" font-weight="800">Now</text>
+      <text x="${(nowX + 8).toFixed(1)}" y="${height - 7}" text-anchor="start" fill="#64748b" font-size="9" font-weight="800">Scenario</text>
+    </svg>
+  `;
 }
 
 function makeSparkline(prices, change, windowLabel = "24h") {

@@ -39,6 +39,10 @@ BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
 BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
 BUNDLE_BUILDER_AUTH_SECRET=replace-with-a-long-random-secret
 BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response
+COINGECKO_API_KEY=your-coingecko-demo-key
+COINGECKO_API_KEY_HEADER=x-cg-demo-api-key
+BUNDLE_BUILDER_COINGECKO_PRELOAD_DAYS=1,3,7,30
+BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS=10800000
 ```
 
 The host usually provides `PORT` automatically. Set `PORT` only if the host asks for it.
