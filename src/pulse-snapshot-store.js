@@ -131,6 +131,7 @@ function computeAccuracySummary(snapshots = []) {
     latestRunCoins: latest?.coins.slice(0, 5) || [],
     topCoinsBySnapshots,
     horizons,
+    deepDive24h: deepDiveForHorizon(normalized, "24h", 24 * 60 * 60 * 1000, "projected24hChange"),
   };
 }
 
@@ -164,6 +165,105 @@ function outcomeForHorizon(snapshots, label, horizonMs, projectedKey) {
     directionAccuracy: checked ? Math.round((correct / checked) * 100) : null,
     status: checked ? "Tracking" : "Collecting",
   };
+}
+
+function deepDiveForHorizon(snapshots, label, horizonMs, projectedKey) {
+  const outcomes = [];
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime)) return;
+    snapshot.coins.forEach((coin) => {
+      const startPrice = finiteOrNull(coin.priceUsd);
+      const projectedChange = finiteOrNull(coin[projectedKey]);
+      if (!startPrice || projectedChange === null) return;
+      const futureCoin = findFutureCoin(snapshots, coin, startTime + horizonMs);
+      if (!futureCoin) return;
+      const endPrice = finiteOrNull(futureCoin.priceUsd);
+      if (!endPrice) return;
+      const actualChange = ((endPrice - startPrice) / startPrice) * 100;
+      outcomes.push({
+        ticker: coin.ticker,
+        rank: coin.rank,
+        startAt: snapshot.createdAt,
+        startPrice,
+        endPrice,
+        projectedChange: roundTo(projectedChange, 2),
+        actualChange: roundTo(actualChange, 2),
+        error: roundTo(actualChange - projectedChange, 2),
+        absoluteError: roundTo(Math.abs(actualChange - projectedChange), 2),
+        directionCorrect: directionMatches(projectedChange, actualChange),
+        bullishScore: coin.bullishScore,
+        volume24h: coin.volume24h,
+        liquidityUsd: coin.liquidityUsd,
+        action: coin.action,
+        setupLabel: coin.setupLabel,
+        edgeLabel: coin.edgeLabel,
+      });
+    });
+  });
+
+  const checked = outcomes.length;
+  const missedUpside = outcomes.filter((item) => item.actualChange >= 4 && item.projectedChange < item.actualChange / 2);
+  const falseBearish = outcomes.filter((item) => item.projectedChange < -0.25 && item.actualChange > 2);
+  return {
+    label,
+    checked,
+    directionAccuracy: checked ? Math.round((outcomes.filter((item) => item.directionCorrect).length / checked) * 100) : null,
+    averageProjectedChange: roundTo(average(outcomes, (item) => item.projectedChange), 2),
+    averageActualChange: roundTo(average(outcomes, (item) => item.actualChange), 2),
+    averageError: roundTo(average(outcomes, (item) => item.error), 2),
+    meanAbsoluteError: roundTo(average(outcomes, (item) => item.absoluteError), 2),
+    missedUpsideCount: missedUpside.length,
+    falseBearishCount: falseBearish.length,
+    byTicker: summarizeOutcomes(outcomes, "ticker"),
+    byAction: summarizeOutcomes(outcomes, "action"),
+    byRank: summarizeOutcomes(outcomes, (item) => item.rank ? `#${item.rank}` : "unranked"),
+    biggestMisses: outcomes.slice().sort((a, b) => b.absoluteError - a.absoluteError).slice(0, 5),
+    bestCalls: outcomes.slice().sort((a, b) => a.absoluteError - b.absoluteError).slice(0, 5),
+    lessons: machineLessons(outcomes, missedUpside, falseBearish),
+  };
+}
+
+function summarizeOutcomes(outcomes, keyForItem) {
+  const groups = new Map();
+  outcomes.forEach((item) => {
+    const key = typeof keyForItem === "function" ? keyForItem(item) : item[keyForItem];
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  return [...groups.entries()].map(([key, items]) => ({
+    key,
+    count: items.length,
+    directionAccuracy: Math.round((items.filter((item) => item.directionCorrect).length / items.length) * 100),
+    averageProjectedChange: roundTo(average(items, (item) => item.projectedChange), 2),
+    averageActualChange: roundTo(average(items, (item) => item.actualChange), 2),
+    meanAbsoluteError: roundTo(average(items, (item) => item.absoluteError), 2),
+  })).sort((a, b) => b.count - a.count || b.meanAbsoluteError - a.meanAbsoluteError).slice(0, 8);
+}
+
+function machineLessons(outcomes, missedUpside, falseBearish) {
+  if (!outcomes.length) return ["Collecting enough 24h outcomes to compare projected move size against actual move size."];
+  const lessons = [];
+  const underPrediction = average(outcomes, (item) => item.error);
+  if (underPrediction > 3) {
+    lessons.push("The machine is underestimating high-beta upside; projected percentages need to become bolder when volume and market-wide momentum expand together.");
+  } else if (underPrediction < -3) {
+    lessons.push("The machine is overestimating upside; projected percentages need tighter checks before calling continuation.");
+  }
+  if (falseBearish.length) {
+    const tickers = unique(falseBearish.map((item) => item.ticker)).slice(0, 4).join(", ");
+    lessons.push(`False bearish calls showed up in ${tickers}; bearish labels should be softened when a coin has enough liquidity and is already ranking near the top.`);
+  }
+  if (missedUpside.length) {
+    const tickers = unique(missedUpside.map((item) => item.ticker)).slice(0, 4).join(", ");
+    lessons.push(`Missed upside showed up in ${tickers}; the machine should separate “balanced” from “quiet but coiled” instead of flattening those reads.`);
+  }
+  const worstTicker = summarizeOutcomes(outcomes, "ticker")[0];
+  if (worstTicker) {
+    lessons.push(`${worstTicker.key} currently has the largest average miss size, so its ranking pattern deserves review before changing weights globally.`);
+  }
+  return lessons.slice(0, 4);
 }
 
 function findFutureCoin(snapshots, coin, targetTime) {
@@ -226,6 +326,22 @@ function safeText(value, maxLength) {
 function finiteOrNull(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function average(items, valueForItem) {
+  if (!items.length) return 0;
+  return items.reduce((sum, item) => sum + (finiteOrNull(valueForItem(item)) || 0), 0) / items.length;
+}
+
+function roundTo(value, digits = 2) {
+  const number = finiteOrNull(value);
+  if (number === null) return 0;
+  const factor = 10 ** digits;
+  return Math.round(number * factor) / factor;
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function clampInteger(value, min, max, fallback) {

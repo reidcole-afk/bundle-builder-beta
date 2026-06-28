@@ -3392,6 +3392,7 @@ function computeMachineAccuracySummary(snapshots = []) {
       pulseOutcomeForHorizon(normalized, "7d", 7 * 24 * 60 * 60 * 1000, "projected7dChange"),
       pulseOutcomeForHorizon(normalized, "30d", 30 * 24 * 60 * 60 * 1000, "projected30dChange"),
     ],
+    deepDive24h: pulseDeepDiveForHorizon(normalized, "24h", 24 * 60 * 60 * 1000, "projected24hChange"),
   };
 }
 
@@ -3425,6 +3426,108 @@ function pulseOutcomeForHorizon(snapshots, label, horizonMs, projectedKey) {
     directionAccuracy: checked ? Math.round((correct / checked) * 100) : null,
     status: checked ? "Tracking" : "Collecting",
   };
+}
+
+function pulseDeepDiveForHorizon(snapshots, label, horizonMs, projectedKey) {
+  const outcomes = [];
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime)) return;
+    snapshot.coins.forEach((coin) => {
+      const startPrice = finiteOrNull(coin.priceUsd);
+      const projectedChange = finiteOrNull(coin[projectedKey]);
+      if (!startPrice || projectedChange === null) return;
+      const future = findFuturePulseCoin(snapshots, coin, startTime + horizonMs);
+      if (!future) return;
+      const endPrice = finiteOrNull(future.priceUsd);
+      if (!endPrice) return;
+      const actualChange = ((endPrice - startPrice) / startPrice) * 100;
+      outcomes.push({
+        ticker: coin.ticker,
+        rank: coin.rank,
+        startAt: snapshot.createdAt,
+        startPrice,
+        endPrice,
+        projectedChange: roundTo(projectedChange, 2),
+        actualChange: roundTo(actualChange, 2),
+        error: roundTo(actualChange - projectedChange, 2),
+        absoluteError: roundTo(Math.abs(actualChange - projectedChange), 2),
+        directionCorrect: pulseDirectionMatches(projectedChange, actualChange),
+        bullishScore: coin.bullishScore,
+        volume24h: coin.volume24h,
+        liquidityUsd: coin.liquidityUsd,
+        action: coin.action,
+        setupLabel: coin.setupLabel,
+        edgeLabel: coin.edgeLabel,
+      });
+    });
+  });
+  const missedUpside = outcomes.filter((item) => item.actualChange >= 4 && item.projectedChange < item.actualChange / 2);
+  const falseBearish = outcomes.filter((item) => item.projectedChange < -0.25 && item.actualChange > 2);
+  return {
+    label,
+    checked: outcomes.length,
+    directionAccuracy: outcomes.length ? Math.round((outcomes.filter((item) => item.directionCorrect).length / outcomes.length) * 100) : null,
+    averageProjectedChange: roundTo(averageValue(outcomes, (item) => item.projectedChange), 2),
+    averageActualChange: roundTo(averageValue(outcomes, (item) => item.actualChange), 2),
+    averageError: roundTo(averageValue(outcomes, (item) => item.error), 2),
+    meanAbsoluteError: roundTo(averageValue(outcomes, (item) => item.absoluteError), 2),
+    missedUpsideCount: missedUpside.length,
+    falseBearishCount: falseBearish.length,
+    byTicker: summarizePulseOutcomes(outcomes, "ticker"),
+    byAction: summarizePulseOutcomes(outcomes, "action"),
+    byRank: summarizePulseOutcomes(outcomes, (item) => item.rank ? `#${item.rank}` : "unranked"),
+    biggestMisses: outcomes.slice().sort((a, b) => b.absoluteError - a.absoluteError).slice(0, 5),
+    bestCalls: outcomes.slice().sort((a, b) => a.absoluteError - b.absoluteError).slice(0, 5),
+    lessons: pulseMachineLessons(outcomes, missedUpside, falseBearish),
+  };
+}
+
+function summarizePulseOutcomes(outcomes, keyForItem) {
+  const groups = new Map();
+  outcomes.forEach((item) => {
+    const key = typeof keyForItem === "function" ? keyForItem(item) : item[keyForItem];
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  return [...groups.entries()].map(([key, items]) => ({
+    key,
+    count: items.length,
+    directionAccuracy: Math.round((items.filter((item) => item.directionCorrect).length / items.length) * 100),
+    averageProjectedChange: roundTo(averageValue(items, (item) => item.projectedChange), 2),
+    averageActualChange: roundTo(averageValue(items, (item) => item.actualChange), 2),
+    meanAbsoluteError: roundTo(averageValue(items, (item) => item.absoluteError), 2),
+  })).sort((a, b) => b.count - a.count || b.meanAbsoluteError - a.meanAbsoluteError).slice(0, 8);
+}
+
+function pulseMachineLessons(outcomes, missedUpside, falseBearish) {
+  if (!outcomes.length) return ["Collecting enough 24h outcomes to compare projected move size against actual move size."];
+  const lessons = [];
+  const underPrediction = averageValue(outcomes, (item) => item.error);
+  if (underPrediction > 3) {
+    lessons.push("Projected percentages are too timid when the Base market starts moving together.");
+  } else if (underPrediction < -3) {
+    lessons.push("Projected percentages are too aggressive; continuation needs stricter confirmation.");
+  }
+  if (falseBearish.length) {
+    lessons.push(`False bearish calls: ${uniqueValues(falseBearish.map((item) => item.ticker)).slice(0, 4).join(", ")}.`);
+  }
+  if (missedUpside.length) {
+    lessons.push(`Missed upside: ${uniqueValues(missedUpside.map((item) => item.ticker)).slice(0, 4).join(", ")}. Watch for “quiet but coiled” instead of flattening the read.`);
+  }
+  const worstTicker = summarizePulseOutcomes(outcomes, "ticker")[0];
+  if (worstTicker) lessons.push(`${worstTicker.key} has the largest average miss size in this sample.`);
+  return lessons.slice(0, 4);
+}
+
+function averageValue(items, valueForItem) {
+  if (!items.length) return 0;
+  return items.reduce((sum, item) => sum + (finiteOrNull(valueForItem(item)) || 0), 0) / items.length;
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function findFuturePulseCoin(snapshots, coin, targetTime) {
@@ -3467,6 +3570,10 @@ function renderMachineAccuracy() {
   const horizons = Array.isArray(summary.horizons) ? summary.horizons : [];
   const latestCoins = Array.isArray(summary.latestRunCoins) ? summary.latestRunCoins : [];
   const topCoins = Array.isArray(summary.topCoinsBySnapshots) ? summary.topCoinsBySnapshots : [];
+  const deepDive = summary.deepDive24h || {};
+  const biggestMisses = Array.isArray(deepDive.biggestMisses) ? deepDive.biggestMisses : [];
+  const bestCalls = Array.isArray(deepDive.bestCalls) ? deepDive.bestCalls : [];
+  const lessons = Array.isArray(deepDive.lessons) ? deepDive.lessons : [];
   profileMachineAccuracy.innerHTML = `
     <div class="machine-accuracy-grid">
       <div><strong>${summary.totalSnapshots || 0}</strong><span>Pulse runs saved</span></div>
@@ -3478,8 +3585,38 @@ function renderMachineAccuracy() {
       `).join("")}
     </div>
     <p>${summary.totalSnapshots ? "The machine is saving each Live Market Pulse run and will compare later prices against its 24h, 7d, and 30d projections as new snapshots arrive." : "Open or refresh Live Market Pulse to start collecting prediction history."}</p>
+    ${deepDive.checked ? `
+      <div class="machine-deep-grid">
+        <div><strong>${formatPercent(deepDive.averageProjectedChange || 0)}</strong><span>Avg projected 24h</span></div>
+        <div><strong>${formatPercent(deepDive.averageActualChange || 0)}</strong><span>Avg actual 24h</span></div>
+        <div><strong>${formatPercent(deepDive.meanAbsoluteError || 0)}</strong><span>Avg miss size</span></div>
+        <div><strong>${Number(deepDive.missedUpsideCount || 0)}</strong><span>Missed upside calls</span></div>
+      </div>
+      <div class="machine-call-lists">
+        <div>
+          <b>Largest misses</b>
+          ${biggestMisses.length ? biggestMisses.map((item) => machineOutcomeRow(item)).join("") : "<small>No completed misses yet.</small>"}
+        </div>
+        <div>
+          <b>Best calibrated calls</b>
+          ${bestCalls.length ? bestCalls.map((item) => machineOutcomeRow(item)).join("") : "<small>No completed calls yet.</small>"}
+        </div>
+      </div>
+      ${lessons.length ? `<div class="machine-lessons"><b>What the machine should learn</b>${lessons.map((lesson) => `<small>${escapeHtml(lesson)}</small>`).join("")}</div>` : ""}
+    ` : ""}
     ${latestCoins.length ? `<small>Latest saved: ${escapeHtml(latestCoins.map((coin) => coin.ticker).join(", "))}${summary.latestSnapshotAt ? ` · ${escapeHtml(formatDateTime(summary.latestSnapshotAt))}` : ""}</small>` : ""}
     ${topCoins.length ? `<small>Most tracked: ${escapeHtml(topCoins.map((coin) => `${coin.ticker} (${coin.count})`).join(", "))}</small>` : ""}
+  `;
+}
+
+function machineOutcomeRow(item = {}) {
+  return `
+    <small class="machine-outcome-row">
+      <span><b>${escapeHtml(item.ticker || "--")}</b> ${item.rank ? `#${escapeHtml(item.rank)}` : ""}</span>
+      <span>projected ${escapeHtml(formatPercent(item.projectedChange || 0))}</span>
+      <span>actual ${escapeHtml(formatPercent(item.actualChange || 0))}</span>
+      <span>miss ${escapeHtml(formatPercent(item.absoluteError || 0))}</span>
+    </small>
   `;
 }
 

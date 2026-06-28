@@ -3649,7 +3649,8 @@ input[type="range"] {
   gap: 8px;
 }
 
-.machine-accuracy-grid div {
+.machine-accuracy-grid div,
+.machine-deep-grid div {
   display: grid;
   gap: 3px;
   min-height: 68px;
@@ -3659,13 +3660,15 @@ input[type="range"] {
   background: var(--surface);
 }
 
-.machine-accuracy-grid strong {
+.machine-accuracy-grid strong,
+.machine-deep-grid strong {
   color: var(--ink);
   font-size: 1rem;
   line-height: 1.1;
 }
 
 .machine-accuracy-grid span,
+.machine-deep-grid span,
 .profile-machine-accuracy p,
 .profile-machine-accuracy small {
   color: var(--ink-soft);
@@ -3676,6 +3679,45 @@ input[type="range"] {
 .profile-machine-accuracy p,
 .profile-machine-accuracy small {
   margin: 0;
+}
+
+.machine-deep-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.machine-call-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.machine-call-lists > div,
+.machine-lessons {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.machine-call-lists b,
+.machine-lessons b {
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.machine-outcome-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1fr 1fr 0.8fr;
+  gap: 6px;
+  align-items: center;
+}
+
+.machine-outcome-row b {
+  font-size: inherit;
 }
 
 .profile-bundle-list,
@@ -4575,6 +4617,16 @@ input[type="range"] {
   .review-reminder-control .action-button,
   .review-reminder-control select {
     width: 100%;
+  }
+
+  .machine-accuracy-grid,
+  .machine-deep-grid,
+  .machine-call-lists {
+    grid-template-columns: 1fr;
+  }
+
+  .machine-outcome-row {
+    grid-template-columns: 1fr;
   }
 
   .profile-dialog-card,
