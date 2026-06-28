@@ -108,11 +108,28 @@ function sanitizeCoin(input = {}) {
     projected24hChange: finiteOrNull(input.projected24hChange),
     projected7dChange: finiteOrNull(input.projected7dChange),
     projected30dChange: finiteOrNull(input.projected30dChange),
+    forecastPaths: sanitizeForecastPaths(input.forecastPaths),
     action: safeText(input.action, 40),
     setupLabel: safeText(input.setupLabel, 80),
     edgeLabel: safeText(input.edgeLabel, 80),
     source: safeText(input.source, 60),
   };
+}
+
+function sanitizeForecastPaths(input = {}) {
+  return {
+    next24h: sanitizePath(input.next24h),
+    next7d: sanitizePath(input.next7d),
+    next30d: sanitizePath(input.next30d || input.next1mo),
+  };
+}
+
+function sanitizePath(input = []) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .slice(0, 80)
+    .map((value) => roundTo(value, 4))
+    .filter((value) => Number.isFinite(value));
 }
 
 function computeAccuracySummary(snapshots = []) {
@@ -132,6 +149,11 @@ function computeAccuracySummary(snapshots = []) {
     topCoinsBySnapshots,
     horizons,
     deepDive24h: deepDiveForHorizon(normalized, "24h", 24 * 60 * 60 * 1000, "projected24hChange"),
+    pathAccuracy: [
+      pathAccuracyForHorizon(normalized, "Next 24h", 24 * 60 * 60 * 1000, "next24h"),
+      pathAccuracyForHorizon(normalized, "Next 7d", 7 * 24 * 60 * 60 * 1000, "next7d"),
+      pathAccuracyForHorizon(normalized, "Next 1M", 30 * 24 * 60 * 60 * 1000, "next30d"),
+    ],
   };
 }
 
@@ -242,6 +264,110 @@ function summarizeOutcomes(outcomes, keyForItem) {
   })).sort((a, b) => b.count - a.count || b.meanAbsoluteError - a.meanAbsoluteError).slice(0, 8);
 }
 
+function pathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
+  const outcomes = [];
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime)) return;
+    snapshot.coins.forEach((coin) => {
+      const forecastPath = Array.isArray(coin.forecastPaths?.[pathKey]) ? coin.forecastPaths[pathKey] : [];
+      if (forecastPath.length < 4) return;
+      const actualPath = actualPathForCoin(snapshots, coin, startTime, startTime + horizonMs, forecastPath.length);
+      if (actualPath.length < 4) return;
+      const forecast = normalizePathShape(forecastPath);
+      const actual = normalizePathShape(actualPath);
+      if (forecast.length < 4 || actual.length < 4) return;
+      const shapeError = meanAbsolutePathError(forecast, actual);
+      const directionAgreement = pathDirectionAgreement(forecast, actual);
+      const endpointError = Math.abs((forecast.at(-1) || 0) - (actual.at(-1) || 0));
+      outcomes.push({
+        ticker: coin.ticker,
+        rank: coin.rank,
+        startAt: snapshot.createdAt,
+        shapeScore: Math.round(clamp(100 - shapeError * 100, 0, 100)),
+        directionAgreement: Math.round(directionAgreement * 100),
+        endpointError: roundTo(endpointError * 100, 1),
+      });
+    });
+  });
+  const weakest = outcomes.slice().sort((a, b) => a.shapeScore - b.shapeScore).slice(0, 5);
+  const strongest = outcomes.slice().sort((a, b) => b.shapeScore - a.shapeScore).slice(0, 5);
+  return {
+    label,
+    checked: outcomes.length,
+    averageShapeScore: outcomes.length ? Math.round(average(outcomes, (item) => item.shapeScore)) : null,
+    averageDirectionAgreement: outcomes.length ? Math.round(average(outcomes, (item) => item.directionAgreement)) : null,
+    averageEndpointError: outcomes.length ? roundTo(average(outcomes, (item) => item.endpointError), 1) : null,
+    weakest,
+    strongest,
+  };
+}
+
+function actualPathForCoin(snapshots, coin, startTime, endTime, targetLength) {
+  const points = [];
+  snapshots.forEach((snapshot) => {
+    const snapshotTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(snapshotTime) || snapshotTime < startTime || snapshotTime > endTime) return;
+    const match = snapshot.coins.find((futureCoin) => futureCoin.ticker === coin.ticker
+      && (!coin.network || !futureCoin.network || futureCoin.network === coin.network));
+    const price = finiteOrNull(match?.priceUsd);
+    if (price) points.push({ time: snapshotTime, price });
+  });
+  const uniquePoints = [];
+  points.sort((a, b) => a.time - b.time).forEach((point) => {
+    if (!uniquePoints.length || uniquePoints.at(-1).time !== point.time) uniquePoints.push(point);
+  });
+  return resampleValues(uniquePoints.map((point) => point.price), Math.min(Math.max(targetLength, 8), 80));
+}
+
+function normalizePathShape(values = []) {
+  const series = values.map(finiteOrNull).filter((value) => value !== null);
+  if (series.length < 2) return [];
+  const start = series[0];
+  if (!start) return [];
+  return series.map((value) => roundTo((value - start) / start, 5));
+}
+
+function meanAbsolutePathError(a = [], b = []) {
+  const length = Math.min(a.length, b.length);
+  if (!length) return 0;
+  let total = 0;
+  for (let index = 0; index < length; index += 1) {
+    total += Math.abs((a[index] || 0) - (b[index] || 0));
+  }
+  return total / length;
+}
+
+function pathDirectionAgreement(a = [], b = []) {
+  const length = Math.min(a.length, b.length);
+  if (length < 2) return 0;
+  let checks = 0;
+  let matches = 0;
+  for (let index = 1; index < length; index += 1) {
+    const da = (a[index] || 0) - (a[index - 1] || 0);
+    const db = (b[index] || 0) - (b[index - 1] || 0);
+    if (Math.abs(da) < 0.002 && Math.abs(db) < 0.002) continue;
+    checks += 1;
+    if ((da >= 0 && db >= 0) || (da < 0 && db < 0)) matches += 1;
+  }
+  return checks ? matches / checks : 0;
+}
+
+function resampleValues(values = [], targetLength = 32) {
+  const series = values.map(finiteOrNull).filter((value) => value !== null);
+  if (series.length <= targetLength) return series;
+  if (targetLength <= 2) return [series[0], series.at(-1)];
+  const output = [];
+  for (let index = 0; index < targetLength; index += 1) {
+    const position = (index / (targetLength - 1)) * (series.length - 1);
+    const left = Math.floor(position);
+    const right = Math.min(series.length - 1, Math.ceil(position));
+    const blend = position - left;
+    output.push(roundTo((series[left] || 0) * (1 - blend) + (series[right] || 0) * blend, 8));
+  }
+  return output;
+}
+
 function machineLessons(outcomes, missedUpside, falseBearish) {
   if (!outcomes.length) return ["Collecting enough 24h outcomes to compare projected move size against actual move size."];
   const lessons = [];
@@ -338,6 +464,12 @@ function roundTo(value, digits = 2) {
   if (number === null) return 0;
   const factor = 10 ** digits;
   return Math.round(number * factor) / factor;
+}
+
+function clamp(value, min, max) {
+  const number = finiteOrNull(value);
+  if (number === null) return min;
+  return Math.min(max, Math.max(min, number));
 }
 
 function unique(values) {

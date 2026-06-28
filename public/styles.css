@@ -3650,7 +3650,8 @@ input[type="range"] {
 }
 
 .machine-accuracy-grid div,
-.machine-deep-grid div {
+.machine-deep-grid div,
+.machine-path-grid div {
   display: grid;
   gap: 3px;
   min-height: 68px;
@@ -3661,7 +3662,8 @@ input[type="range"] {
 }
 
 .machine-accuracy-grid strong,
-.machine-deep-grid strong {
+.machine-deep-grid strong,
+.machine-path-grid strong {
   color: var(--ink);
   font-size: 1rem;
   line-height: 1.1;
@@ -3669,6 +3671,7 @@ input[type="range"] {
 
 .machine-accuracy-grid span,
 .machine-deep-grid span,
+.machine-path-grid span,
 .profile-machine-accuracy p,
 .profile-machine-accuracy small {
   color: var(--ink-soft);
@@ -3694,7 +3697,8 @@ input[type="range"] {
 }
 
 .machine-call-lists > div,
-.machine-lessons {
+.machine-lessons,
+.machine-path-accuracy {
   display: grid;
   gap: 7px;
   padding: 10px;
@@ -3704,9 +3708,21 @@ input[type="range"] {
 }
 
 .machine-call-lists b,
-.machine-lessons b {
+.machine-lessons b,
+.machine-path-accuracy b {
   color: var(--ink);
   font-size: 0.84rem;
+}
+
+.machine-path-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.machine-path-grid small {
+  color: var(--ink-soft);
+  font-size: 0.74rem;
 }
 
 .machine-outcome-row {
@@ -4621,6 +4637,7 @@ input[type="range"] {
 
   .machine-accuracy-grid,
   .machine-deep-grid,
+  .machine-path-grid,
   .machine-call-lists {
     grid-template-columns: 1fr;
   }

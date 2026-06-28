@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.81");
+  assert.equal(health.body.version, "0.1.83");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -144,6 +144,8 @@ global.fetch = async (url) => {
   assert.equal(machineAccuracy.body.accuracy.horizons.length, 3);
   assert.equal(machineAccuracy.body.accuracy.deepDive24h.label, "24h");
   assert(Number.isFinite(machineAccuracy.body.accuracy.deepDive24h.checked));
+  assert.equal(machineAccuracy.body.accuracy.pathAccuracy.length, 3);
+  assert.equal(machineAccuracy.body.accuracy.pathAccuracy[0].label, "Next 24h");
 
   const loginRequest = await postJson("/api/v1/auth/request-code", { email: "tester@example.com" });
   assert.equal(loginRequest.statusCode, 200);

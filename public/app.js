@@ -3284,11 +3284,27 @@ function normalizePulseSnapshotCoin(coin = {}) {
     projected24hChange: finiteOrNull(coin.projected24hChange),
     projected7dChange: finiteOrNull(coin.projected7dChange),
     projected30dChange: finiteOrNull(coin.projected30dChange),
+    forecastPaths: normalizePulseForecastPaths(coin.forecastPaths),
     action: String(coin.action || "").slice(0, 40),
     setupLabel: String(coin.setupLabel || "").slice(0, 80),
     edgeLabel: String(coin.edgeLabel || "").slice(0, 80),
     source: String(coin.source || "").slice(0, 60),
   };
+}
+
+function normalizePulseForecastPaths(input = {}) {
+  return {
+    next24h: compactForecastPath(input.next24h),
+    next7d: compactForecastPath(input.next7d),
+    next30d: compactForecastPath(input.next30d || input.next1mo),
+  };
+}
+
+function compactForecastPath(input = []) {
+  const series = normalizePriceSeries(input);
+  if (!series.length) return [];
+  const sampled = samplePriceSeries(series, 64);
+  return sampled.map((value) => roundTo(value, 6));
 }
 
 function buildPulseSnapshotPayload(favorites = currentFavorites) {
@@ -3323,6 +3339,11 @@ function pulseSnapshotCoin(favorite = {}, index = 0) {
     projected24hChange: finiteOrNull(scenario24h.projectedChange),
     projected7dChange: finiteOrNull(scenario7d.projectedChange),
     projected30dChange: finiteOrNull(scenario30d.projectedChange),
+    forecastPaths: {
+      next24h: compactForecastPath(scenario24h.projectedPrices),
+      next7d: compactForecastPath(scenario7d.projectedPrices),
+      next30d: compactForecastPath(scenario30d.projectedPrices),
+    },
     action: read.action || read.label || "",
     setupLabel: favorite.marketSetup?.label || favorite.setupLabel || "",
     edgeLabel: favorite.marketEdge?.label || favorite.edgeLabel || "",
@@ -3393,6 +3414,11 @@ function computeMachineAccuracySummary(snapshots = []) {
       pulseOutcomeForHorizon(normalized, "30d", 30 * 24 * 60 * 60 * 1000, "projected30dChange"),
     ],
     deepDive24h: pulseDeepDiveForHorizon(normalized, "24h", 24 * 60 * 60 * 1000, "projected24hChange"),
+    pathAccuracy: [
+      pulsePathAccuracyForHorizon(normalized, "Next 24h", 24 * 60 * 60 * 1000, "next24h"),
+      pulsePathAccuracyForHorizon(normalized, "Next 7d", 7 * 24 * 60 * 60 * 1000, "next7d"),
+      pulsePathAccuracyForHorizon(normalized, "Next 1M", 30 * 24 * 60 * 60 * 1000, "next30d"),
+    ],
   };
 }
 
@@ -3501,6 +3527,92 @@ function summarizePulseOutcomes(outcomes, keyForItem) {
   })).sort((a, b) => b.count - a.count || b.meanAbsoluteError - a.meanAbsoluteError).slice(0, 8);
 }
 
+function pulsePathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
+  const outcomes = [];
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime)) return;
+    snapshot.coins.forEach((coin) => {
+      const forecastPath = Array.isArray(coin.forecastPaths?.[pathKey]) ? coin.forecastPaths[pathKey] : [];
+      if (forecastPath.length < 4) return;
+      const actualPath = actualPulsePathForCoin(snapshots, coin, startTime, startTime + horizonMs, forecastPath.length);
+      if (actualPath.length < 4) return;
+      const forecast = normalizePathShape(forecastPath);
+      const actual = normalizePathShape(actualPath);
+      if (forecast.length < 4 || actual.length < 4) return;
+      const shapeError = meanAbsolutePathError(forecast, actual);
+      const directionAgreement = pulsePathDirectionAgreement(forecast, actual);
+      const endpointError = Math.abs((forecast.at(-1) || 0) - (actual.at(-1) || 0));
+      outcomes.push({
+        ticker: coin.ticker,
+        rank: coin.rank,
+        startAt: snapshot.createdAt,
+        shapeScore: Math.round(clamp(100 - shapeError * 100, 0, 100)),
+        directionAgreement: Math.round(directionAgreement * 100),
+        endpointError: roundTo(endpointError * 100, 1),
+      });
+    });
+  });
+  return {
+    label,
+    checked: outcomes.length,
+    averageShapeScore: outcomes.length ? Math.round(averageValue(outcomes, (item) => item.shapeScore)) : null,
+    averageDirectionAgreement: outcomes.length ? Math.round(averageValue(outcomes, (item) => item.directionAgreement)) : null,
+    averageEndpointError: outcomes.length ? roundTo(averageValue(outcomes, (item) => item.endpointError), 1) : null,
+    weakest: outcomes.slice().sort((a, b) => a.shapeScore - b.shapeScore).slice(0, 5),
+    strongest: outcomes.slice().sort((a, b) => b.shapeScore - a.shapeScore).slice(0, 5),
+  };
+}
+
+function actualPulsePathForCoin(snapshots, coin, startTime, endTime, targetLength) {
+  const points = [];
+  snapshots.forEach((snapshot) => {
+    const snapshotTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(snapshotTime) || snapshotTime < startTime || snapshotTime > endTime) return;
+    const match = snapshot.coins.find((futureCoin) => futureCoin.ticker === coin.ticker
+      && (!coin.network || !futureCoin.network || futureCoin.network === coin.network));
+    const price = finiteOrNull(match?.priceUsd);
+    if (price) points.push({ time: snapshotTime, price });
+  });
+  const uniquePoints = [];
+  points.sort((a, b) => a.time - b.time).forEach((point) => {
+    if (!uniquePoints.length || uniquePoints.at(-1).time !== point.time) uniquePoints.push(point);
+  });
+  return samplePriceSeries(uniquePoints.map((point) => point.price), Math.min(Math.max(targetLength, 8), 64));
+}
+
+function normalizePathShape(values = []) {
+  const series = normalizePriceSeries(values);
+  if (series.length < 2 || !series[0]) return [];
+  const start = series[0];
+  return series.map((value) => roundTo((value - start) / start, 5));
+}
+
+function meanAbsolutePathError(a = [], b = []) {
+  const length = Math.min(a.length, b.length);
+  if (!length) return 0;
+  let total = 0;
+  for (let index = 0; index < length; index += 1) {
+    total += Math.abs((a[index] || 0) - (b[index] || 0));
+  }
+  return total / length;
+}
+
+function pulsePathDirectionAgreement(a = [], b = []) {
+  const length = Math.min(a.length, b.length);
+  if (length < 2) return 0;
+  let checks = 0;
+  let matches = 0;
+  for (let index = 1; index < length; index += 1) {
+    const da = (a[index] || 0) - (a[index - 1] || 0);
+    const db = (b[index] || 0) - (b[index - 1] || 0);
+    if (Math.abs(da) < 0.002 && Math.abs(db) < 0.002) continue;
+    checks += 1;
+    if ((da >= 0 && db >= 0) || (da < 0 && db < 0)) matches += 1;
+  }
+  return checks ? matches / checks : 0;
+}
+
 function pulseMachineLessons(outcomes, missedUpside, falseBearish) {
   if (!outcomes.length) return ["Collecting enough 24h outcomes to compare projected move size against actual move size."];
   const lessons = [];
@@ -3574,6 +3686,7 @@ function renderMachineAccuracy() {
   const biggestMisses = Array.isArray(deepDive.biggestMisses) ? deepDive.biggestMisses : [];
   const bestCalls = Array.isArray(deepDive.bestCalls) ? deepDive.bestCalls : [];
   const lessons = Array.isArray(deepDive.lessons) ? deepDive.lessons : [];
+  const pathAccuracy = Array.isArray(summary.pathAccuracy) ? summary.pathAccuracy : [];
   profileMachineAccuracy.innerHTML = `
     <div class="machine-accuracy-grid">
       <div><strong>${summary.totalSnapshots || 0}</strong><span>Pulse runs saved</span></div>
@@ -3603,6 +3716,20 @@ function renderMachineAccuracy() {
         </div>
       </div>
       ${lessons.length ? `<div class="machine-lessons"><b>What the machine should learn</b>${lessons.map((lesson) => `<small>${escapeHtml(lesson)}</small>`).join("")}</div>` : ""}
+    ` : ""}
+    ${pathAccuracy.length ? `
+      <div class="machine-path-accuracy">
+        <b>Forecast graph accuracy</b>
+        <div class="machine-path-grid">
+          ${pathAccuracy.map((item) => `
+            <div>
+              <strong>${item.averageShapeScore === null || item.averageShapeScore === undefined ? "Collecting" : `${item.averageShapeScore}/100`}</strong>
+              <span>${escapeHtml(item.label)} shape · ${Number(item.checked || 0)} checked</span>
+              ${item.averageDirectionAgreement === null || item.averageDirectionAgreement === undefined ? "" : `<small>${item.averageDirectionAgreement}% move-direction match · ${formatPercent(item.averageEndpointError || 0)} endpoint miss</small>`}
+            </div>
+          `).join("")}
+        </div>
+      </div>
     ` : ""}
     ${latestCoins.length ? `<small>Latest saved: ${escapeHtml(latestCoins.map((coin) => coin.ticker).join(", "))}${summary.latestSnapshotAt ? ` · ${escapeHtml(formatDateTime(summary.latestSnapshotAt))}` : ""}</small>` : ""}
     ${topCoins.length ? `<small>Most tracked: ${escapeHtml(topCoins.map((coin) => `${coin.ticker} (${coin.count})`).join(", "))}</small>` : ""}
@@ -10048,8 +10175,9 @@ function buildProjectionSeries(sourcePrices = [], projectedChange = 0, context =
   const stats = context.stats || null;
   const setup = context.setup || {};
   const score = finiteOrNull(context.read?.score) ?? 50;
-  const seed = projectionSeed(context.ticker || "");
   const horizonKey = context.key || "next7d";
+  const chartFingerprint = projectionChartFingerprint(series, stats, horizonKey);
+  const seed = projectionSeed(`${context.ticker || "scenario"}-${horizonKey}-${chartFingerprint}`);
   const lifetimeBias = finiteOrNull(context.lifetimeBias) || 0;
   const recentSlope = stats?.recentReturn ? clamp(stats.recentReturn / 100, -0.08, 0.08) : 0;
   const volatility = priceReturnVolatility(series);
@@ -10064,6 +10192,9 @@ function buildProjectionSeries(sourcePrices = [], projectedChange = 0, context =
   const bullishBias = projectedChange >= 0;
   const projection = [];
   const texture = recentReturnTexture(series, steps, seed);
+  const shapeEcho = projectionRecentShapeEcho(series, steps, start, amplitude, horizonKey);
+  const textureWeight = horizonKey === "next24h" ? 0.74 : horizonKey === "next7d" ? 0.5 : 0.34;
+  const slopeWeight = horizonKey === "next24h" ? 0.7 : horizonKey === "next7d" ? 0.45 : 0.24;
   for (let index = 0; index < steps; index += 1) {
     const t = index / (steps - 1 || 1);
     const smooth = t * t * (3 - 2 * t);
@@ -10073,13 +10204,14 @@ function buildProjectionSeries(sourcePrices = [], projectedChange = 0, context =
       + Math.sin(t * Math.PI * 9.7 + seed * 0.73) * amplitude * 0.46
       + Math.sin(t * Math.PI * 15.2 + seed * 1.17) * amplitude * 0.18;
     const microChop = projectionMicroChop({ t, amplitude, seed, index, steps, horizonKey });
-    const textureChop = texture[index] * amplitude * 0.42 * (0.95 - t * 0.18);
-    const recentBend = start * recentSlope * Math.sin(Math.PI * t) * 0.42;
+    const textureChop = texture[index] * amplitude * textureWeight * (0.98 - t * 0.22);
+    const recentBend = start * recentSlope * Math.sin(Math.PI * t) * slopeWeight;
+    const echoBend = shapeEcho[index] || 0;
     const setupBend = projectionSetupBend({ t, amplitude, setup, bullishBias, score });
     const breakoutBend = projectionBreakoutBend({ t, amplitude, projectedChange, score, setup });
     const earlyBias = projectionEarlyBias({ t, amplitude, projectedChange, score, setup, recentSlope });
     const macroBend = projectionMacroBend({ t, start, projectedChange, lifetimeBias, horizonKey });
-    projection.push(Math.max(0.0000001, drift + chop + microChop + textureChop + recentBend + setupBend + breakoutBend + earlyBias + macroBend));
+    projection.push(Math.max(0.0000001, drift + chop + microChop + textureChop + echoBend + recentBend + setupBend + breakoutBend + earlyBias + macroBend));
   }
   projection[0] = start;
   shapeProjectionOpening(projection, start, projectedChange, amplitude, setup);
@@ -10147,6 +10279,39 @@ function recentReturnTexture(prices = [], steps = 100, seed = 0) {
     const previous = recent[(index + offset - 1 + recent.length) % recent.length] || 0;
     return raw * 0.72 + previous * 0.28;
   });
+}
+
+function projectionRecentShapeEcho(prices = [], steps = 100, start = 0, amplitude = 0, horizonKey = "next7d") {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 8 || steps < 2 || !start) return Array.from({ length: steps }, () => 0);
+  const sourceCount = Math.min(series.length, horizonKey === "next24h" ? 42 : horizonKey === "next7d" ? 56 : 72);
+  const recent = samplePriceSeries(series.slice(-sourceCount), Math.min(steps, sourceCount));
+  if (recent.length < 4) return Array.from({ length: steps }, () => 0);
+  const first = recent[0];
+  const last = recent.at(-1);
+  const net = last - first;
+  const echoScale = horizonKey === "next24h" ? 0.52 : horizonKey === "next7d" ? 0.34 : 0.2;
+  const sampled = samplePriceSeries(recent, steps);
+  return Array.from({ length: steps }, (_, index) => {
+    const t = index / (steps - 1 || 1);
+    const sourceIndex = Math.min(sampled.length - 1, Math.round(t * (sampled.length - 1)));
+    const baseline = first + net * t;
+    const deviation = (sampled[sourceIndex] || baseline) - baseline;
+    const fade = 0.9 - t * 0.38;
+    return clamp(deviation * echoScale * fade, -amplitude * 1.1, amplitude * 1.1);
+  });
+}
+
+function projectionChartFingerprint(prices = [], stats = null, horizonKey = "next7d") {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 2) return "flat";
+  const sample = samplePriceSeries(series, horizonKey === "next24h" ? 18 : 24);
+  const first = sample[0] || 1;
+  const encoded = sample.map((price) => Math.round(((price - first) / first) * 1000)).join(".");
+  const recent = Math.round((finiteOrNull(stats?.recentReturn) || 0) * 10);
+  const range = Math.round((finiteOrNull(stats?.recentRange) || 0) * 1000);
+  const pullback = Math.round((finiteOrNull(stats?.pullbackFromHigh) || 0) * 1000);
+  return `${recent}:${range}:${pullback}:${encoded}`;
 }
 
 function lifetimeProjectionBias(favorite = {}, key = "next7d") {
