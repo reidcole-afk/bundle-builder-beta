@@ -1006,6 +1006,8 @@ const favoriteCoinsStorageKey = "viciBundleBuilderFavoriteCoinsV1";
 const profileSessionStorageKey = "viciBundleBuilderProfileSessionV1";
 const pulseSnapshotsStorageKey = "viciBundleBuilderPulseSnapshotsV1";
 const tourSeenStorageKey = "viciBundleBuilderTourSeenV1";
+const pulseSnapshotHistoryLimit = 6000;
+const marketPulseBackgroundRefreshMs = 1000 * 60 * 5;
 const pulseReadWindows = [
   { key: "1d", label: "1d" },
   { key: "3d", label: "3d" },
@@ -3230,7 +3232,7 @@ function readPulseSnapshots() {
 }
 
 function writePulseSnapshots(snapshots = []) {
-  writeLocalArray(pulseSnapshotsStorageKey, snapshots.slice(-600));
+  writeLocalArray(pulseSnapshotsStorageKey, snapshots.slice(-pulseSnapshotHistoryLimit));
 }
 
 function saveLocalPulseSnapshot(snapshot = {}) {
@@ -3239,13 +3241,31 @@ function saveLocalPulseSnapshot(snapshot = {}) {
   const snapshots = readPulseSnapshots();
   const last = snapshots[snapshots.length - 1];
   if (last?.fingerprint === normalized.fingerprint) {
-    snapshots[snapshots.length - 1] = normalized;
+    snapshots[snapshots.length - 1] = richerPulseSnapshot(last, normalized);
   } else {
     snapshots.push(normalized);
   }
   writePulseSnapshots(snapshots);
   machineAccuracySummary = computeMachineAccuracySummary(snapshots);
   return normalized;
+}
+
+function richerPulseSnapshot(existing = {}, incoming = {}) {
+  const existingScore = snapshotForecastPathScore(existing);
+  const incomingScore = snapshotForecastPathScore(incoming);
+  if (existingScore > incomingScore) {
+    return {
+      ...incoming,
+      coins: (incoming.coins || []).map((coin) => {
+        const prior = (existing.coins || []).find((item) => item.ticker === coin.ticker && (!coin.network || !item.network || item.network === coin.network));
+        if (!prior) return coin;
+        return snapshotForecastPathScore({ coins: [prior] }) > snapshotForecastPathScore({ coins: [coin] })
+          ? { ...coin, forecastPaths: prior.forecastPaths }
+          : coin;
+      }),
+    };
+  }
+  return incoming;
 }
 
 function normalizePulseSnapshot(snapshot = {}) {
@@ -3358,9 +3378,19 @@ function currentPulsePrice(favorite = {}) {
   return finiteOrNull(prices[prices.length - 1]);
 }
 
-async function logPulseSnapshot(favorites = currentFavorites) {
+async function logPulseSnapshot(favorites = currentFavorites, { attempt = 0, reason = "pulse-refresh" } = {}) {
+  const targetFavorites = Array.isArray(favorites) ? favorites : currentFavorites;
+  if (attempt < 2) {
+    const preview = buildPulseSnapshotPayload(targetFavorites);
+    if (preview.coins.length && snapshotForecastPathScore(preview) === 0) {
+      warmSnapshotForecastInputs(targetFavorites);
+      window.setTimeout(() => logPulseSnapshot(currentFavorites, { attempt: attempt + 1, reason: `${reason}-retry` }), attempt ? 5000 : 2200);
+      return;
+    }
+  }
   const payload = buildPulseSnapshotPayload(favorites);
   if (!payload.coins.length) return;
+  payload.reason = reason;
   if (window.location.protocol === "file:") {
     saveLocalPulseSnapshot(payload);
     renderMachineAccuracy();
@@ -3381,6 +3411,28 @@ async function logPulseSnapshot(favorites = currentFavorites) {
     saveLocalPulseSnapshot(payload);
     renderMachineAccuracy();
   }
+}
+
+function snapshotForecastPathScore(snapshot = {}) {
+  return (snapshot.coins || []).reduce((sum, coin) => {
+    const paths = coin.forecastPaths || {};
+    return sum
+      + (Array.isArray(paths.next24h) ? paths.next24h.length : 0)
+      + (Array.isArray(paths.next7d) ? paths.next7d.length : 0)
+      + (Array.isArray(paths.next30d) ? paths.next30d.length : 0);
+  }, 0);
+}
+
+function warmSnapshotForecastInputs(favorites = currentFavorites) {
+  (Array.isArray(favorites) ? favorites : [])
+    .slice(0, 6)
+    .forEach((favorite) => {
+      if (!favorite?.ticker || favorite.ticker === "--") return;
+      if (!hasLivePulseChart(favorite)) {
+        loadPulseChart(favorite).then(applyLoadedPulseCandidate).catch(() => null);
+      }
+      ["24h", "7d", "1mo"].forEach((key) => ensurePulseWindowChart(favorite, key));
+    });
 }
 
 async function loadMachineAccuracySummary() {
@@ -5649,7 +5701,7 @@ refreshViciCoinsFromApi({ announce: false }).catch(() => {
 let marketPulseIntervalId = null;
 function startMarketPulseBackgroundRefresh() {
   if (marketPulseIntervalId || document.hidden) return;
-  marketPulseIntervalId = window.setInterval(() => refreshMarketPulse({ preserveSelection: true, silent: true, render: false }), 1000 * 60 * 5);
+  marketPulseIntervalId = window.setInterval(() => refreshMarketPulse({ preserveSelection: true, silent: true, render: false }), marketPulseBackgroundRefreshMs);
 }
 
 function stopMarketPulseBackgroundRefresh() {

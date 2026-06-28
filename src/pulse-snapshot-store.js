@@ -7,7 +7,7 @@ const PULSE_SNAPSHOT_STORE_PATH = path.resolve(
   process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_FILE
     || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || DEFAULT_DATA_DIR, "pulse-snapshots.json"),
 );
-const MAX_SNAPSHOTS = 600;
+const MAX_SNAPSHOTS = 6000;
 const MAX_COINS_PER_SNAPSHOT = 20;
 
 function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } = {}) {
@@ -33,7 +33,7 @@ function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } 
       }
       const last = store.snapshots[store.snapshots.length - 1];
       if (last && last.fingerprint === snapshot.fingerprint) {
-        store.snapshots[store.snapshots.length - 1] = snapshot;
+        store.snapshots[store.snapshots.length - 1] = richerSnapshot(last, snapshot);
       } else {
         store.snapshots.push(snapshot);
       }
@@ -50,6 +50,31 @@ function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } 
       return computeAccuracySummary(readStore(filePath).snapshots);
     },
   };
+}
+
+function richerSnapshot(existing = {}, incoming = {}) {
+  if (snapshotPathScore(existing) <= snapshotPathScore(incoming)) return incoming;
+  return {
+    ...incoming,
+    coins: (incoming.coins || []).map((coin) => {
+      const prior = (existing.coins || []).find((item) => item.ticker === coin.ticker
+        && (!coin.network || !item.network || item.network === coin.network));
+      if (!prior) return coin;
+      return snapshotPathScore({ coins: [prior] }) > snapshotPathScore({ coins: [coin] })
+        ? { ...coin, forecastPaths: prior.forecastPaths }
+        : coin;
+    }),
+  };
+}
+
+function snapshotPathScore(snapshot = {}) {
+  return (snapshot.coins || []).reduce((sum, coin) => {
+    const paths = coin.forecastPaths || {};
+    return sum
+      + (Array.isArray(paths.next24h) ? paths.next24h.length : 0)
+      + (Array.isArray(paths.next7d) ? paths.next7d.length : 0)
+      + (Array.isArray(paths.next30d) ? paths.next30d.length : 0);
+  }, 0);
 }
 
 function readStore(filePath) {
