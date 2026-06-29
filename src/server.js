@@ -36,7 +36,7 @@ const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_T
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 5);
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 20);
-const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 3);
+const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 10);
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
 const pulseSnapshotRepository = createPulseSnapshotRepository();
@@ -1497,9 +1497,11 @@ function pulseCollectorSnapshotCoin(candidate, index) {
     projected24hChange,
     projected7dChange,
     projected30dChange,
-    projected24hPath: projection24h,
-    projected7dPath: projection7d,
-    projected30dPath: projection30d,
+    forecastPaths: {
+      next24h: projection24h,
+      next7d: projection7d,
+      next30d: projection30d,
+    },
     pairAddress: candidate.pairAddress,
   };
 }

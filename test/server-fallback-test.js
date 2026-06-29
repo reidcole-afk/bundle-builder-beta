@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.88");
+  assert.equal(health.body.version, "0.1.91");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -24,6 +24,7 @@ global.fetch = async (url) => {
   assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
   assert.equal(typeof health.body.pulseBackgroundCollector.enabled, "boolean");
   assert(Number.isFinite(health.body.pulseBackgroundCollector.intervalMs));
+  assert.equal(health.body.pulseBackgroundCollector.deckSize, 10);
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
   assert.equal(health.body.betaScope, "invite-only Base beta by default");
@@ -131,13 +132,32 @@ global.fetch = async (url) => {
     selectedWindow: "24h",
     selectedReadWindow: "7d",
     coins: [
-      { ticker: "AERO", name: "Aerodrome Finance", rank: 1, priceUsd: 0.5, projected24hChange: 2, projected7dChange: 4, projected30dChange: 9 },
-      { ticker: "MORPHO", name: "Morpho", rank: 2, priceUsd: 2, projected24hChange: -1, projected7dChange: 1, projected30dChange: 3 },
+      {
+        ticker: "AERO",
+        name: "Aerodrome Finance",
+        rank: 1,
+        priceUsd: 0.5,
+        projected24hChange: 2,
+        projected7dChange: 4,
+        projected30dChange: 9,
+        forecastPaths: { next24h: [100, 101, 102], next7d: [100, 102, 104], next30d: [100, 104, 109] },
+      },
+      {
+        ticker: "MORPHO",
+        name: "Morpho",
+        rank: 2,
+        priceUsd: 2,
+        projected24hChange: -1,
+        projected7dChange: 1,
+        projected30dChange: 3,
+        forecastPaths: { next24h: [100, 99.5, 99], next7d: [100, 100.5, 101], next30d: [100, 101.5, 103] },
+      },
     ],
   });
   assert.equal(pulseSnapshot.statusCode, 201);
   assert.equal(pulseSnapshot.body.ok, true);
   assert.equal(pulseSnapshot.body.snapshot.coins.length, 2);
+  assert.equal(pulseSnapshot.body.snapshot.coins[0].forecastPaths.next24h.length, 3);
   assert.equal(pulseSnapshot.body.accuracy.totalSnapshots >= 1, true);
 
   const machineAccuracy = await getJson("/api/v1/machine-accuracy");
@@ -156,6 +176,7 @@ global.fetch = async (url) => {
   assert.equal(collectorStatus.statusCode, 200);
   assert.equal(collectorStatus.body.ok, true);
   assert.equal(typeof collectorStatus.body.collector.enabled, "boolean");
+  assert.equal(collectorStatus.body.collector.deckSize, 10);
 
   const loginRequest = await postJson("/api/v1/auth/request-code", { email: "tester@example.com" });
   assert.equal(loginRequest.statusCode, 200);

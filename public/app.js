@@ -921,13 +921,11 @@ const favoriteCoinName = document.getElementById("favoriteCoinName");
 const favoriteCoinTicker = document.getElementById("favoriteCoinTicker");
 const favoriteCoinWindow = document.getElementById("favoriteCoinWindow");
 const favoriteCoinChange = document.getElementById("favoriteCoinChange");
-const favoriteCoinUpdated = document.getElementById("favoriteCoinUpdated");
 const favoriteCoinEdge = document.getElementById("favoriteCoinEdge");
 const favoriteCoinSetup = document.getElementById("favoriteCoinSetup");
 const favoriteCoinReason = document.getElementById("favoriteCoinReason");
 const favoriteCoinInsights = document.getElementById("favoriteCoinInsights");
 const pulseSevenDayMeter = document.getElementById("pulseSevenDayMeter");
-const pulseAiSummarySlot = document.getElementById("pulseAiSummarySlot");
 const pulseStatus = document.getElementById("pulseStatus");
 const pulseRefresh = document.getElementById("pulseRefresh");
 const pulseChart = document.getElementById("pulseChart");
@@ -1030,7 +1028,7 @@ const tourSlides = [
   {
     icon: "pulse",
     title: "Read the market pulse",
-    body: "Browse the ranked market candidates, compare time windows, and open AI Market Scan for the data, catalyst context, and entry cautions behind each signal.",
+    body: "Browse the ranked market candidates, compare time windows, and use the setup/read badges for the data, context, and entry cautions behind each signal.",
   },
   {
     icon: "fit",
@@ -7850,40 +7848,7 @@ function entryCautionFlag(favorite = {}) {
 }
 
 function pulseSummaryButton(favorite = {}) {
-  if (!favorite?.ticker || favorite.ticker === "--" || favorite.source === "Market data unavailable") return "";
-  const summary = buildPulseAiSummary(favorite);
-  const panelId = `pulse-ai-summary-${normalizeTicker(favorite.ticker) || "coin"}`;
-  const buttonLabel = pulseSummaryButtonText(favorite);
-  return `
-    <div class="pulse-ai-summary">
-      <button class="pulse-ai-trigger" type="button" aria-expanded="false" aria-controls="${escapeHtml(panelId)}" aria-label="${escapeHtml(buttonLabel)}">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M13 2 4 14h7l-1 8 10-13h-7l0-7Z" />
-        </svg>
-        <span>AI Market Scan</span>
-      </button>
-      <div class="pulse-ai-popover" id="${escapeHtml(panelId)}" role="dialog" aria-modal="true" aria-label="AI Market Scan for ${escapeHtml(favorite.ticker)}" hidden>
-        <div class="pulse-ai-modal-head">
-          <strong>AI Market Scan</strong>
-          <span>${escapeHtml(favorite.ticker)}</span>
-          <button class="pulse-ai-close" type="button" aria-label="Close AI Market Scan" title="Close">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
-          </button>
-        </div>
-        <div class="pulse-ai-modal-content">
-          ${renderPulseNewsFound(summary.news)}
-          <ol class="pulse-ai-points">
-            ${summary.points.map((point) => `
-              <li>
-                <span>${escapeHtml(point.label)}</span>
-                <p>${escapeHtml(point.text)}</p>
-              </li>
-            `).join("")}
-          </ol>
-        </div>
-      </div>
-    </div>
-  `;
+  return "";
 }
 
 function pulseSummaryButtonText(favorite = {}) {
@@ -8962,7 +8927,6 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       : `${favorite.name} is the #${favorite.rank} market favorite`;
   favoriteCoinTicker.textContent = favorite.ticker;
   renderPulseChange(favorite);
-  favoriteCoinUpdated.textContent = selectedPulseWindowSourceLabel(favorite);
   if (favoriteCoinEdge) {
     const edgeLabel = favorite.marketEdge?.label || "";
     favoriteCoinEdge.hidden = !edgeLabel;
@@ -8978,7 +8942,6 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
     favoriteCoinSetup.className = `pulse-setup-chip ${setupRating?.tone || ""}`.trim();
     favoriteCoinSetup.title = setupRating?.title || "";
   }
-  favoriteCoinUpdated.title = lastMarketPulseError || "";
   favoriteCoinReason.textContent = rewritePulseRankLabel(favorite.reason, favorite.rank || 1);
   renderPulseSevenDayMeter(favorite);
   renderPulseInsights(favorite);
@@ -8990,7 +8953,6 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
       : "Refresh market pulse";
   }
   renderPulseWindowChart(favorite);
-  if (pulseAiSummarySlot) pulseAiSummarySlot.innerHTML = pulseSummaryButton(favorite);
   currentFavoriteIndex = Math.max(0, (favorites || []).findIndex((candidate) => candidate.ticker === favorite.ticker));
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
@@ -9028,23 +8990,6 @@ function renderPulseChange(favorite = currentFavorite) {
   favoriteCoinChange.title = Number.isFinite(change)
     ? `${pulseWindowLabel(selectedPulseWindow)} change: ${formatPercent(change)}`
     : `${pulseWindowLabel(selectedPulseWindow)} change unavailable`;
-  if (favoriteCoinUpdated) favoriteCoinUpdated.textContent = selectedPulseWindowSourceLabel(favorite);
-}
-
-function selectedPulseWindowSourceLabel(favorite = currentFavorite) {
-  if (!favorite) return "No market data";
-  const sourceKey = isProjectedPulseWindow(selectedPulseWindow)
-    ? sourceWindowForProjection(selectedPulseWindow)
-    : selectedPulseWindow;
-  if (sourceKey === "24h") return marketTimestampLabel(favorite);
-  const prices = pulsePricesForWindow(favorite, sourceKey);
-  if (prices.length < 2) return `${favorite.source || "Market data"} · ${pulseWindowLabel(sourceKey)} chart loading`;
-  const updatedDate = favorite.windowUpdatedAt?.[sourceKey] ? new Date(favorite.windowUpdatedAt[sourceKey]) : null;
-  const updated = updatedDate && Number.isFinite(updatedDate.getTime())
-    ? `updated ${updatedDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : "timestamp unavailable";
-  const source = favorite.windowSources?.[sourceKey] || `${pulseWindowLabel(sourceKey)} chart`;
-  return `${favorite.source || "Market data"} · ${updated} · ${source}`;
 }
 
 function setPulseWindow(key = "24h") {
