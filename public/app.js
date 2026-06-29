@@ -10192,16 +10192,20 @@ function projectedPulseScenario(favorite = {}, key = "next7d") {
     - (key === "next1mo" ? 6 : 0);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
-  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}`, key, confidenceScore, lifetimeBias });
+  let projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}`, key, confidenceScore, lifetimeBias });
+  if (key === "next1mo") {
+    const sevenDayScenario = projectedSevenDayScenario(favorite);
+    projectedPrices = graftProjectionOpening(projectedPrices, sevenDayScenario.projectedPrices, 7 / 30);
+  }
   const cards = key === "next1mo"
     ? [
-        { label: "7-Day", price: scenarioPriceAtRatio(projectedPrices, 7 / 30), change: interpolateWindowChange(0, projectedChange, 7 / 30) ?? 0 },
-        { label: "14-Day", price: scenarioPriceAtRatio(projectedPrices, 14 / 30), change: interpolateWindowChange(0, projectedChange, 14 / 30) ?? 0 },
+        { label: "7-Day", price: scenarioPriceAtRatio(projectedPrices, 7 / 30), change: scenarioChangeAtRatio(projectedPrices, 7 / 30) },
+        { label: "14-Day", price: scenarioPriceAtRatio(projectedPrices, 14 / 30), change: scenarioChangeAtRatio(projectedPrices, 14 / 30) },
         { label: "1-Month", price: scenarioPriceAtRatio(projectedPrices, 1), change: projectedChange },
       ]
     : [
-        { label: "6-Hour", price: scenarioPriceAtRatio(projectedPrices, 0.25), change: interpolateWindowChange(0, projectedChange, 0.25) ?? 0 },
-        { label: "12-Hour", price: scenarioPriceAtRatio(projectedPrices, 0.5), change: interpolateWindowChange(0, projectedChange, 0.5) ?? 0 },
+        { label: "6-Hour", price: scenarioPriceAtRatio(projectedPrices, 0.25), change: scenarioChangeAtRatio(projectedPrices, 0.25) },
+        { label: "12-Hour", price: scenarioPriceAtRatio(projectedPrices, 0.5), change: scenarioChangeAtRatio(projectedPrices, 0.5) },
         { label: "24-Hour", price: scenarioPriceAtRatio(projectedPrices, 1), change: projectedChange },
       ];
 
@@ -10228,6 +10232,40 @@ function scenarioPriceAtRatio(projectedPrices = [], ratio = 1) {
   if (!series.length) return null;
   const index = Math.round(clamp(ratio, 0, 1) * (series.length - 1));
   return series[index] || null;
+}
+
+function scenarioChangeAtRatio(projectedPrices = [], ratio = 1) {
+  const series = normalizePriceSeries(projectedPrices);
+  const start = series[0];
+  const price = scenarioPriceAtRatio(series, ratio);
+  if (!start || !price) return 0;
+  return roundTo(((price - start) / start) * 100, 2);
+}
+
+function graftProjectionOpening(longerProjection = [], openingProjection = [], openingRatio = 0.15) {
+  const longer = normalizePriceSeries(longerProjection);
+  const opening = normalizePriceSeries(openingProjection);
+  if (longer.length < 8 || opening.length < 4) return longer;
+  const lastIndex = longer.length - 1;
+  const openingCount = Math.max(4, Math.min(lastIndex - 2, Math.round(lastIndex * clamp(openingRatio, 0.05, 0.7)) + 1));
+  const sampledOpening = samplePriceSeries(opening, openingCount);
+  if (sampledOpening.length < 4) return longer;
+  const merged = longer.slice();
+  for (let index = 0; index < openingCount; index += 1) {
+    merged[index] = sampledOpening[index];
+  }
+
+  const bridgeStart = openingCount;
+  const bridgeCount = Math.min(Math.max(8, Math.round(longer.length * 0.08)), lastIndex - bridgeStart);
+  const offset = sampledOpening.at(-1) - (longer[openingCount - 1] || sampledOpening.at(-1));
+  for (let index = bridgeStart; index < Math.min(lastIndex, bridgeStart + bridgeCount); index += 1) {
+    const t = (index - bridgeStart + 1) / bridgeCount;
+    const fade = 1 - (t * t * (3 - 2 * t));
+    merged[index] = Math.max(0.0000001, longer[index] + offset * fade);
+  }
+  merged[0] = sampledOpening[0];
+  merged[lastIndex] = longer[lastIndex];
+  return merged;
 }
 
 function projectedSevenDayScenario(favorite = {}) {
@@ -10257,11 +10295,16 @@ function projectedSevenDayScenario(favorite = {}) {
     + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
-  const projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker, key: "next7d", confidenceScore, lifetimeBias });
+  const next24hScenario = projectedPulseScenario(favorite, "next24h");
+  const projectedPrices = graftProjectionOpening(
+    buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: favorite.ticker, key: "next7d", confidenceScore, lifetimeBias }),
+    next24hScenario.projectedPrices,
+    1 / 7,
+  );
   const currentPrice = series.at(-1) || finiteOrNull(favorite.currentPrice) || null;
-  const oneDayChange = interpolateWindowChange(0, projectedChange, 1 / 7) ?? 0;
-  const threeDayChange = interpolateWindowChange(0, projectedChange, 3 / 7) ?? 0;
-  const fiveDayChange = interpolateWindowChange(0, projectedChange, 5 / 7) ?? 0;
+  const oneDayChange = scenarioChangeAtRatio(projectedPrices, 1 / 7);
+  const threeDayChange = scenarioChangeAtRatio(projectedPrices, 3 / 7);
+  const fiveDayChange = scenarioChangeAtRatio(projectedPrices, 5 / 7);
   return {
     sourcePrices: series,
     projectedPrices,
@@ -10631,11 +10674,11 @@ function makeProjectedPulseChart(scenario = {}) {
         <rect x="${nowX.toFixed(1)}" y="${padTop}" width="${(futureEnd - nowX).toFixed(1)}" height="${chartHeight}" fill="#f1f5f9" opacity="0.78"></rect>
         ${gridLines}
         <path d="${actualArea}" fill="${color}" opacity="0.11"></path>
-        <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path>
-        <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
         <line x1="${nowX.toFixed(1)}" y1="${padTop}" x2="${nowX.toFixed(1)}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 6"></line>
-        <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4.6" fill="#fff" stroke="${color}" stroke-width="3"></circle>
-        <circle cx="${terminalX.toFixed(1)}" cy="${terminalY.toFixed(1)}" r="4.8" fill="#fff" stroke="${projectedColor}" stroke-width="2.6"></circle>
+        <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4.1" fill="#fff" stroke="${color}" stroke-width="2.35"></circle>
+        <circle cx="${terminalX.toFixed(1)}" cy="${terminalY.toFixed(1)}" r="4.2" fill="#fff" stroke="${projectedColor}" stroke-width="2.1"></circle>
       </svg>
     </div>
   `;
@@ -10673,7 +10716,7 @@ function makeSparkline(prices, change, windowLabel = "24h") {
     const color = "#697386";
     return `
       <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Market chart unavailable">
-        <path d="M ${pad} ${y} L ${width - pad} ${y}" fill="none" stroke="${color}" stroke-width="3" stroke-dasharray="7 7"></path>
+        <path d="M ${pad} ${y} L ${width - pad} ${y}" fill="none" stroke="${color}" stroke-width="2.1" stroke-dasharray="7 7"></path>
         <circle cx="${width - pad}" cy="${y}" r="4" fill="${color}"></circle>
       </svg>
     `;
@@ -10693,7 +10736,7 @@ function makeSparkline(prices, change, windowLabel = "24h") {
   return `
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(windowLabel)} sparkline">
       <path d="${area}" fill="${color}" opacity="0.12"></path>
-      <path d="${line}" fill="none" stroke="${color}" stroke-width="3"></path>
+      <path d="${line}" fill="none" stroke="${color}" stroke-width="2.2"></path>
       <circle cx="${points.at(-1)[0].toFixed(1)}" cy="${points.at(-1)[1].toFixed(1)}" r="4" fill="${color}"></circle>
     </svg>
   `;

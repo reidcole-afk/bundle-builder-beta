@@ -33,6 +33,10 @@ const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://ap
 const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 5);
 const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 30);
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
+const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
+const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 5);
+const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 20);
+const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 3);
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
 const pulseSnapshotRepository = createPulseSnapshotRepository();
@@ -71,6 +75,20 @@ const coingeckoChartPreloadState = {
   lastResult: null,
 };
 let coingeckoChartPreloadTimer = null;
+let pulseCollectorTimer = null;
+const pulseCollectorState = {
+  enabled: PULSE_COLLECTOR_ENABLED,
+  running: false,
+  intervalMs: PULSE_COLLECTOR_INTERVAL_MS,
+  deckSize: PULSE_COLLECTOR_DECK_SIZE,
+  cycle: 0,
+  lastStartedAt: null,
+  lastCompletedAt: null,
+  lastError: null,
+  lastSnapshotAt: null,
+  lastSnapshotId: null,
+  lastCoins: [],
+};
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
 const catalystCache = new Map();
@@ -182,6 +200,7 @@ async function handleRequest(request, response) {
           idCount: COINGECKO_CHART_PRELOAD_IDS.length,
           dayWindows: COINGECKO_CHART_PRELOAD_DAYS,
         },
+        pulseBackgroundCollector: pulseCollectorState,
         homepage: {
           enabled: true,
           publicDirExists: fs.existsSync(PUBLIC_DIR),
@@ -442,6 +461,17 @@ async function handleRequest(request, response) {
       sendJson(response, 200, {
         ok: true,
         storage: pulseSnapshotRepository.descriptor(),
+        collector: pulseCollectorState,
+        accuracy: pulseSnapshotRepository.accuracySummary(),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/v1/pulse-collector/status") {
+      sendJson(response, 200, {
+        ok: true,
+        collector: pulseCollectorState,
+        storage: pulseSnapshotRepository.descriptor(),
         accuracy: pulseSnapshotRepository.accuracySummary(),
       });
       return;
@@ -550,7 +580,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/pulse-collector/status", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -565,6 +595,7 @@ function startServer(serverInstance = server) {
   serverInstance.listen(PORT, HOST, () => {
     console.log(`Bundle Builder API listening on http://${HOST}:${PORT}`);
     startCoinGeckoChartPreloader();
+    startPulseSnapshotCollector();
   });
 }
 
@@ -1311,6 +1342,230 @@ async function runCoinGeckoChartPreloadCycle(trigger = "manual") {
   } finally {
     coingeckoChartPreloadState.running = false;
   }
+}
+
+const pulseCollectorWatchlist = [
+  { ticker: "AERO", name: "Aerodrome Finance", theme: "base", baseScore: 59 },
+  { ticker: "VIRTUAL", name: "Virtuals Protocol", theme: "ai", baseScore: 64 },
+  { ticker: "MORPHO", name: "Morpho", theme: "defi", baseScore: 60 },
+  { ticker: "DEGEN", name: "Degen", theme: "base", baseScore: 52 },
+  { ticker: "TOSHI", name: "Toshi", theme: "base", baseScore: 51 },
+  { ticker: "ZRO", name: "LayerZero", theme: "core", baseScore: 56 },
+  { ticker: "BRETT", name: "Brett", theme: "base", baseScore: 53 },
+  { ticker: "AIXBT", name: "AIXBT", theme: "ai", baseScore: 60 },
+  { ticker: "KAITO", name: "Kaito", theme: "ai", baseScore: 57 },
+  { ticker: "ZORA", name: "Zora", theme: "base", baseScore: 55 },
+];
+
+function startPulseSnapshotCollector() {
+  if (!PULSE_COLLECTOR_ENABLED || pulseCollectorTimer) return;
+  setTimeout(() => {
+    runPulseSnapshotCollector("startup").catch((error) => {
+      pulseCollectorState.lastError = error.message || "Pulse collector startup failed";
+    });
+  }, PULSE_COLLECTOR_STARTUP_DELAY_MS).unref?.();
+  pulseCollectorTimer = setInterval(() => {
+    runPulseSnapshotCollector("interval").catch((error) => {
+      pulseCollectorState.lastError = error.message || "Pulse collector interval failed";
+    });
+  }, PULSE_COLLECTOR_INTERVAL_MS);
+  pulseCollectorTimer.unref?.();
+}
+
+async function runPulseSnapshotCollector(trigger = "manual") {
+  if (pulseCollectorState.running) {
+    pulseCollectorState.lastError = "Previous pulse collector cycle is still running";
+    return null;
+  }
+  pulseCollectorState.running = true;
+  pulseCollectorState.cycle += 1;
+  pulseCollectorState.lastStartedAt = new Date().toISOString();
+  pulseCollectorState.lastError = null;
+
+  try {
+    const candidates = [];
+    for (const meta of pulseCollectorWatchlist) {
+      try {
+        const market = await fetchPulseCollectorMarket(meta);
+        if (!market || !Number.isFinite(market.priceUsd)) continue;
+        if ((market.volume24h || 0) < 50_000 || (market.liquidityUsd || 0) < 75_000) continue;
+        candidates.push(scorePulseCollectorCandidate(meta, market));
+      } catch (error) {
+        pulseCollectorState.lastError = `${meta.ticker}: ${error.message || "market lookup failed"}`;
+      }
+      await wait(175);
+    }
+
+    const ranked = candidates
+      .sort((a, b) => b.pulseScore - a.pulseScore)
+      .slice(0, PULSE_COLLECTOR_DECK_SIZE)
+      .map(pulseCollectorSnapshotCoin);
+
+    if (!ranked.length) throw new Error("Pulse collector found no eligible Base candidates");
+
+    const snapshot = pulseSnapshotRepository.saveSnapshot({
+      source: "server-background-pulse",
+      network: "Base",
+      selectedWindow: "24h",
+      selectedReadWindow: "7d",
+      coins: ranked,
+    });
+
+    pulseCollectorState.lastSnapshotAt = snapshot.createdAt;
+    pulseCollectorState.lastSnapshotId = snapshot.id;
+    pulseCollectorState.lastCoins = snapshot.coins.map((coin) => coin.ticker);
+    pulseCollectorState.lastCompletedAt = new Date().toISOString();
+    return { trigger, snapshotId: snapshot.id, coins: pulseCollectorState.lastCoins };
+  } catch (error) {
+    pulseCollectorState.lastError = error.message || "Pulse collector failed";
+    throw error;
+  } finally {
+    pulseCollectorState.running = false;
+  }
+}
+
+async function fetchPulseCollectorMarket(meta) {
+  const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(meta.ticker)}`;
+  const payload = await fetchJsonWithTimeout(url, MARKET_CHART_TIMEOUT_MS);
+  const ticker = String(meta.ticker || "").toUpperCase();
+  const pairs = Array.isArray(payload?.pairs) ? payload.pairs : [];
+  const matches = pairs
+    .filter((pair) => String(pair.chainId || "").toLowerCase() === "base")
+    .filter((pair) => String(pair.baseToken?.symbol || "").toUpperCase() === ticker)
+    .map((pair) => ({
+      ticker,
+      name: safeText(pair.baseToken?.name || meta.name, 80),
+      priceUsd: finiteNumber(pair.priceUsd),
+      priceChange24h: finiteNumber(pair.priceChange?.h24) || 0,
+      volume24h: finiteNumber(pair.volume?.h24) || 0,
+      liquidityUsd: finiteNumber(pair.liquidity?.usd) || 0,
+      buys24h: finiteNumber(pair.txns?.h24?.buys) || 0,
+      sells24h: finiteNumber(pair.txns?.h24?.sells) || 0,
+      pairAddress: safeText(pair.pairAddress, 80),
+      url: safeText(pair.url, 240),
+    }))
+    .filter((pair) => Number.isFinite(pair.priceUsd) && pair.priceUsd > 0)
+    .sort((a, b) => (b.liquidityUsd + b.volume24h * 0.35) - (a.liquidityUsd + a.volume24h * 0.35));
+  return matches[0] || null;
+}
+
+function scorePulseCollectorCandidate(meta, market) {
+  const volumeScore = Math.min(18, Math.log10(Math.max(1, market.volume24h)) * 3);
+  const liquidityScore = Math.min(18, Math.log10(Math.max(1, market.liquidityUsd)) * 2.5);
+  const momentumScore = Math.max(-18, Math.min(18, market.priceChange24h * 1.2));
+  const txnTotal = market.buys24h + market.sells24h;
+  const buyRatio = txnTotal ? market.buys24h / txnTotal : 0.5;
+  const flowScore = (buyRatio - 0.5) * 18;
+  const pulseScore = Number((meta.baseScore + volumeScore + liquidityScore + momentumScore + flowScore).toFixed(2));
+  return {
+    ...meta,
+    ...market,
+    pulseScore,
+    setupScore: Math.max(1, Math.min(10, pulseScore / 10)),
+    dataEdge: Math.round(volumeScore + liquidityScore + flowScore),
+  };
+}
+
+function pulseCollectorSnapshotCoin(candidate, index) {
+  const projected24hChange = projectedCollectorChange(candidate, "24h");
+  const projected7dChange = projectedCollectorChange(candidate, "7d");
+  const projected30dChange = projectedCollectorChange(candidate, "30d");
+  const projection24h = buildCollectorProjection(candidate.priceUsd, projected24hChange, candidate, "24h");
+  const projection7d = graftCollectorProjectionOpening(
+    buildCollectorProjection(candidate.priceUsd, projected7dChange, candidate, "7d"),
+    projection24h,
+    1 / 7,
+  );
+  const projection30d = graftCollectorProjectionOpening(
+    buildCollectorProjection(candidate.priceUsd, projected30dChange, candidate, "30d"),
+    projection7d,
+    7 / 30,
+  );
+  return {
+    ticker: candidate.ticker,
+    name: candidate.name,
+    rank: index + 1,
+    source: "Server DEX Screener",
+    network: "Base",
+    priceUsd: candidate.priceUsd,
+    volume24h: candidate.volume24h,
+    liquidityUsd: candidate.liquidityUsd,
+    change24h: candidate.priceChange24h,
+    setupScore: Number(candidate.setupScore.toFixed(1)),
+    dataEdge: candidate.dataEdge,
+    pulseScore: candidate.pulseScore,
+    projected24hChange,
+    projected7dChange,
+    projected30dChange,
+    projected24hPath: projection24h,
+    projected7dPath: projection7d,
+    projected30dPath: projection30d,
+    pairAddress: candidate.pairAddress,
+  };
+}
+
+function projectedCollectorChange(candidate, key) {
+  const horizon = key === "30d" ? 4.2 : key === "7d" ? 2.2 : 0.75;
+  const reliability = Math.min(1.25, Math.max(0.45, (Math.log10(Math.max(1, candidate.volume24h)) + Math.log10(Math.max(1, candidate.liquidityUsd))) / 12));
+  const trend = Math.max(-10, Math.min(10, candidate.priceChange24h));
+  const setupBias = (candidate.setupScore - 5) * 0.7;
+  const scoreBias = (candidate.pulseScore - 70) * 0.04;
+  return Number(((trend * 0.28 + setupBias + scoreBias) * horizon * reliability).toFixed(2));
+}
+
+function buildCollectorProjection(startPrice, projectedChange, candidate, key) {
+  const pointCount = key === "30d" ? 64 : key === "7d" ? 48 : 36;
+  const seed = projectionSeed(`${candidate.ticker}:${candidate.pulseScore}:${candidate.priceChange24h}:${key}`);
+  const endPrice = startPrice * (1 + projectedChange / 100);
+  const amplitude = Math.max(startPrice * 0.006, startPrice * Math.min(0.09, Math.abs(candidate.priceChange24h || projectedChange) / 100 * 0.75));
+  const points = [];
+  for (let index = 0; index < pointCount; index += 1) {
+    const progress = pointCount === 1 ? 1 : index / (pointCount - 1);
+    const base = startPrice + (endPrice - startPrice) * progress;
+    const wobble = Math.sin((progress * 4.8 + seed) * Math.PI) * amplitude * 0.55
+      + Math.sin((progress * 15.5 + seed * 1.7) * Math.PI) * amplitude * 0.22;
+    const fade = Math.sin(progress * Math.PI);
+    points.push(Number(Math.max(0.00000001, base + wobble * fade).toFixed(10)));
+  }
+  points[0] = Number(startPrice.toFixed(10));
+  points[points.length - 1] = Number(endPrice.toFixed(10));
+  return points;
+}
+
+function graftCollectorProjectionOpening(longerProjection, openingProjection, ratio) {
+  if (!Array.isArray(longerProjection) || !Array.isArray(openingProjection)) return longerProjection || [];
+  const output = [...longerProjection];
+  const openingCount = Math.max(2, Math.min(output.length, Math.round(output.length * ratio)));
+  const sampledOpening = sampleNumericSeries(openingProjection, openingCount);
+  const firstLong = output[0];
+  const lastOpening = sampledOpening.at(-1);
+  const targetAtJoin = output[openingCount - 1] || lastOpening || firstLong;
+  const adjustment = Number.isFinite(lastOpening) ? targetAtJoin - lastOpening : 0;
+  sampledOpening.forEach((value, index) => {
+    const blend = openingCount <= 1 ? 1 : index / (openingCount - 1);
+    output[index] = Number((value + adjustment * blend).toFixed(10));
+  });
+  return output;
+}
+
+function sampleNumericSeries(values, count) {
+  if (!Array.isArray(values) || !values.length || count <= 0) return [];
+  if (count === 1) return [Number(values.at(-1))].filter(Number.isFinite);
+  return Array.from({ length: count }, (_, index) => {
+    const position = (index / (count - 1)) * (values.length - 1);
+    const lower = Math.floor(position);
+    const upper = Math.min(values.length - 1, Math.ceil(position));
+    const ratio = position - lower;
+    const lowValue = Number(values[lower]);
+    const highValue = Number(values[upper]);
+    if (!Number.isFinite(lowValue)) return Number.isFinite(highValue) ? highValue : 0;
+    if (!Number.isFinite(highValue)) return lowValue;
+    return lowValue + (highValue - lowValue) * ratio;
+  });
+}
+
+function projectionSeed(text) {
+  return String(text || "").split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) % 997 / 997;
 }
 
 async function fetchCoinGeckoChartWithRetries(id, days = "1") {

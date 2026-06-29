@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.85");
+  assert.equal(health.body.version, "0.1.88");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -22,6 +22,8 @@ global.fetch = async (url) => {
   assert.equal(health.body.catalystIntelligenceEndpoint, true);
   assert.equal(health.body.machineAccuracyEndpoint, true);
   assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
+  assert.equal(typeof health.body.pulseBackgroundCollector.enabled, "boolean");
+  assert(Number.isFinite(health.body.pulseBackgroundCollector.intervalMs));
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
   assert.equal(health.body.betaScope, "invite-only Base beta by default");
@@ -141,6 +143,7 @@ global.fetch = async (url) => {
   const machineAccuracy = await getJson("/api/v1/machine-accuracy");
   assert.equal(machineAccuracy.statusCode, 200);
   assert.equal(machineAccuracy.body.ok, true);
+  assert.equal(typeof machineAccuracy.body.collector.enabled, "boolean");
   assert.equal(machineAccuracy.body.accuracy.horizons.length, 3);
   assert.equal(machineAccuracy.body.accuracy.deepDive24h.label, "24h");
   assert(Number.isFinite(machineAccuracy.body.accuracy.deepDive24h.checked));
@@ -148,6 +151,11 @@ global.fetch = async (url) => {
   assert.equal(machineAccuracy.body.accuracy.pathAccuracy[0].label, "Next 24h");
   assert.equal(machineAccuracy.body.accuracy.partialPathAccuracy.length, 3);
   assert.equal(machineAccuracy.body.accuracy.partialPathAccuracy[0].label, "Next 24h");
+
+  const collectorStatus = await getJson("/api/v1/pulse-collector/status");
+  assert.equal(collectorStatus.statusCode, 200);
+  assert.equal(collectorStatus.body.ok, true);
+  assert.equal(typeof collectorStatus.body.collector.enabled, "boolean");
 
   const loginRequest = await postJson("/api/v1/auth/request-code", { email: "tester@example.com" });
   assert.equal(loginRequest.statusCode, 200);
