@@ -3471,6 +3471,11 @@ function computeMachineAccuracySummary(snapshots = []) {
       pulsePathAccuracyForHorizon(normalized, "Next 7d", 7 * 24 * 60 * 60 * 1000, "next7d"),
       pulsePathAccuracyForHorizon(normalized, "Next 1M", 30 * 24 * 60 * 60 * 1000, "next30d"),
     ],
+    partialPathAccuracy: [
+      pulsePartialPathAccuracyForHorizon(normalized, "Next 24h", 24 * 60 * 60 * 1000, "next24h"),
+      pulsePartialPathAccuracyForHorizon(normalized, "Next 7d", 7 * 24 * 60 * 60 * 1000, "next7d"),
+      pulsePartialPathAccuracyForHorizon(normalized, "Next 1M", 30 * 24 * 60 * 60 * 1000, "next30d"),
+    ],
   };
 }
 
@@ -3616,7 +3621,58 @@ function pulsePathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
   };
 }
 
+function pulsePartialPathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
+  const latestTime = Math.max(...snapshots.map((snapshot) => new Date(snapshot.createdAt).getTime()).filter(Number.isFinite));
+  const outcomes = [];
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime) || !Number.isFinite(latestTime) || latestTime <= startTime) return;
+    snapshot.coins.forEach((coin) => {
+      const forecastPath = Array.isArray(coin.forecastPaths?.[pathKey]) ? coin.forecastPaths[pathKey] : [];
+      if (forecastPath.length < 4) return;
+      const endTime = Math.min(latestTime, startTime + horizonMs);
+      const actualPoints = actualPulsePointsForCoin(snapshots, coin, startTime, endTime);
+      if (actualPoints.length < 2) return;
+      const elapsedRatio = clamp((actualPoints.at(-1).time - startTime) / horizonMs, 0.002, 1);
+      const forecastPointCount = Math.max(2, Math.min(forecastPath.length, Math.round((forecastPath.length - 1) * elapsedRatio) + 1));
+      const forecastSegment = samplePriceSeries(forecastPath.slice(0, forecastPointCount), actualPoints.length);
+      const actualSegment = actualPoints.map((point) => point.price);
+      const forecast = normalizePathShape(forecastSegment);
+      const actual = normalizePathShape(actualSegment);
+      if (forecast.length < 2 || actual.length < 2) return;
+      const shapeError = meanAbsolutePathError(forecast, actual);
+      const directionAgreement = pulsePathDirectionAgreement(forecast, actual);
+      const endpointError = Math.abs((forecast.at(-1) || 0) - (actual.at(-1) || 0));
+      outcomes.push({
+        ticker: coin.ticker,
+        rank: coin.rank,
+        startAt: snapshot.createdAt,
+        elapsedMinutes: Math.round((actualPoints.at(-1).time - startTime) / 60000),
+        actualPoints: actualPoints.length,
+        shapeScore: Math.round(clamp(100 - shapeError * 100, 0, 100)),
+        directionAgreement: Math.round(directionAgreement * 100),
+        endpointError: roundTo(endpointError * 100, 1),
+      });
+    });
+  });
+  return {
+    label,
+    checked: outcomes.length,
+    averageShapeScore: outcomes.length ? Math.round(averageValue(outcomes, (item) => item.shapeScore)) : null,
+    averageDirectionAgreement: outcomes.length ? Math.round(averageValue(outcomes, (item) => item.directionAgreement)) : null,
+    averageEndpointError: outcomes.length ? roundTo(averageValue(outcomes, (item) => item.endpointError), 1) : null,
+    averageElapsedMinutes: outcomes.length ? Math.round(averageValue(outcomes, (item) => item.elapsedMinutes)) : null,
+    weakest: outcomes.slice().sort((a, b) => a.shapeScore - b.shapeScore).slice(0, 5),
+    strongest: outcomes.slice().sort((a, b) => b.shapeScore - a.shapeScore).slice(0, 5),
+  };
+}
+
 function actualPulsePathForCoin(snapshots, coin, startTime, endTime, targetLength) {
+  const points = actualPulsePointsForCoin(snapshots, coin, startTime, endTime);
+  return samplePriceSeries(points.map((point) => point.price), Math.min(Math.max(targetLength, 8), 64));
+}
+
+function actualPulsePointsForCoin(snapshots, coin, startTime, endTime) {
   const points = [];
   snapshots.forEach((snapshot) => {
     const snapshotTime = new Date(snapshot.createdAt).getTime();
@@ -3630,7 +3686,7 @@ function actualPulsePathForCoin(snapshots, coin, startTime, endTime, targetLengt
   points.sort((a, b) => a.time - b.time).forEach((point) => {
     if (!uniquePoints.length || uniquePoints.at(-1).time !== point.time) uniquePoints.push(point);
   });
-  return samplePriceSeries(uniquePoints.map((point) => point.price), Math.min(Math.max(targetLength, 8), 64));
+  return uniquePoints;
 }
 
 function normalizePathShape(values = []) {
@@ -3739,6 +3795,7 @@ function renderMachineAccuracy() {
   const bestCalls = Array.isArray(deepDive.bestCalls) ? deepDive.bestCalls : [];
   const lessons = Array.isArray(deepDive.lessons) ? deepDive.lessons : [];
   const pathAccuracy = Array.isArray(summary.pathAccuracy) ? summary.pathAccuracy : [];
+  const partialPathAccuracy = Array.isArray(summary.partialPathAccuracy) ? summary.partialPathAccuracy : [];
   profileMachineAccuracy.innerHTML = `
     <div class="machine-accuracy-grid">
       <div><strong>${summary.totalSnapshots || 0}</strong><span>Pulse runs saved</span></div>
@@ -3778,6 +3835,20 @@ function renderMachineAccuracy() {
               <strong>${item.averageShapeScore === null || item.averageShapeScore === undefined ? "Collecting" : `${item.averageShapeScore}/100`}</strong>
               <span>${escapeHtml(item.label)} shape · ${Number(item.checked || 0)} checked</span>
               ${item.averageDirectionAgreement === null || item.averageDirectionAgreement === undefined ? "" : `<small>${item.averageDirectionAgreement}% move-direction match · ${formatPercent(item.averageEndpointError || 0)} endpoint miss</small>`}
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    ` : ""}
+    ${partialPathAccuracy.length ? `
+      <div class="machine-path-accuracy">
+        <b>Live path learning</b>
+        <div class="machine-path-grid">
+          ${partialPathAccuracy.map((item) => `
+            <div>
+              <strong>${item.averageShapeScore === null || item.averageShapeScore === undefined ? "Collecting" : `${item.averageShapeScore}/100`}</strong>
+              <span>${escapeHtml(item.label)} partial path · ${Number(item.checked || 0)} checked</span>
+              ${item.averageDirectionAgreement === null || item.averageDirectionAgreement === undefined ? "" : `<small>${item.averageDirectionAgreement}% move-direction match · ${formatPercent(item.averageEndpointError || 0)} endpoint miss · avg ${Number(item.averageElapsedMinutes || 0)}m watched</small>`}
             </div>
           `).join("")}
         </div>

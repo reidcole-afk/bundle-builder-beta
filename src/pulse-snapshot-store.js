@@ -179,6 +179,11 @@ function computeAccuracySummary(snapshots = []) {
       pathAccuracyForHorizon(normalized, "Next 7d", 7 * 24 * 60 * 60 * 1000, "next7d"),
       pathAccuracyForHorizon(normalized, "Next 1M", 30 * 24 * 60 * 60 * 1000, "next30d"),
     ],
+    partialPathAccuracy: [
+      partialPathAccuracyForHorizon(normalized, "Next 24h", 24 * 60 * 60 * 1000, "next24h"),
+      partialPathAccuracyForHorizon(normalized, "Next 7d", 7 * 24 * 60 * 60 * 1000, "next7d"),
+      partialPathAccuracyForHorizon(normalized, "Next 1M", 30 * 24 * 60 * 60 * 1000, "next30d"),
+    ],
   };
 }
 
@@ -328,7 +333,58 @@ function pathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
   };
 }
 
+function partialPathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
+  const latestTime = Math.max(...snapshots.map((snapshot) => new Date(snapshot.createdAt).getTime()).filter(Number.isFinite));
+  const outcomes = [];
+  snapshots.forEach((snapshot) => {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime) || !Number.isFinite(latestTime) || latestTime <= startTime) return;
+    snapshot.coins.forEach((coin) => {
+      const forecastPath = Array.isArray(coin.forecastPaths?.[pathKey]) ? coin.forecastPaths[pathKey] : [];
+      if (forecastPath.length < 4) return;
+      const endTime = Math.min(latestTime, startTime + horizonMs);
+      const actualPoints = actualPointsForCoin(snapshots, coin, startTime, endTime);
+      if (actualPoints.length < 2) return;
+      const elapsedRatio = clamp((actualPoints.at(-1).time - startTime) / horizonMs, 0.002, 1);
+      const forecastPointCount = Math.max(2, Math.min(forecastPath.length, Math.round((forecastPath.length - 1) * elapsedRatio) + 1));
+      const forecastSegment = resampleValues(forecastPath.slice(0, forecastPointCount), actualPoints.length);
+      const actualSegment = actualPoints.map((point) => point.price);
+      const forecast = normalizePathShape(forecastSegment);
+      const actual = normalizePathShape(actualSegment);
+      if (forecast.length < 2 || actual.length < 2) return;
+      const shapeError = meanAbsolutePathError(forecast, actual);
+      const directionAgreement = pathDirectionAgreement(forecast, actual);
+      const endpointError = Math.abs((forecast.at(-1) || 0) - (actual.at(-1) || 0));
+      outcomes.push({
+        ticker: coin.ticker,
+        rank: coin.rank,
+        startAt: snapshot.createdAt,
+        elapsedMinutes: Math.round((actualPoints.at(-1).time - startTime) / 60000),
+        actualPoints: actualPoints.length,
+        shapeScore: Math.round(clamp(100 - shapeError * 100, 0, 100)),
+        directionAgreement: Math.round(directionAgreement * 100),
+        endpointError: roundTo(endpointError * 100, 1),
+      });
+    });
+  });
+  return {
+    label,
+    checked: outcomes.length,
+    averageShapeScore: outcomes.length ? Math.round(average(outcomes, (item) => item.shapeScore)) : null,
+    averageDirectionAgreement: outcomes.length ? Math.round(average(outcomes, (item) => item.directionAgreement)) : null,
+    averageEndpointError: outcomes.length ? roundTo(average(outcomes, (item) => item.endpointError), 1) : null,
+    averageElapsedMinutes: outcomes.length ? Math.round(average(outcomes, (item) => item.elapsedMinutes)) : null,
+    weakest: outcomes.slice().sort((a, b) => a.shapeScore - b.shapeScore).slice(0, 5),
+    strongest: outcomes.slice().sort((a, b) => b.shapeScore - a.shapeScore).slice(0, 5),
+  };
+}
+
 function actualPathForCoin(snapshots, coin, startTime, endTime, targetLength) {
+  const points = actualPointsForCoin(snapshots, coin, startTime, endTime);
+  return resampleValues(points.map((point) => point.price), Math.min(Math.max(targetLength, 8), 80));
+}
+
+function actualPointsForCoin(snapshots, coin, startTime, endTime) {
   const points = [];
   snapshots.forEach((snapshot) => {
     const snapshotTime = new Date(snapshot.createdAt).getTime();
@@ -342,7 +398,7 @@ function actualPathForCoin(snapshots, coin, startTime, endTime, targetLength) {
   points.sort((a, b) => a.time - b.time).forEach((point) => {
     if (!uniquePoints.length || uniquePoints.at(-1).time !== point.time) uniquePoints.push(point);
   });
-  return resampleValues(uniquePoints.map((point) => point.price), Math.min(Math.max(targetLength, 8), 80));
+  return uniquePoints;
 }
 
 function normalizePathShape(values = []) {
