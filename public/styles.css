@@ -787,31 +787,6 @@ svg {
   stroke-linejoin: round;
 }
 
-.pulse-edge-chip {
-  background: #eef6f0 !important;
-  color: #1f6f4e !important;
-}
-
-.pulse-setup-chip {
-  background: #f7f2e8 !important;
-  color: #75521b !important;
-}
-
-.pulse-setup-chip.strong {
-  background: #eef6f0 !important;
-  color: #1f6f4e !important;
-}
-
-.pulse-setup-chip.caution {
-  background: #fff3e0 !important;
-  color: #8a5600 !important;
-}
-
-.pulse-setup-chip.weak {
-  background: #faece9 !important;
-  color: #974033 !important;
-}
-
 .pulse-header {
   display: flex;
   align-items: start;

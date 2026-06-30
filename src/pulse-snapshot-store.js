@@ -314,7 +314,7 @@ function pathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
         ticker: coin.ticker,
         rank: coin.rank,
         startAt: snapshot.createdAt,
-        shapeScore: Math.round(clamp(100 - shapeError * 100, 0, 100)),
+        shapeScore: strictPathScore(forecast, actual, shapeError, directionAgreement, endpointError),
         directionAgreement: Math.round(directionAgreement * 100),
         endpointError: roundTo(endpointError * 100, 1),
       });
@@ -361,7 +361,7 @@ function partialPathAccuracyForHorizon(snapshots, label, horizonMs, pathKey) {
         startAt: snapshot.createdAt,
         elapsedMinutes: Math.round((actualPoints.at(-1).time - startTime) / 60000),
         actualPoints: actualPoints.length,
-        shapeScore: Math.round(clamp(100 - shapeError * 100, 0, 100)),
+        shapeScore: strictPathScore(forecast, actual, shapeError, directionAgreement, endpointError),
         directionAgreement: Math.round(directionAgreement * 100),
         endpointError: roundTo(endpointError * 100, 1),
       });
@@ -432,6 +432,21 @@ function pathDirectionAgreement(a = [], b = []) {
     if ((da >= 0 && db >= 0) || (da < 0 && db < 0)) matches += 1;
   }
   return checks ? matches / checks : 0;
+}
+
+function strictPathScore(forecast = [], actual = [], shapeError = 0, directionAgreement = 0, endpointError = 0) {
+  const forecastEnd = forecast.at(-1) || 0;
+  const actualEnd = actual.at(-1) || 0;
+  const bothFlat = Math.abs(forecastEnd) < 0.003 && Math.abs(actualEnd) < 0.003;
+  const finalDirectionMatches = bothFlat || (forecastEnd >= 0 && actualEnd >= 0) || (forecastEnd < 0 && actualEnd < 0);
+  const shapeScore = clamp(100 - shapeError * 180, 0, 100);
+  const directionScore = clamp(directionAgreement * 100, 0, 100);
+  const endpointScore = clamp(100 - endpointError * 250, 0, 100);
+  let score = shapeScore * 0.4 + directionScore * 0.35 + endpointScore * 0.2 + (finalDirectionMatches ? 5 : 0);
+  if (!finalDirectionMatches) score = Math.min(score, 65);
+  if (directionScore < 45) score = Math.min(score, 70);
+  if (directionScore < 55) score = Math.min(score, 80);
+  return Math.round(clamp(score, 0, 100));
 }
 
 function resampleValues(values = [], targetLength = 32) {
