@@ -3618,6 +3618,53 @@ input[type="range"] {
   background: var(--panel);
 }
 
+.machine-accuracy-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.machine-export-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(13, 107, 115, 0.24);
+  border-radius: 7px;
+  background: rgba(223, 247, 242, 0.62);
+  color: var(--teal);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.machine-export-link:hover,
+.machine-export-link:focus-visible {
+  border-color: rgba(13, 107, 115, 0.42);
+  background: rgba(210, 244, 238, 0.92);
+  outline: none;
+}
+
+.machine-storage-warning {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid rgba(196, 76, 64, 0.28);
+  border-radius: 7px;
+  background: rgba(255, 244, 241, 0.9);
+}
+
+.machine-storage-warning b {
+  color: #8c2f25;
+  font-size: 0.82rem;
+}
+
+.machine-storage-warning span {
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .machine-accuracy-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

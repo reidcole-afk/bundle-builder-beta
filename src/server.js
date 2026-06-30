@@ -222,6 +222,19 @@ async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/v1/pulse-snapshots/export") {
+      const limit = clampInteger(url.searchParams.get("limit"), 1, 6000, 6000);
+      const exportData = pulseSnapshotRepository.exportData({ limit });
+      const fileDate = new Date().toISOString().slice(0, 10);
+      response.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="bundle-builder-pulse-snapshots-${fileDate}.json"`,
+        "Cache-Control": "no-store",
+      });
+      response.end(JSON.stringify(exportData, null, 2));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/v1/market-chart") {
       try {
         const chart = await getNormalizedMarketChart({
@@ -580,7 +593,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/pulse-collector/status", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
     });
   } catch (error) {
     sendJson(response, 500, {

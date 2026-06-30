@@ -13,15 +13,7 @@ const MAX_COINS_PER_SNAPSHOT = 20;
 function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } = {}) {
   return {
     descriptor() {
-      const configured = Boolean(process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_FILE || process.env.BUNDLE_BUILDER_DATA_DIR);
-      return {
-        mode: configured ? "configured-file" : "ephemeral-file",
-        durable: configured,
-        kind: "bundle-builder-pulse-snapshot-repository",
-        note: configured
-          ? "Market pulse snapshots are stored in the configured prototype data file."
-          : "Market pulse snapshots are stored on the server filesystem for beta testing and may reset on redeploys.",
-      };
+      return storageDescriptor(filePath);
     },
     saveSnapshot(input = {}) {
       const store = readStore(filePath);
@@ -48,6 +40,19 @@ function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } 
     },
     accuracySummary() {
       return computeAccuracySummary(readStore(filePath).snapshots);
+    },
+    exportData({ limit = MAX_SNAPSHOTS } = {}) {
+      const store = readStore(filePath);
+      const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, MAX_SNAPSHOTS);
+      const snapshots = store.snapshots.slice(-boundedLimit);
+      return {
+        ok: true,
+        exportedAt: new Date().toISOString(),
+        count: snapshots.length,
+        storage: storageDescriptor(filePath),
+        accuracy: computeAccuracySummary(store.snapshots),
+        snapshots,
+      };
     },
   };
 }
@@ -81,14 +86,101 @@ function readStore(filePath) {
   try {
     return normalizeStore(JSON.parse(fs.readFileSync(filePath, "utf8")));
   } catch (error) {
+    const backup = readBackupStore(filePath);
+    if (backup) {
+      writeJsonFile(filePath, backup);
+      return backup;
+    }
     if (error.code === "ENOENT") return normalizeStore({});
     throw error;
   }
 }
 
 function writeStore(filePath, store) {
+  const normalized = normalizeStore(store);
+  writeJsonFile(filePath, normalized);
+  writeJsonFile(backupPathFor(filePath), normalized);
+}
+
+function readBackupStore(filePath) {
+  try {
+    return normalizeStore(JSON.parse(fs.readFileSync(backupPathFor(filePath), "utf8")));
+  } catch {
+    return null;
+  }
+}
+
+function writeJsonFile(filePath, store) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(normalizeStore(store), null, 2));
+  const tempPath = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(normalizeStore(store), null, 2));
+  fs.renameSync(tempPath, filePath);
+}
+
+function backupPathFor(filePath) {
+  if (filePath === PULSE_SNAPSHOT_STORE_PATH && process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_BACKUP_FILE) {
+    return path.resolve(process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_BACKUP_FILE);
+  }
+  return `${filePath}.backup`;
+}
+
+function storageDescriptor(filePath) {
+  const configured = Boolean(process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_FILE || process.env.BUNDLE_BUILDER_DATA_DIR);
+  const backupPath = backupPathFor(filePath);
+  const status = storageStatus(filePath, backupPath, configured);
+  return {
+    mode: configured ? "configured-file" : "ephemeral-file",
+    durable: configured && !status.usesTmp && status.writable,
+    kind: "bundle-builder-pulse-snapshot-repository",
+    configured,
+    path: filePath,
+    directory: path.dirname(filePath),
+    backupPath,
+    fileExists: status.fileExists,
+    backupExists: status.backupExists,
+    snapshotCount: status.snapshotCount,
+    writable: status.writable,
+    usesTmp: status.usesTmp,
+    warning: status.warning,
+    note: configured
+      ? "Market pulse snapshots are stored in the configured prototype data file."
+      : "Market pulse snapshots are stored on the server filesystem for beta testing and may reset on redeploys.",
+  };
+}
+
+function storageStatus(filePath, backupPath, configured) {
+  const directory = path.dirname(filePath);
+  const usesTmp = path.resolve(filePath).startsWith(path.resolve(os.tmpdir()));
+  const fileExists = fs.existsSync(filePath);
+  const backupExists = fs.existsSync(backupPath);
+  let snapshotCount = 0;
+  try {
+    snapshotCount = normalizeStore(JSON.parse(fs.readFileSync(filePath, "utf8"))).snapshots.length;
+  } catch {
+    try {
+      snapshotCount = normalizeStore(JSON.parse(fs.readFileSync(backupPath, "utf8"))).snapshots.length;
+    } catch {
+      snapshotCount = 0;
+    }
+  }
+  const writable = canWriteDirectory(directory);
+  let warning = "";
+  if (!configured) warning = "Snapshot storage is not configured to a durable data path, so redeploys may reset machine memory.";
+  else if (usesTmp) warning = "Snapshot storage points at a temporary directory. Use the Render disk path for durable machine memory.";
+  else if (!writable) warning = "Snapshot storage directory is not writable. The machine cannot reliably save new learning data.";
+  return { fileExists, backupExists, snapshotCount, writable, usesTmp, warning };
+}
+
+function canWriteDirectory(directory) {
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+    const testPath = path.join(directory, `.bundle-builder-write-test-${process.pid}`);
+    fs.writeFileSync(testPath, "ok");
+    fs.unlinkSync(testPath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeStore(input = {}) {

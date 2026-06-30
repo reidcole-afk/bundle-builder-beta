@@ -987,6 +987,7 @@ let marketPulseReady = false;
 let selectedPulseWindow = "24h";
 let selectedPulseReadWindow = "7d";
 let machineAccuracySummary = null;
+let machineAccuracyStorage = null;
 let binanceTickerCache = null;
 let coinbaseStatsCache = new Map();
 let cryptoCompareStatsCache = null;
@@ -3401,6 +3402,7 @@ async function logPulseSnapshot(favorites = currentFavorites, { attempt = 0, rea
     const data = await response.json().catch(() => ({}));
     if (response.ok && data.accuracy) {
       machineAccuracySummary = data.accuracy;
+      if (data.storage) machineAccuracyStorage = data.storage;
       renderMachineAccuracy();
     }
   } catch {
@@ -3440,7 +3442,10 @@ async function loadMachineAccuracySummary() {
   try {
     const response = await fetch("/api/v1/machine-accuracy", { headers: { accept: "application/json" } });
     const data = await response.json().catch(() => ({}));
-    if (response.ok && data.accuracy) machineAccuracySummary = data.accuracy;
+    if (response.ok && data.accuracy) {
+      machineAccuracySummary = data.accuracy;
+      if (data.storage) machineAccuracyStorage = data.storage;
+    }
   } catch {
     machineAccuracySummary = computeMachineAccuracySummary(readPulseSnapshots());
   }
@@ -3798,6 +3803,7 @@ function summarizePulseSnapshotCoins(snapshots = []) {
 function renderMachineAccuracy() {
   if (!profileMachineAccuracy) return;
   const summary = machineAccuracySummary || computeMachineAccuracySummary(readPulseSnapshots());
+  const storage = machineAccuracyStorage || {};
   const horizons = Array.isArray(summary.horizons) ? summary.horizons : [];
   const latestCoins = Array.isArray(summary.latestRunCoins) ? summary.latestRunCoins : [];
   const topCoins = Array.isArray(summary.topCoinsBySnapshots) ? summary.topCoinsBySnapshots : [];
@@ -3807,7 +3813,23 @@ function renderMachineAccuracy() {
   const lessons = Array.isArray(deepDive.lessons) ? deepDive.lessons : [];
   const pathAccuracy = Array.isArray(summary.pathAccuracy) ? summary.pathAccuracy : [];
   const partialPathAccuracy = Array.isArray(summary.partialPathAccuracy) ? summary.partialPathAccuracy : [];
+  const storageWarning = storage.warning ? `
+    <div class="machine-storage-warning">
+      <b>Storage check</b>
+      <span>${escapeHtml(storage.warning)}</span>
+    </div>
+  ` : "";
+  const storageDetail = storage.path ? `
+    <small>Storage: ${escapeHtml(storage.path)}${storage.backupPath ? ` · Backup: ${escapeHtml(storage.backupPath)}` : ""}</small>
+  ` : "";
+  const exportAction = window.location.protocol === "file:" ? "" : `
+    <div class="machine-accuracy-actions">
+      <a class="machine-export-link" href="/api/v1/pulse-snapshots/export" target="_blank" rel="noopener">Export snapshot backup</a>
+    </div>
+  `;
   profileMachineAccuracy.innerHTML = `
+    ${exportAction}
+    ${storageWarning}
     <div class="machine-accuracy-grid">
       <div><strong>${summary.totalSnapshots || 0}</strong><span>Pulse runs saved</span></div>
       ${horizons.map((item) => `
@@ -3867,6 +3889,7 @@ function renderMachineAccuracy() {
     ` : ""}
     ${latestCoins.length ? `<small>Latest saved: ${escapeHtml(latestCoins.map((coin) => coin.ticker).join(", "))}${summary.latestSnapshotAt ? ` · ${escapeHtml(formatDateTime(summary.latestSnapshotAt))}` : ""}</small>` : ""}
     ${topCoins.length ? `<small>Most tracked: ${escapeHtml(topCoins.map((coin) => `${coin.ticker} (${coin.count})`).join(", "))}</small>` : ""}
+    ${storageDetail}
   `;
 }
 
