@@ -228,7 +228,7 @@ async function handleRequest(request, response) {
 
     if (request.method === "GET" && url.pathname === "/api/v1/pulse-snapshots/export") {
       const limit = clampInteger(url.searchParams.get("limit"), 1, 6000, 6000);
-      const exportData = pulseSnapshotRepository.exportData({ limit });
+      const exportData = await pulseSnapshotRepository.exportData({ limit });
       const fileDate = new Date().toISOString().slice(0, 10);
       response.writeHead(200, {
         "Content-Type": "application/json; charset=utf-8",
@@ -439,13 +439,13 @@ async function handleRequest(request, response) {
     if (url.pathname === "/api/v1/pulse-snapshots") {
       if (request.method === "GET") {
         const limit = clampInteger(url.searchParams.get("limit"), 1, 600, 50);
-        const snapshots = pulseSnapshotRepository.listSnapshots({ limit });
+        const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
         sendJson(response, 200, {
           ok: true,
           count: snapshots.length,
           storage: pulseSnapshotRepository.descriptor(),
           snapshots,
-          accuracy: pulseSnapshotRepository.accuracySummary(),
+          accuracy: await pulseSnapshotRepository.accuracySummary(),
         });
         return;
       }
@@ -453,12 +453,12 @@ async function handleRequest(request, response) {
       if (request.method === "POST") {
         const body = await readJsonBody(request);
         try {
-          const snapshot = pulseSnapshotRepository.saveSnapshot(body);
+          const snapshot = await pulseSnapshotRepository.saveSnapshot(body);
           sendJson(response, 201, {
             ok: true,
             storage: pulseSnapshotRepository.descriptor(),
             snapshot,
-            accuracy: pulseSnapshotRepository.accuracySummary(),
+            accuracy: await pulseSnapshotRepository.accuracySummary(),
           });
         } catch (error) {
           if (error.code !== "EMPTY_PULSE_SNAPSHOT") throw error;
@@ -479,7 +479,7 @@ async function handleRequest(request, response) {
         ok: true,
         storage: pulseSnapshotRepository.descriptor(),
         collector: pulseCollectorState,
-        accuracy: pulseSnapshotRepository.accuracySummary(),
+        accuracy: await pulseSnapshotRepository.accuracySummary(),
       });
       return;
     }
@@ -489,7 +489,7 @@ async function handleRequest(request, response) {
         ok: true,
         collector: pulseCollectorState,
         storage: pulseSnapshotRepository.descriptor(),
-        accuracy: pulseSnapshotRepository.accuracySummary(),
+        accuracy: await pulseSnapshotRepository.accuracySummary(),
       });
       return;
     }
@@ -1449,7 +1449,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
 
     if (!ranked.length) throw new Error("Pulse collector found no eligible Base candidates");
 
-    const snapshot = pulseSnapshotRepository.saveSnapshot({
+    const snapshot = await pulseSnapshotRepository.saveSnapshot({
       source: "server-background-pulse",
       network: "Base",
       selectedWindow: "24h",

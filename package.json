@@ -1,6 +1,6 @@
 {
   "name": "bundle-builder-api",
-  "version": "0.1.98",
+  "version": "0.1.99",
   "private": true,
   "description": "REST API prototype for ViciSwap Bundle Builder recommendations.",
   "type": "commonjs",
@@ -12,5 +12,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
   }
 }

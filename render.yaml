@@ -6,10 +6,6 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     autoDeploy: false
-    disk:
-      name: bundle-builder-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -25,3 +21,5 @@ services:
         value: https://bundle.vicicoin.io
       - key: BUNDLE_BUILDER_DATA_DIR
         value: /var/data/bundle-builder-beta
+      - key: DATABASE_URL
+        sync: false

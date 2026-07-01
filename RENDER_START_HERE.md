@@ -15,15 +15,13 @@ Start Command: npm start
 Health Check Path: /health
 ```
 
-4. Add a persistent disk in Render:
+4. Add the Supabase pooled Postgres URL as a secret environment variable:
 
 ```text
-Name: bundle-builder-data
-Mount Path: /var/data
-Size: 1 GB
+DATABASE_URL=postgresql://postgres.PROJECT_ID:YOUR_PASSWORD@aws-...pooler.supabase.com:6543/postgres
 ```
 
-This is required for machine snapshots, profile data, and backups to survive deploys or overnight restarts.
+This is required for machine snapshots to survive deploys or overnight restarts on Render Free. Render disks are paid-only, so Supabase is the free durable memory path.
 
 5. Confirm these environment variables:
 
@@ -33,6 +31,7 @@ HOST=0.0.0.0
 CORS_ORIGIN=https://bundlebuilder.vicicoin.io
 BUNDLE_BUILDER_ALLOWED_NETWORKS=base
 BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
+DATABASE_URL=your-supabase-pooled-postgres-url
 VICI_COIN_DATA_API_BASE_URL=https://app.viciswap.io/api/coin_data
 BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD=20
 BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD=20
@@ -56,7 +55,11 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-"version": "0.1.32",
+"version": "0.1.99",
+"pulseSnapshotStorage": {
+  "mode": "postgres",
+  "durable": true
+},
 "homepage": {
   "enabled": true,
   "indexExists": true

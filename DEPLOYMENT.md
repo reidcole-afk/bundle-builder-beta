@@ -23,13 +23,13 @@ Start command: npm start
 Health check path: /health
 ```
 
-Persistent disk:
+Durable snapshot storage:
 
 ```text
-Disk name: bundle-builder-data
-Mount path: /var/data
-Size: 1 GB
+DATABASE_URL=your-supabase-pooled-postgres-url
 ```
+
+Render Free does not support persistent disks. Use Supabase/Postgres for machine accuracy snapshots so collector data survives redeploys and overnight restarts.
 
 Environment variables:
 
@@ -45,6 +45,7 @@ BUNDLE_BUILDER_MODERATE_MAX_DIFF_THOUSAND_USD=35
 BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD=60
 BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
 BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
+DATABASE_URL=your-supabase-pooled-postgres-url
 BUNDLE_BUILDER_AUTH_SECRET=replace-with-a-long-random-secret
 BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response
 COINGECKO_API_KEY=your-coingecko-demo-key
@@ -66,7 +67,7 @@ Bundle Builder now includes a standalone prototype profile store in `src/profile
 - review alerts
 - builder preferences
 
-The current beta stores those profile snapshots in `profiles.json` under `BUNDLE_BUILDER_DATA_DIR`. On a managed host, point `BUNDLE_BUILDER_DATA_DIR` at a durable mounted disk. If the host does not provide durable storage, profile data may reset on redeploy.
+The current beta stores those profile snapshots in `profiles.json` under `BUNDLE_BUILDER_DATA_DIR`. Machine pulse snapshots use Supabase/Postgres when `DATABASE_URL` is configured. Profile data may still reset on Render Free until profiles are moved to Supabase too.
 
 For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast.
 

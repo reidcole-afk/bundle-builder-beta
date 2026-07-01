@@ -9,8 +9,21 @@ const PULSE_SNAPSHOT_STORE_PATH = path.resolve(
 );
 const MAX_SNAPSHOTS = 6000;
 const MAX_COINS_PER_SNAPSHOT = 20;
+const PULSE_SNAPSHOT_TABLE = process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_TABLE || "pulse_snapshots";
 
 function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } = {}) {
+  const fileRepository = createFilePulseSnapshotRepository({ filePath });
+  if (process.env.DATABASE_URL || process.env.BUNDLE_BUILDER_DATABASE_URL) {
+    return createPostgresPulseSnapshotRepository({
+      connectionString: process.env.DATABASE_URL || process.env.BUNDLE_BUILDER_DATABASE_URL,
+      tableName: PULSE_SNAPSHOT_TABLE,
+      fallbackRepository: fileRepository,
+    });
+  }
+  return fileRepository;
+}
+
+function createFilePulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } = {}) {
   return {
     descriptor() {
       return storageDescriptor(filePath);
@@ -53,6 +66,196 @@ function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } 
         accuracy: computeAccuracySummary(store.snapshots),
         snapshots,
       };
+    },
+  };
+}
+
+function createPostgresPulseSnapshotRepository({ connectionString, tableName, fallbackRepository }) {
+  let pool = null;
+  let readyPromise = null;
+  let lastError = "";
+  let lastSnapshotCount = 0;
+  const safeTableName = sanitizeIdentifier(tableName || "pulse_snapshots");
+
+  function getPool() {
+    if (!pool) {
+      const { Pool } = require("pg");
+      pool = new Pool({
+        connectionString,
+        ssl: process.env.BUNDLE_BUILDER_POSTGRES_SSL === "false" ? false : { rejectUnauthorized: false },
+        max: clampInteger(process.env.BUNDLE_BUILDER_POSTGRES_POOL_SIZE, 1, 8, 3),
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 10000,
+      });
+    }
+    return pool;
+  }
+
+  async function ensureReady() {
+    if (!readyPromise) {
+      readyPromise = getPool().query(`
+        create table if not exists ${safeTableName} (
+          id text primary key,
+          created_at timestamptz not null,
+          source text,
+          network text,
+          selected_window text,
+          selected_read_window text,
+          fingerprint text,
+          payload jsonb not null
+        );
+        create index if not exists ${safeTableName}_created_at_idx on ${safeTableName} (created_at);
+        create index if not exists ${safeTableName}_fingerprint_idx on ${safeTableName} (fingerprint);
+      `);
+    }
+    await readyPromise;
+  }
+
+  async function readSnapshots(limit = MAX_SNAPSHOTS, direction = "asc") {
+    await ensureReady();
+    const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, MAX_SNAPSHOTS);
+    const order = direction === "desc" ? "desc" : "asc";
+    const result = await getPool().query(
+      `select payload from ${safeTableName} order by created_at ${order} limit $1`,
+      [boundedLimit],
+    );
+    const snapshots = result.rows.map((row) => sanitizeSnapshot(row.payload)).filter((item) => item.coins.length);
+    lastSnapshotCount = Math.max(lastSnapshotCount, snapshots.length);
+    return snapshots;
+  }
+
+  async function readLatestSnapshot() {
+    await ensureReady();
+    const result = await getPool().query(
+      `select payload from ${safeTableName} order by created_at desc limit 1`,
+    );
+    return result.rows[0]?.payload ? sanitizeSnapshot(result.rows[0].payload) : null;
+  }
+
+  async function writeSnapshot(snapshot) {
+    await ensureReady();
+    await getPool().query(
+      `insert into ${safeTableName}
+        (id, created_at, source, network, selected_window, selected_read_window, fingerprint, payload)
+       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+       on conflict (id) do update set
+        created_at = excluded.created_at,
+        source = excluded.source,
+        network = excluded.network,
+        selected_window = excluded.selected_window,
+        selected_read_window = excluded.selected_read_window,
+        fingerprint = excluded.fingerprint,
+        payload = excluded.payload`,
+      [
+        snapshot.id,
+        snapshot.createdAt,
+        snapshot.source,
+        snapshot.network,
+        snapshot.selectedWindow,
+        snapshot.selectedReadWindow,
+        snapshot.fingerprint,
+        JSON.stringify(snapshot),
+      ],
+    );
+    lastSnapshotCount += 1;
+  }
+
+  async function replaceSnapshot(id, snapshot) {
+    await ensureReady();
+    await getPool().query(
+      `update ${safeTableName}
+       set created_at = $2,
+        source = $3,
+        network = $4,
+        selected_window = $5,
+        selected_read_window = $6,
+        fingerprint = $7,
+        payload = $8::jsonb
+       where id = $1`,
+      [
+        id,
+        snapshot.createdAt,
+        snapshot.source,
+        snapshot.network,
+        snapshot.selectedWindow,
+        snapshot.selectedReadWindow,
+        snapshot.fingerprint,
+        JSON.stringify(snapshot),
+      ],
+    );
+  }
+
+  async function withFallback(operation, fallback) {
+    try {
+      const value = await operation();
+      lastError = "";
+      return value;
+    } catch (error) {
+      lastError = error.message || "Database snapshot storage failed.";
+      return fallback(error);
+    }
+  }
+
+  return {
+    descriptor() {
+      return {
+        mode: "postgres",
+        durable: !lastError,
+        kind: "bundle-builder-pulse-snapshot-repository",
+        configured: true,
+        databaseUrlConfigured: true,
+        table: safeTableName,
+        snapshotCount: lastSnapshotCount,
+        fallback: fallbackRepository.descriptor(),
+        warning: lastError ? `Postgres snapshot storage failed; using file fallback. ${lastError}` : "",
+        note: "Market pulse snapshots are stored in Supabase/Postgres when DATABASE_URL is configured.",
+      };
+    },
+    async saveSnapshot(input = {}) {
+      const snapshot = sanitizeSnapshot(input);
+      if (!snapshot.coins.length) {
+        const error = new Error("Pulse snapshot must include at least one coin.");
+        error.code = "EMPTY_PULSE_SNAPSHOT";
+        throw error;
+      }
+      return withFallback(async () => {
+        const last = await readLatestSnapshot();
+        if (last && last.fingerprint === snapshot.fingerprint) {
+          const richer = richerSnapshot(last, snapshot);
+          await replaceSnapshot(last.id, richer);
+          return richer;
+        }
+        await writeSnapshot(snapshot);
+        return snapshot;
+      }, () => fallbackRepository.saveSnapshot(input));
+    },
+    async listSnapshots({ limit = 50 } = {}) {
+      return withFallback(async () => {
+        const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, 50);
+        return readSnapshots(boundedLimit, "desc");
+      }, () => fallbackRepository.listSnapshots({ limit }));
+    },
+    async accuracySummary() {
+      return withFallback(async () => {
+        const snapshots = await readSnapshots(MAX_SNAPSHOTS, "asc");
+        lastSnapshotCount = snapshots.length;
+        return computeAccuracySummary(snapshots);
+      }, () => fallbackRepository.accuracySummary());
+    },
+    async exportData({ limit = MAX_SNAPSHOTS } = {}) {
+      return withFallback(async () => {
+        const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, MAX_SNAPSHOTS);
+        const snapshots = await readSnapshots(boundedLimit, "asc");
+        lastSnapshotCount = snapshots.length;
+        return {
+          ok: true,
+          exportedAt: new Date().toISOString(),
+          count: snapshots.length,
+          storage: this.descriptor(),
+          accuracy: computeAccuracySummary(snapshots),
+          snapshots,
+        };
+      }, () => fallbackRepository.exportData({ limit }));
     },
   };
 }
@@ -706,6 +909,11 @@ function clamp(value, min, max) {
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function sanitizeIdentifier(value) {
+  const identifier = String(value || "").trim();
+  return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier) ? identifier : "pulse_snapshots";
 }
 
 function clampInteger(value, min, max, fallback) {
