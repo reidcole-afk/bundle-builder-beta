@@ -81,6 +81,7 @@ const pulseCollectorState = {
   running: false,
   intervalMs: PULSE_COLLECTOR_INTERVAL_MS,
   deckSize: PULSE_COLLECTOR_DECK_SIZE,
+  watchlistSize: 0,
   cycle: 0,
   lastStartedAt: null,
   lastCompletedAt: null,
@@ -88,6 +89,9 @@ const pulseCollectorState = {
   lastSnapshotAt: null,
   lastSnapshotId: null,
   lastCoins: [],
+  lastAttempted: 0,
+  lastEligible: 0,
+  lastSkipped: [],
 };
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
@@ -1368,7 +1372,20 @@ const pulseCollectorWatchlist = [
   { ticker: "AIXBT", name: "AIXBT", theme: "ai", baseScore: 60 },
   { ticker: "KAITO", name: "Kaito", theme: "ai", baseScore: 57 },
   { ticker: "ZORA", name: "Zora", theme: "base", baseScore: 55 },
+  { ticker: "BNKR", name: "BankrCoin", theme: "base", baseScore: 50 },
+  { ticker: "CLANKER", name: "Clanker", theme: "base", baseScore: 50 },
+  { ticker: "MOG", name: "Mog Coin", theme: "base", baseScore: 49 },
+  { ticker: "AVNT", name: "Avantis", theme: "defi", baseScore: 54 },
+  { ticker: "BIO", name: "Bio Protocol", theme: "creator", baseScore: 52 },
+  { ticker: "VVV", name: "Venice Token", theme: "ai", baseScore: 52 },
+  { ticker: "PROS", name: "Prosper", theme: "defi", baseScore: 49 },
+  { ticker: "TRUST", name: "Trust", theme: "base", baseScore: 48 },
+  { ticker: "DINO", name: "Dino", theme: "base", baseScore: 47 },
+  { ticker: "CHIP", name: "Chip", theme: "base", baseScore: 47 },
+  { ticker: "NOCK", name: "Nockchain", theme: "infrastructure", baseScore: 49 },
+  { ticker: "FUN", name: "FUNToken", theme: "consumer", baseScore: 47 },
 ];
+pulseCollectorState.watchlistSize = pulseCollectorWatchlist.length;
 
 function startPulseSnapshotCollector() {
   if (!PULSE_COLLECTOR_ENABLED || pulseCollectorTimer) return;
@@ -1397,17 +1414,33 @@ async function runPulseSnapshotCollector(trigger = "manual") {
 
   try {
     const candidates = [];
+    const skipped = [];
     for (const meta of pulseCollectorWatchlist) {
       try {
         const market = await fetchPulseCollectorMarket(meta);
-        if (!market || !Number.isFinite(market.priceUsd)) continue;
-        if ((market.volume24h || 0) < 50_000 || (market.liquidityUsd || 0) < 75_000) continue;
+        if (!market || !Number.isFinite(market.priceUsd)) {
+          skipped.push({ ticker: meta.ticker, reason: "no Base DEX Screener market" });
+          continue;
+        }
+        if ((market.volume24h || 0) < 50_000 || (market.liquidityUsd || 0) < 75_000) {
+          skipped.push({
+            ticker: meta.ticker,
+            reason: "below collector quality floor",
+            volume24h: Math.round(market.volume24h || 0),
+            liquidityUsd: Math.round(market.liquidityUsd || 0),
+          });
+          continue;
+        }
         candidates.push(scorePulseCollectorCandidate(meta, market));
       } catch (error) {
         pulseCollectorState.lastError = `${meta.ticker}: ${error.message || "market lookup failed"}`;
+        skipped.push({ ticker: meta.ticker, reason: error.message || "market lookup failed" });
       }
       await wait(175);
     }
+    pulseCollectorState.lastAttempted = pulseCollectorWatchlist.length;
+    pulseCollectorState.lastEligible = candidates.length;
+    pulseCollectorState.lastSkipped = skipped.slice(0, 12);
 
     const ranked = candidates
       .sort((a, b) => b.pulseScore - a.pulseScore)
