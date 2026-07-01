@@ -15,13 +15,24 @@ Start Command: npm start
 Health Check Path: /health
 ```
 
-4. Confirm these environment variables:
+4. Add a persistent disk in Render:
+
+```text
+Name: bundle-builder-data
+Mount Path: /var/data
+Size: 1 GB
+```
+
+This is required for machine snapshots, profile data, and backups to survive deploys or overnight restarts.
+
+5. Confirm these environment variables:
 
 ```text
 NODE_ENV=production
 HOST=0.0.0.0
 CORS_ORIGIN=https://bundlebuilder.vicicoin.io
 BUNDLE_BUILDER_ALLOWED_NETWORKS=base
+BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
 VICI_COIN_DATA_API_BASE_URL=https://app.viciswap.io/api/coin_data
 BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD=20
 BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD=20

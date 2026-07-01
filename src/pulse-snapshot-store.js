@@ -128,14 +128,16 @@ function storageDescriptor(filePath) {
   const configured = Boolean(process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_FILE || process.env.BUNDLE_BUILDER_DATA_DIR);
   const backupPath = backupPathFor(filePath);
   const status = storageStatus(filePath, backupPath, configured);
+  const needsRenderMount = Boolean(process.env.RENDER && path.resolve(filePath).startsWith("/var/data"));
   return {
     mode: configured ? "configured-file" : "ephemeral-file",
-    durable: configured && !status.usesTmp && status.writable,
+    durable: configured && !status.usesTmp && status.writable && (!needsRenderMount || status.mountDetected),
     kind: "bundle-builder-pulse-snapshot-repository",
     configured,
     path: filePath,
     directory: path.dirname(filePath),
     backupPath,
+    mountDetected: status.mountDetected,
     fileExists: status.fileExists,
     backupExists: status.backupExists,
     snapshotCount: status.snapshotCount,
@@ -151,6 +153,7 @@ function storageDescriptor(filePath) {
 function storageStatus(filePath, backupPath, configured) {
   const directory = path.dirname(filePath);
   const usesTmp = path.resolve(filePath).startsWith(path.resolve(os.tmpdir()));
+  const mountDetected = hasDedicatedMount(directory);
   const fileExists = fs.existsSync(filePath);
   const backupExists = fs.existsSync(backupPath);
   let snapshotCount = 0;
@@ -168,7 +171,10 @@ function storageStatus(filePath, backupPath, configured) {
   if (!configured) warning = "Snapshot storage is not configured to a durable data path, so redeploys may reset machine memory.";
   else if (usesTmp) warning = "Snapshot storage points at a temporary directory. Use the Render disk path for durable machine memory.";
   else if (!writable) warning = "Snapshot storage directory is not writable. The machine cannot reliably save new learning data.";
-  return { fileExists, backupExists, snapshotCount, writable, usesTmp, warning };
+  else if (process.env.RENDER && path.resolve(filePath).startsWith("/var/data") && !mountDetected) {
+    warning = "Snapshot storage is under /var/data, but no dedicated mounted disk was detected. Add a Render disk mounted at /var/data before relying on long-term memory.";
+  }
+  return { fileExists, backupExists, snapshotCount, writable, usesTmp, mountDetected, warning };
 }
 
 function canWriteDirectory(directory) {
@@ -178,6 +184,24 @@ function canWriteDirectory(directory) {
     fs.writeFileSync(testPath, "ok");
     fs.unlinkSync(testPath);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasDedicatedMount(targetDirectory) {
+  if (process.platform !== "linux") return false;
+  try {
+    const target = path.resolve(targetDirectory);
+    const mounts = fs.readFileSync("/proc/mounts", "utf8")
+      .split("\n")
+      .map((line) => line.split(" ")[1])
+      .filter(Boolean)
+      .map((mount) => mount.replace(/\\040/g, " "));
+    return mounts.some((mount) => {
+      const resolved = path.resolve(mount);
+      return resolved !== "/" && (target === resolved || target.startsWith(`${resolved}/`));
+    });
   } catch {
     return false;
   }

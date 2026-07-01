@@ -23,6 +23,14 @@ Start command: npm start
 Health check path: /health
 ```
 
+Persistent disk:
+
+```text
+Disk name: bundle-builder-data
+Mount path: /var/data
+Size: 1 GB
+```
+
 Environment variables:
 
 ```text
