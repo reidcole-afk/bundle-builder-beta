@@ -531,14 +531,34 @@ function strictPathScore(forecast = [], actual = [], shapeError = 0, directionAg
   const actualEnd = actual.at(-1) || 0;
   const bothFlat = Math.abs(forecastEnd) < 0.003 && Math.abs(actualEnd) < 0.003;
   const finalDirectionMatches = bothFlat || (forecastEnd >= 0 && actualEnd >= 0) || (forecastEnd < 0 && actualEnd < 0);
-  const shapeScore = clamp(100 - shapeError * 180, 0, 100);
+  const turnScore = clamp(pathTurnAgreement(forecast, actual) * 100, 0, 100);
+  const shapeScore = clamp(100 - shapeError * 320, 0, 100);
   const directionScore = clamp(directionAgreement * 100, 0, 100);
-  const endpointScore = clamp(100 - endpointError * 250, 0, 100);
-  let score = shapeScore * 0.4 + directionScore * 0.35 + endpointScore * 0.2 + (finalDirectionMatches ? 5 : 0);
-  if (!finalDirectionMatches) score = Math.min(score, 65);
-  if (directionScore < 45) score = Math.min(score, 70);
-  if (directionScore < 55) score = Math.min(score, 80);
+  const endpointScore = clamp(100 - endpointError * 520, 0, 100);
+  let score = directionScore * 0.42 + endpointScore * 0.26 + shapeScore * 0.2 + turnScore * 0.12;
+  if (!finalDirectionMatches) score = Math.min(score, 45);
+  if (directionScore < 35) score = Math.min(score, 45);
+  if (directionScore < 50) score = Math.min(score, 58);
+  if (directionScore < 65) score = Math.min(score, 72);
+  if (endpointError > 0.08) score = Math.min(score, 55);
+  if (endpointError > 0.04) score = Math.min(score, 72);
+  if (turnScore < 35) score = Math.min(score, 65);
   return Math.round(clamp(score, 0, 100));
+}
+
+function pathTurnAgreement(a = [], b = []) {
+  const length = Math.min(a.length, b.length);
+  if (length < 3) return 0;
+  let checks = 0;
+  let matches = 0;
+  for (let index = 2; index < length; index += 1) {
+    const turnA = Math.sign(((a[index] || 0) - (a[index - 1] || 0)) - ((a[index - 1] || 0) - (a[index - 2] || 0)));
+    const turnB = Math.sign(((b[index] || 0) - (b[index - 1] || 0)) - ((b[index - 1] || 0) - (b[index - 2] || 0)));
+    if (!turnA && !turnB) continue;
+    checks += 1;
+    if (turnA === turnB) matches += 1;
+  }
+  return checks ? matches / checks : 0;
 }
 
 function resampleValues(values = [], targetLength = 32) {
