@@ -12,12 +12,13 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.99");
+  assert.equal(health.body.version, "0.1.101");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
   assert.equal(health.body.friendlyPortErrors, true);
   assert.equal(health.body.coingeckoChartWorkflowCache, true);
+  assert.equal(health.body.chartCacheStorage.configured, true);
   assert.equal(health.body.normalizedMarketChartEndpoint, true);
   assert.equal(health.body.catalystIntelligenceEndpoint, true);
   assert.equal(health.body.machineAccuracyEndpoint, true);
@@ -83,6 +84,7 @@ global.fetch = async (url) => {
   assert.equal(chartStatus.statusCode, 200);
   assert.equal(chartStatus.body.ok, true);
   assert.equal(chartStatus.body.preload.enabled, true);
+  assert.equal(chartStatus.body.storage.configured, true);
 
   const workflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance&force=true");
   assert.equal(workflowChart.statusCode, 200);
@@ -213,10 +215,10 @@ global.fetch = async (url) => {
     return { ok: true, json: async () => ({}) };
   };
 
-  const staleWorkflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance&force=true");
+  const staleWorkflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance");
   assert.equal(staleWorkflowChart.statusCode, 200);
   assert.equal(staleWorkflowChart.body.ok, true);
-  assert.equal(staleWorkflowChart.body.stale, true);
+  assert(staleWorkflowChart.body.cacheStatus.includes("cache"));
   assert.deepEqual(staleWorkflowChart.body.prices, [1, 1.1]);
 
   const strictTokens = await getJson("/api/v1/tokens?network=base");

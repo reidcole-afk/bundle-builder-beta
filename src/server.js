@@ -15,6 +15,7 @@ const { collectNewsIntelligence } = require("./news-intelligence");
 const { createSubmittedBundleRepository } = require("./bundle-store");
 const { createProfileRepository } = require("./profile-store");
 const { createPulseSnapshotRepository } = require("./pulse-snapshot-store");
+const { createChartCacheRepository } = require("./chart-cache-store");
 
 const PORT = Number(process.env.PORT || 8788);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -40,6 +41,7 @@ const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
 const pulseSnapshotRepository = createPulseSnapshotRepository();
+const chartCacheRepository = createChartCacheRepository({ filePath: COINGECKO_CHART_STORE_PATH });
 const DEFAULT_COINGECKO_CHART_PRELOAD_IDS = [
   "aerodrome-finance",
   "morpho",
@@ -198,6 +200,7 @@ async function handleRequest(request, response) {
         profileStorage: profileRepository.descriptor(),
         machineAccuracyEndpoint: true,
         pulseSnapshotStorage: pulseSnapshotRepository.descriptor(),
+        chartCacheStorage: chartCacheRepository.descriptor(),
         coingeckoChartBackgroundPreload: {
           enabled: COINGECKO_CHART_PRELOAD_ENABLED,
           intervalMs: COINGECKO_CHART_PRELOAD_INTERVAL_MS,
@@ -219,6 +222,7 @@ async function handleRequest(request, response) {
       sendJson(response, 200, {
         ok: true,
         cacheFile: COINGECKO_CHART_STORE_PATH,
+        storage: chartCacheRepository.descriptor(),
         cacheMs: COINGECKO_CHART_CACHE_MS,
         staleMs: COINGECKO_CHART_STALE_MS,
         preload: coingeckoChartPreloadState,
@@ -284,7 +288,7 @@ async function handleRequest(request, response) {
           days,
           source: "coingecko-chart-workflow",
           cacheStatus: chart.cacheStatus,
-          stale: chart.cacheStatus === "stale-cache",
+          stale: String(chart.cacheStatus || "").startsWith("stale-"),
           updatedAt: chart.updatedAt,
           cachedAt: chart.cachedAt ? new Date(chart.cachedAt).toISOString() : null,
           warning: chart.warning || null,
@@ -1015,6 +1019,7 @@ async function getNormalizedMarketChart(options = {}) {
 
   const cacheKey = marketChartCacheKey({ id, chainId, pairAddress, window, sourcePreference });
   const cached = marketChartCache.get(cacheKey);
+  const durableCached = !options.force && !cached ? sanitizeStoredMarketChart(await chartCacheRepository.get(`market:${cacheKey}`)) : null;
   const now = Date.now();
   if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_CACHE_MS) {
     return { ...cached.value, cacheStatus: "fresh-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString() };
@@ -1023,14 +1028,27 @@ async function getNormalizedMarketChart(options = {}) {
     refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
     return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: "Serving cached chart while a background refresh runs" };
   }
+  if (durableCached && now - durableCached.cachedAt < MARKET_CHART_CACHE_MS) {
+    marketChartCache.set(cacheKey, { value: durableCached.value, cachedAt: durableCached.cachedAt });
+    return { ...durableCached.value, cacheStatus: "fresh-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString() };
+  }
+  if (durableCached && now - durableCached.cachedAt < MARKET_CHART_STALE_MS) {
+    marketChartCache.set(cacheKey, { value: durableCached.value, cachedAt: durableCached.cachedAt });
+    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
+    return { ...durableCached.value, cacheStatus: "stale-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString(), warning: "Serving durable cached chart while a background refresh runs" };
+  }
 
   try {
     const value = await fetchNormalizedMarketChart({ id, chainId, pairAddress, window, sourcePreference });
     marketChartCache.set(cacheKey, { value, cachedAt: now });
+    await chartCacheRepository.set(`market:${cacheKey}`, { value, cachedAt: now });
     return { ...value, cacheStatus: "refreshed", cached: false, cachedAt: new Date(now).toISOString() };
   } catch (error) {
     if (cached && now - cached.cachedAt < MARKET_CHART_STALE_MS) {
       return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: error.message || "Refresh failed; using last good chart" };
+    }
+    if (durableCached && now - durableCached.cachedAt < MARKET_CHART_STALE_MS) {
+      return { ...durableCached.value, cacheStatus: "stale-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString(), warning: error.message || "Refresh failed; using durable cached chart" };
     }
     throw error;
   }
@@ -1040,7 +1058,11 @@ function refreshNormalizedMarketChartInBackground(options) {
   const refreshKey = `market-chart:${options.cacheKey}`;
   if (pendingCoinGeckoChartRefreshes.has(refreshKey)) return;
   const refresh = fetchNormalizedMarketChart(options)
-    .then((value) => marketChartCache.set(options.cacheKey, { value, cachedAt: Date.now() }))
+    .then(async (value) => {
+      const cachedAt = Date.now();
+      marketChartCache.set(options.cacheKey, { value, cachedAt });
+      await chartCacheRepository.set(`market:${options.cacheKey}`, { value, cachedAt });
+    })
     .finally(() => pendingCoinGeckoChartRefreshes.delete(refreshKey));
   pendingCoinGeckoChartRefreshes.set(refreshKey, refresh);
   refresh.catch(() => {});
@@ -1192,6 +1214,22 @@ function marketChartCacheKey({ id, chainId, pairAddress, window, sourcePreferenc
   return `${safeText(id, 120).toLowerCase() || "no-id"}:${chainId || "no-chain"}:${pairAddress || "no-pair"}:${normalizeMarketChartWindow(window)}:${normalizeMarketChartSource(sourcePreference)}`;
 }
 
+function sanitizeStoredMarketChart(input = {}) {
+  if (!input || typeof input !== "object") return null;
+  const value = input.value && typeof input.value === "object" ? input.value : null;
+  const prices = normalizePriceList(value?.prices);
+  if (!value || prices.length < 2) return null;
+  return {
+    value: {
+      ...value,
+      prices,
+      totalVolumes: normalizePriceList(value.totalVolumes),
+      marketCaps: normalizePriceList(value.marketCaps),
+    },
+    cachedAt: finiteNumber(input.cachedAt) || 0,
+  };
+}
+
 async function fetchMarketProxyJson(targetUrl) {
   if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required");
   const controller = new AbortController();
@@ -1230,15 +1268,21 @@ function coingeckoHeadersForUrl(targetUrl) {
 async function getCoinGeckoChartWorkflow(id, options = {}) {
   const days = normalizeCoinGeckoChartDays(options.days);
   const storeKey = coinGeckoChartStoreKey(id, days);
-  const store = readCoinGeckoChartStore();
-  const existing = sanitizeStoredCoinGeckoChart(store[storeKey] || (days === "1" ? store[id] : null));
+  const durableKey = `coingecko:${storeKey}`;
+  const legacyDurableKey = `coingecko:${id}`;
+  const existing = !options.force
+    ? sanitizeStoredCoinGeckoChart(
+      await chartCacheRepository.get(durableKey)
+        || (days === "1" ? await chartCacheRepository.get(legacyDurableKey) : null),
+    )
+    : null;
   const now = Date.now();
   if (!options.force && existing && now - existing.cachedAt < COINGECKO_CHART_CACHE_MS) {
-    return { ...existing, cacheStatus: "fresh-cache" };
+    return { ...existing, cacheStatus: "fresh-durable-cache" };
   }
   if (!options.force && existing && now - existing.cachedAt < COINGECKO_CHART_STALE_MS) {
     refreshCoinGeckoChartInBackground(id, days);
-    return { ...existing, cacheStatus: "stale-cache", warning: "Serving cached chart while a background refresh runs" };
+    return { ...existing, cacheStatus: "stale-durable-cache", warning: "Serving cached chart while a background refresh runs" };
   }
 
   try {
@@ -1253,15 +1297,14 @@ async function getCoinGeckoChartWorkflow(id, options = {}) {
       cachedAt: now,
     });
     if (!record) throw new Error("CoinGecko chart response did not contain enough price points");
-    store[storeKey] = record;
-    if (days === "1") store[id] = record;
-    writeCoinGeckoChartStore(store);
+    await chartCacheRepository.set(durableKey, record);
+    if (days === "1") await chartCacheRepository.set(legacyDurableKey, record);
     return { ...record, cacheStatus: "refreshed" };
   } catch (error) {
     if (existing && now - existing.cachedAt < COINGECKO_CHART_STALE_MS) {
       return {
         ...existing,
-        cacheStatus: "stale-cache",
+        cacheStatus: "stale-durable-cache",
         warning: error.message || "CoinGecko refresh failed; using last good chart",
       };
     }
@@ -1276,7 +1319,6 @@ function refreshCoinGeckoChartInBackground(id, days = "1") {
   const refresh = (async () => {
     try {
       const chart = await fetchCoinGeckoChartWithRetries(id, normalizedDays);
-      const store = readCoinGeckoChartStore();
       const record = sanitizeStoredCoinGeckoChart({
         id,
         days: normalizedDays,
@@ -1287,9 +1329,8 @@ function refreshCoinGeckoChartInBackground(id, days = "1") {
         cachedAt: Date.now(),
       });
       if (record) {
-        store[refreshKey] = record;
-        if (normalizedDays === "1") store[id] = record;
-        writeCoinGeckoChartStore(store);
+        await chartCacheRepository.set(`coingecko:${refreshKey}`, record);
+        if (normalizedDays === "1") await chartCacheRepository.set(`coingecko:${id}`, record);
       }
       return record;
     } finally {
@@ -1497,19 +1538,43 @@ async function fetchPulseCollectorMarket(meta) {
 
 function scorePulseCollectorCandidate(meta, market) {
   const volumeScore = Math.min(18, Math.log10(Math.max(1, market.volume24h)) * 3);
-  const liquidityScore = Math.min(18, Math.log10(Math.max(1, market.liquidityUsd)) * 2.5);
-  const momentumScore = Math.max(-18, Math.min(18, market.priceChange24h * 1.2));
+  const liquidityScore = Math.min(15, Math.log10(Math.max(1, market.liquidityUsd)) * 2.15);
+  const momentumScore = Math.max(-20, Math.min(20, market.priceChange24h * 1.45));
   const txnTotal = market.buys24h + market.sells24h;
   const buyRatio = txnTotal ? market.buys24h / txnTotal : 0.5;
-  const flowScore = (buyRatio - 0.5) * 18;
-  const pulseScore = Number((meta.baseScore + volumeScore + liquidityScore + momentumScore + flowScore).toFixed(2));
+  const flowScore = (buyRatio - 0.5) * 22;
+  const opportunityScore = pulseOpportunityScore(meta, market, buyRatio);
+  const qualityScore = meta.baseScore * 0.84;
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore).toFixed(2));
   return {
     ...meta,
     ...market,
     pulseScore,
     setupScore: Math.max(1, Math.min(10, pulseScore / 10)),
-    dataEdge: Math.round(volumeScore + liquidityScore + flowScore),
+    dataEdge: Math.round(volumeScore + liquidityScore + flowScore + opportunityScore),
+    opportunityScore: Number(opportunityScore.toFixed(2)),
   };
+}
+
+function pulseOpportunityScore(meta, market, buyRatio = 0.5) {
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const hasUsableDepth = volume >= 750_000 && liquidity >= 500_000;
+  const hasStrongDepth = volume >= 2_000_000 && liquidity >= 1_000_000;
+  const quietMove = Math.abs(change) <= 4;
+  const constructiveFlow = buyRatio >= 0.515;
+  const highBetaTheme = ["ai", "defi", "base"].includes(String(meta.theme || "").toLowerCase());
+  let score = 0;
+
+  if (hasUsableDepth && quietMove && constructiveFlow) score += 5.5;
+  if (hasStrongDepth && quietMove && highBetaTheme) score += 3.5;
+  if (hasUsableDepth && change >= -2.5 && change <= 1.5 && constructiveFlow) score += 3;
+  if (hasUsableDepth && change > 4 && change <= 12 && constructiveFlow) score += 2.5;
+  if (liquidity >= 8_000_000 && Math.abs(change) < 1 && buyRatio < 0.525) score -= 4.5;
+  if (volume < 150_000 || liquidity < 150_000) score -= 5;
+
+  return Math.max(-8, Math.min(12, score));
 }
 
 function pulseCollectorSnapshotCoin(candidate, index) {
@@ -1558,7 +1623,8 @@ function projectedCollectorChange(candidate, key) {
   const trend = Math.max(-10, Math.min(10, candidate.priceChange24h));
   const setupBias = (candidate.setupScore - 5) * 0.7;
   const scoreBias = (candidate.pulseScore - 70) * 0.04;
-  return Number(((trend * 0.28 + setupBias + scoreBias) * horizon * reliability).toFixed(2));
+  const opportunityBias = (finiteNumber(candidate.opportunityScore) || 0) * (key === "30d" ? 0.1 : key === "7d" ? 0.16 : 0.22);
+  return Number((((trend * 0.28 + setupBias + scoreBias + opportunityBias) * horizon * reliability)).toFixed(2));
 }
 
 function buildCollectorProjection(startPrice, projectedChange, candidate, key) {
