@@ -63,7 +63,7 @@
                   <p class="eyebrow">Market health</p>
                 </div>
                 <div class="market-health-ring-wrap">
-                  <div class="market-health-ring" id="marketHealthRing" style="--health-score: 50; --health-color: #14b86a;">
+                  <div class="market-health-ring" id="marketHealthRing" role="button" tabindex="0" aria-expanded="false" aria-controls="marketHealthDetails" aria-label="Show Market Health scoring explanation" style="--health-score: 50; --health-color: #14b86a;">
                     <svg class="market-health-ring-svg" viewBox="0 0 100 100" aria-hidden="true">
                       <circle class="market-health-ring-track" cx="50" cy="50" r="42"></circle>
                       <circle class="market-health-ring-arc" id="marketHealthRingArc" cx="50" cy="50" r="42"></circle>
@@ -71,6 +71,7 @@
                     <span id="marketHealthScore">--</span>
                   </div>
                 </div>
+                <div class="market-health-details" id="marketHealthDetails" hidden></div>
                 <div class="market-health-benchmarks">
                   <div class="market-health-benchmark">
                     <span>BTC 24h</span>

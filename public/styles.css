@@ -1084,6 +1084,34 @@ svg {
   cursor: pointer;
 }
 
+.market-health-ring:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--health-color) 38%, transparent);
+  outline-offset: 5px;
+}
+
+.market-health-details {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.94);
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.market-health-details strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink);
+}
+
+.market-health-details ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
 .pulse-refresh svg {
   width: 17px;
   height: 17px;
@@ -1146,21 +1174,25 @@ svg {
 }
 
 .pulse-line-trace {
-  opacity: 0;
+  opacity: 0.92;
   filter: none;
   stroke-width: 4px;
-  stroke-dasharray: var(--pulse-line-sweep, 18) var(--pulse-line-gap, 82);
-  stroke-dashoffset: var(--pulse-line-length, 100);
-  will-change: stroke-dashoffset;
-  transition: opacity 180ms ease;
-}
-
-.pulse-chart.motion-ready .pulse-line-trace {
-  opacity: 0.9;
+  stroke-dasharray: 6 94;
+  stroke-dashoffset: 96;
+  animation: pulseLineTrace 3.2s ease-in-out infinite alternate;
 }
 
 .pulse-line-trace-projected {
-  opacity: 0;
+  animation-delay: 1.15s;
+}
+
+@keyframes pulseLineTrace {
+  0% {
+    stroke-dashoffset: 96;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
 }
 
 .pulse-entry-warning {

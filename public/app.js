@@ -939,6 +939,7 @@ const marketHealthRingArc = document.getElementById("marketHealthRingArc");
 const marketHealthScore = document.getElementById("marketHealthScore");
 const marketHealthBtc = document.getElementById("marketHealthBtc");
 const marketHealthEth = document.getElementById("marketHealthEth");
+const marketHealthDetails = document.getElementById("marketHealthDetails");
 const coinPreferenceGrid = document.querySelector(".coin-chip-grid");
 const profileButton = document.getElementById("profileButton");
 const profileDialog = document.getElementById("profileDialog");
@@ -5653,6 +5654,13 @@ pulseRefresh?.addEventListener("click", () => {
   });
 });
 
+marketHealthRing?.addEventListener("click", toggleMarketHealthDetails);
+marketHealthRing?.addEventListener("keydown", (event) => {
+  if (!["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  toggleMarketHealthDetails();
+});
+
 favoriteCoinWindow?.addEventListener("change", (event) => {
   setPulseWindow(event.target.value);
 });
@@ -7136,7 +7144,7 @@ function buildMarketHealthRead(btc = null, eth = null, breadth = null, context =
   const summary = context?.message || (activeInputs
     ? "BTC, ETH, DEX Screener breadth, and stored pulse history are setting the broad backdrop for bundle risk."
     : "Waiting for BTC and ETH benchmark data.");
-  return { score: rounded, label, summary };
+  return { score: rounded, label, summary, btc, eth, breadth, context };
 }
 
 function historicalMarketHealthWeight(context = {}) {
@@ -7175,6 +7183,47 @@ function updateMarketHealthUi(read = {}) {
   }
   updateBenchmarkChange(marketHealthBtc, read.btc?.change24h);
   updateBenchmarkChange(marketHealthEth, read.eth?.change24h);
+  if (marketHealthDetails && !marketHealthDetails.hidden) renderMarketHealthDetails();
+}
+
+function toggleMarketHealthDetails() {
+  if (!marketHealthDetails || !marketHealthRing) return;
+  const willOpen = marketHealthDetails.hidden;
+  marketHealthDetails.hidden = !willOpen;
+  marketHealthRing.setAttribute("aria-expanded", String(willOpen));
+  if (willOpen) renderMarketHealthDetails();
+}
+
+function renderMarketHealthDetails() {
+  if (!marketHealthDetails) return;
+  const read = marketHealthCache || {};
+  const score = Number.isFinite(finiteOrNull(read.score)) ? Math.round(clamp(read.score, 0, 100)) : "--";
+  const btc = finiteOrNull(read.btc?.change24h);
+  const eth = finiteOrNull(read.eth?.change24h);
+  const breadth = read.breadth || null;
+  const context = read.context || null;
+  marketHealthDetails.innerHTML = `
+    <strong>${escapeHtml(read.label || "Market health")} ${score}/100</strong>
+    <p>${escapeHtml(read.summary || "The machine is combining broad market signals before ranking bundle candidates.")}</p>
+    <ul>
+      <li>BTC 24h: ${escapeHtml(formatPercent(btc))} anchors broad crypto risk.</li>
+      <li>ETH 24h: ${escapeHtml(formatPercent(eth))} shows whether majors are confirming risk appetite.</li>
+      <li>Pulse breadth: ${escapeHtml(marketHealthBreadthText(breadth))}</li>
+      <li>History context: ${escapeHtml(marketHealthHistoryText(context))}</li>
+    </ul>
+  `;
+}
+
+function marketHealthBreadthText(breadth = null) {
+  if (!breadth?.count) return "waiting for enough ranked pulse coins.";
+  return `${breadth.bullishCount || 0} of ${breadth.count} ranked coins are positive, average move ${formatPercent(breadth.avgChange)}.`;
+}
+
+function marketHealthHistoryText(context = null) {
+  if (!context?.available) return "stored snapshots are still building context.";
+  const sample = finiteOrNull(context.sampleSize);
+  const regime = contextMarketHealthLabel(context.regime) || "stored market regime";
+  return `${regime}${Number.isFinite(sample) ? ` from ${Math.round(sample)} recent snapshot reads` : ""}.`;
 }
 
 function startMarketHealthLiveScore(baseScore) {
@@ -9612,57 +9661,7 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 }
 
 function refreshPulseChartMotion() {
-  if (!pulseChart) return;
-  pulseChart.classList.remove("motion-ready");
-  requestAnimationFrame(() => {
-    const traces = [...pulseChart.querySelectorAll(".pulse-line-trace")];
-    let prepared = false;
-    traces.forEach((path, index) => {
-      if (typeof path.getTotalLength !== "function") return;
-      const length = path.getTotalLength();
-      if (!Number.isFinite(length) || length <= 0) return;
-      path.style.setProperty("--pulse-line-length", length.toFixed(2));
-      path.style.setProperty("--pulse-line-sweep", Math.max(18, length * 0.18).toFixed(2));
-      path.style.setProperty("--pulse-line-gap", Math.max(30, length * 0.82).toFixed(2));
-      path.dataset.motionLength = String(length);
-      path.dataset.motionOffset = String(index * length * 0.34);
-      path.style.strokeDasharray = `${Math.max(18, length * 0.18)} ${Math.max(30, length * 0.82)}`;
-      path.style.strokeDashoffset = String(length);
-      prepared = true;
-    });
-    if (prepared) {
-      pulseChart.classList.add("motion-ready");
-      startPulseChartMotionLoop();
-    }
-  });
-}
-
-let pulseMotionFrame = null;
-
-function startPulseChartMotionLoop() {
-  if (pulseMotionFrame) return;
-  const startedAt = performance.now();
-  const duration = 2600;
-  const tick = (now) => {
-    if (!pulseChart) {
-      pulseMotionFrame = null;
-      return;
-    }
-    const traces = [...pulseChart.querySelectorAll(".pulse-line-trace")];
-    if (!traces.length) {
-      pulseMotionFrame = null;
-      return;
-    }
-    traces.forEach((path) => {
-      const length = Number(path.dataset.motionLength);
-      if (!Number.isFinite(length) || length <= 0) return;
-      const offset = Number(path.dataset.motionOffset) || 0;
-      const progress = ((now - startedAt + offset) % duration) / duration;
-      path.style.strokeDashoffset = String(length - progress * length);
-    });
-    pulseMotionFrame = requestAnimationFrame(tick);
-  };
-  pulseMotionFrame = requestAnimationFrame(tick);
+  // The chart sweep is intentionally CSS-only to match the mobile preview behavior.
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
