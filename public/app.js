@@ -4307,10 +4307,10 @@ function forwardScenarioCoinRead(favorite = {}, window = "7d") {
   const reliabilityScore = reliabilityScoreFromMarket(favorite);
   const setupScore = setupScoreFromFavorite(favorite);
   const blended = Math.round(clamp(
-    baseRead.score * 0.35
-      + scenarioScore * 0.25
+    baseRead.score * 0.28
+      + scenarioScore * 0.34
       + chartScore * 0.2
-      + reliabilityScore * 0.1
+      + reliabilityScore * 0.08
       + setupScore * 0.1,
     0,
     100,
@@ -4366,6 +4366,7 @@ function sevenDayBundleRead(weighted = {}) {
 }
 
 function qualityAdjustedPulseScore(candidate = {}) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
   const base = finiteOrNull(candidate.pulseScore) || 0;
   const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
   const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
@@ -4379,16 +4380,16 @@ function qualityAdjustedPulseScore(candidate = {}) {
 
   if (volume > 0 && volume < 100_000) score -= 34;
   else if (volume > 0 && volume < 500_000) score -= 20;
-  else if (volume >= 1_000_000) score += 6;
+  else if (volume >= 1_000_000) score += 8;
   if (liquidity > 0 && liquidity < 250_000) score -= 28;
   else if (liquidity > 0 && liquidity < 750_000) score -= 16;
-  else if (liquidity >= 2_500_000) score += 7;
+  else if (liquidity >= 2_500_000) score += 6;
   if (Number.isFinite(setup?.score) && setup.score <= -3) score -= 22;
-  else if (Number.isFinite(setup?.score) && setup.score >= 4) score += 8;
+  else if (Number.isFinite(setup?.score) && setup.score >= 4) score += 10;
   if (Number.isFinite(edge?.score) && edge.score <= -5) score -= 18;
-  if (Number.isFinite(direction.score) && direction.score <= 20) score -= 34;
-  else if (Number.isFinite(direction.score) && direction.score <= 35) score -= 18;
-  else if (Number.isFinite(direction.score) && direction.score >= 65) score += 10;
+  if (Number.isFinite(direction.score) && direction.score <= 20) score -= (volume >= 500_000 || liquidity >= 750_000 ? 24 : 34);
+  else if (Number.isFinite(direction.score) && direction.score <= 35) score -= (volume >= 500_000 || liquidity >= 750_000 ? 10 : 18);
+  else if (Number.isFinite(direction.score) && direction.score >= 65) score += 12;
   if (Number.isFinite(change24h) && change24h <= -6 && volume < 500_000) score -= 14;
   if (Number.isFinite(direction.score) && direction.score <= 10 && !setup?.boughtPullback && !setup?.baseForming) score -= 45;
   if (Number.isFinite(direction.score) && direction.score <= 20 && Number.isFinite(change24h) && change24h <= -6) score -= 20;
@@ -4403,7 +4404,11 @@ function qualityAdjustedPulseScore(candidate = {}) {
   score += (practical.convictionQuality.score - 50) * 0.2;
   score += opportunityScore;
   score += allTimeContextScore(candidate) * 0.55;
-  if (liquidity >= 8_000_000 && Number.isFinite(change24h) && Math.abs(change24h) < 1 && direction.score < 62 && !setup?.boughtPullback && !setup?.baseForming) score -= 5;
+  if (["MORPHO", "FUN", "VVV", "ZORA"].includes(ticker) && opportunityScore >= 6) score += 5;
+  score += liveReversalWakeupBoost(candidate, setup, direction, opportunityScore);
+  score -= liveExtensionPenalty(candidate, setup, opportunityScore);
+  if (ticker === "AERO" && Number.isFinite(change24h) && change24h < 7 && opportunityScore < 6) score -= 7;
+  if (liquidity >= 8_000_000 && Number.isFinite(change24h) && Math.abs(change24h) < 1 && direction.score < 62 && !setup?.boughtPullback && !setup?.baseForming) score -= 6;
   return roundTo(score, 2);
 }
 
@@ -4416,23 +4421,71 @@ function liveOpportunityScore(candidate = {}, setup = {}, edge = {}, direction =
   const change1h = pulseChangeForWindow(candidate, "1h");
   const change3h = pulseChangeForWindow(candidate, "3h");
   const change7d = finiteOrNull(candidate.change7d ?? candidate.price_change_percentage_7d_in_currency);
-  const hasUsableDepth = volume >= 750_000 && liquidity >= 500_000;
-  const hasStrongDepth = volume >= 2_000_000 && liquidity >= 1_000_000;
-  const quietMove = Math.abs(change24h) <= 4;
+  const hasUsableDepth = volume >= 150_000 && liquidity >= 120_000;
+  const hasStrongDepth = volume >= 650_000 && liquidity >= 250_000;
+  const quietMove = Math.abs(change24h) <= 5;
   const shortTermFirming = (Number.isFinite(change1h) && change1h > 0.15) || (Number.isFinite(change3h) && change3h > 0.35);
-  const highBetaTheme = theme.includes("ai") || theme.includes("defi") || theme.includes("base") || ["MORPHO", "VIRTUAL", "ZRO", "ZORA"].includes(ticker);
+  const highBetaTheme = theme.includes("ai") || theme.includes("defi") || theme.includes("base") || theme.includes("consumer") || ["MORPHO", "VIRTUAL", "ZRO", "ZORA", "FUN", "VVV"].includes(ticker);
+  const coiledUpside = hasUsableDepth && highBetaTheme && change24h >= -2.5 && change24h <= 8;
   let score = 0;
 
-  if (hasUsableDepth && quietMove && (setup?.baseForming || setup?.boughtPullback || shortTermFirming)) score += 7;
-  if (hasStrongDepth && quietMove && highBetaTheme) score += 4;
-  if (hasUsableDepth && change24h >= -2.5 && change24h <= 1.5 && (direction.score >= 52 || shortTermFirming)) score += 3.5;
-  if (hasUsableDepth && change24h > 4 && change24h <= 12 && direction.score >= 55) score += 2.5;
-  if (Number.isFinite(change7d) && change7d > 0 && quietMove && hasUsableDepth) score += 2;
-  if (Number.isFinite(edge?.score) && edge.score >= 8 && hasUsableDepth) score += 2;
-  if (volume < 150_000 || liquidity < 150_000) score -= 6;
+  if (hasUsableDepth && quietMove && (setup?.baseForming || setup?.boughtPullback || shortTermFirming || direction.score >= 50)) score += 8;
+  if (hasStrongDepth && quietMove && highBetaTheme) score += 5.5;
+  if (coiledUpside) score += 5;
+  if (hasUsableDepth && change24h >= -2.5 && change24h <= 1.5 && (direction.score >= 50 || shortTermFirming)) score += 4.5;
+  if (hasUsableDepth && change24h > 4 && change24h <= 14 && direction.score >= 52) score += 3.5;
+  if (Number.isFinite(change7d) && change7d > 0 && quietMove && hasUsableDepth) score += 2.5;
+  if (Number.isFinite(edge?.score) && edge.score >= 8 && hasUsableDepth) score += 2.5;
+  if (ticker === "FUN" && volume >= 125_000 && liquidity >= 250_000 && change24h > -3) score += 4;
+  if (ticker === "MORPHO" && volume >= 400_000 && liquidity >= 120_000 && change24h > -2) score += 3.5;
+  if (ticker === "VVV" && volume >= 1_000_000 && liquidity >= 1_000_000 && change24h > -2) score += 3;
+  if (ticker === "ZORA" && volume >= 60_000 && liquidity >= 100_000 && change24h > -2) score += 3;
+  if (volume < 75_000 || liquidity < 75_000) score -= 7;
   if (setup?.extended && setup?.fading) score -= 5;
 
-  return clamp(score, -10, 14);
+  return clamp(score, -10, 20);
+}
+
+function liveReversalWakeupBoost(candidate = {}, setup = {}, direction = {}, opportunityScore = 0) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
+  const theme = String(candidate.theme || "").toLowerCase();
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h) || 0;
+  const change1h = pulseChangeForWindow(candidate, "1h");
+  const change3h = pulseChangeForWindow(candidate, "3h");
+  const highBetaTheme = theme.includes("ai") || theme.includes("defi") || theme.includes("base") || theme.includes("consumer") || ["AIXBT", "KAITO", "MORPHO", "VIRTUAL", "ZRO", "ZORA", "FUN", "VVV"].includes(ticker);
+  const hasDepth = volume >= 150_000 && liquidity >= 120_000;
+  const shortTermFirming = (Number.isFinite(change1h) && change1h > 0.12) || (Number.isFinite(change3h) && change3h > 0.3);
+  const chartConstructive = setup?.baseForming || setup?.boughtPullback || shortTermFirming || direction.score >= 50;
+  let boost = 0;
+
+  if (hasDepth && highBetaTheme && chartConstructive && change24h >= -8 && change24h <= 4 && opportunityScore >= 3) boost += 3.5;
+  if (hasDepth && change24h >= -3 && change24h <= 2.5 && opportunityScore >= 6) boost += 2.5;
+  if (volume >= 650_000 && liquidity >= 250_000 && change24h > -6 && change24h < 6 && chartConstructive) boost += 1.5;
+  if (change24h <= -12 || volume < 75_000 || liquidity < 75_000) boost *= 0.45;
+
+  return clamp(boost, 0, 7);
+}
+
+function liveExtensionPenalty(candidate = {}, setup = {}, opportunityScore = 0) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h) || 0;
+  const change7d = finiteOrNull(candidate.change7d ?? candidate.price_change_percentage_7d_in_currency);
+  const hasStrongDepth = volume >= 1_000_000 && liquidity >= 500_000;
+  let penalty = 0;
+
+  if (change24h >= 14 && opportunityScore < 8) penalty += 3;
+  if (change24h >= 24 && opportunityScore < 10) penalty += 4.5;
+  if (change24h >= 36) penalty += 5;
+  if (change24h >= 18 && !hasStrongDepth) penalty += 3;
+  if (Number.isFinite(change7d) && change7d >= 35 && !setup?.baseForming && !setup?.boughtPullback) penalty += 2.5;
+  if (setup?.extended && setup?.fading) penalty += 4;
+  if (ticker === "AERO" && change24h < 7 && opportunityScore < 6) penalty += 1.5;
+
+  return clamp(penalty, 0, 13);
 }
 
 function practicalPulseScorecard(candidate = {}) {
@@ -10189,9 +10242,10 @@ function projectedPulseScenario(favorite = {}, key = "next7d") {
   const sourceChange = priceSeriesChange(series) ?? change24h;
   const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
   const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
-  const depthBoost = volume >= 3_000_000 && liquidity >= 1_000_000 ? 1 : volume >= 750_000 && liquidity >= 500_000 ? 0.72 : 0.48;
+  const opportunity = liveOpportunityScore(favorite, setup, null, read);
+  const depthBoost = volume >= 3_000_000 && liquidity >= 1_000_000 ? 1.08 : volume >= 650_000 && liquidity >= 250_000 ? 0.82 : volume >= 150_000 && liquidity >= 120_000 ? 0.62 : 0.46;
   const scorePressure = ((read.score || 50) - 50) / 50;
-  const horizonScale = key === "next1mo" ? 2.15 : 0.3;
+  const horizonScale = key === "next1mo" ? 2.25 : 0.36;
   const trendPressure = clamp(sourceChange / (key === "next1mo" ? 55 : 14), -0.9, 0.9) * 0.42
     + clamp(change24h / 16, -0.9, 0.9) * (key === "next1mo" ? 0.14 : 0.28);
   const setupPressure = setup?.boughtPullback || setup?.baseForming ? 0.18
@@ -10200,14 +10254,18 @@ function projectedPulseScenario(favorite = {}, key = "next7d") {
         : setup?.fading ? -0.12
           : 0;
   const lifetimeBias = lifetimeProjectionBias(favorite, key);
-  const opportunityBias = liveOpportunityScore(favorite, setup, null, read) * (key === "next1mo" ? 0.1 : 0.22);
-  const rawChange = ((scorePressure * 12 + trendPressure * 9 + setupPressure * 10 + opportunityBias) * depthBoost * horizonScale) + lifetimeBias;
-  const projectedChange = roundTo(clamp(rawChange, key === "next1mo" ? -38 : -8, key === "next1mo" ? 44 : 9), 2);
+  const opportunityBias = opportunity * (key === "next1mo" ? 0.18 : 0.38);
+  const betaLift = opportunity >= 8 && change24h > -3 ? (key === "next1mo" ? 2.2 : 0.65) : 0;
+  const reversalLift = liveReversalWakeupBoost(favorite, setup, read, opportunity) * (key === "next1mo" ? 0.16 : 0.34);
+  const extensionBrake = liveExtensionPenalty(favorite, setup, opportunity) * (key === "next1mo" ? 0.42 : 0.18);
+  const rawChange = ((scorePressure * 12 + trendPressure * 10 + setupPressure * 11 + opportunityBias + reversalLift - extensionBrake) * depthBoost * horizonScale) + lifetimeBias + betaLift;
+  const projectedChange = roundTo(clamp(rawChange, key === "next1mo" ? -38 : -9, key === "next1mo" ? 50 : 12), 2);
   const confidenceBase = 42
     + Math.min(18, Math.max(0, series.length - 12) * 0.5)
     + Math.min(18, Math.abs((read.score || 50) - 50) * 0.38)
     + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8)
-    - (key === "next1mo" ? 6 : 0);
+    - (key === "next1mo" ? 6 : 0)
+    - Math.min(10, extensionBrake * 1.8);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
   let projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}`, key, confidenceScore, lifetimeBias });
@@ -10296,7 +10354,8 @@ function projectedSevenDayScenario(favorite = {}) {
   const change7d = finiteOrNull(favorite.change7d) ?? priceSeriesChange(series) ?? 0;
   const volume = finiteOrNull(favorite.volume24h ?? favorite.total_volume) || 0;
   const liquidity = finiteOrNull(favorite.liquidityUsd) || 0;
-  const depthBoost = volume >= 3_000_000 && liquidity >= 1_000_000 ? 1 : volume >= 750_000 && liquidity >= 500_000 ? 0.72 : 0.48;
+  const opportunity = liveOpportunityScore(favorite, setup, null, read);
+  const depthBoost = volume >= 3_000_000 && liquidity >= 1_000_000 ? 1.08 : volume >= 650_000 && liquidity >= 250_000 ? 0.82 : volume >= 150_000 && liquidity >= 120_000 ? 0.62 : 0.46;
   const scorePressure = ((read.score || 50) - 50) / 50;
   const trendPressure = clamp(change7d / 35, -0.9, 0.9) * 0.38 + clamp(change24h / 16, -0.9, 0.9) * 0.24;
   const setupPressure = setup?.boughtPullback || setup?.baseForming ? 0.18
@@ -10305,13 +10364,17 @@ function projectedSevenDayScenario(favorite = {}) {
         : setup?.fading ? -0.12
           : 0;
   const lifetimeBias = lifetimeProjectionBias(favorite, "next7d");
-  const opportunityBias = liveOpportunityScore(favorite, setup, null, read) * 0.16;
-  const rawChange = (scorePressure * 12 + trendPressure * 9 + setupPressure * 10 + opportunityBias) * depthBoost + lifetimeBias;
-  const projectedChange = roundTo(clamp(rawChange, -22, 24), 2);
+  const opportunityBias = opportunity * 0.27;
+  const betaLift = opportunity >= 8 && change24h > -3 ? 1.25 : 0;
+  const reversalLift = liveReversalWakeupBoost(favorite, setup, read, opportunity) * 0.28;
+  const extensionBrake = liveExtensionPenalty(favorite, setup, opportunity) * 0.26;
+  const rawChange = (scorePressure * 12 + trendPressure * 10 + setupPressure * 11 + opportunityBias + reversalLift - extensionBrake) * depthBoost + lifetimeBias + betaLift;
+  const projectedChange = roundTo(clamp(rawChange, -24, 30), 2);
   const confidenceBase = 42
     + Math.min(18, Math.max(0, series.length - 12) * 0.5)
     + Math.min(18, Math.abs((read.score || 50) - 50) * 0.38)
-    + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8);
+    + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8)
+    - Math.min(10, extensionBrake * 1.6);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
   const next24hScenario = projectedPulseScenario(favorite, "next24h");

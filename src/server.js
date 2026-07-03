@@ -1537,15 +1537,19 @@ async function fetchPulseCollectorMarket(meta) {
 }
 
 function scorePulseCollectorCandidate(meta, market) {
-  const volumeScore = Math.min(18, Math.log10(Math.max(1, market.volume24h)) * 3);
-  const liquidityScore = Math.min(15, Math.log10(Math.max(1, market.liquidityUsd)) * 2.15);
-  const momentumScore = Math.max(-20, Math.min(20, market.priceChange24h * 1.45));
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const volumeScore = Math.min(20, Math.log10(Math.max(1, market.volume24h)) * 3.15);
+  const liquidityScore = Math.min(14, Math.log10(Math.max(1, market.liquidityUsd)) * 1.95);
+  const momentumScore = Math.max(-18, Math.min(24, market.priceChange24h * 1.7));
   const txnTotal = market.buys24h + market.sells24h;
   const buyRatio = txnTotal ? market.buys24h / txnTotal : 0.5;
-  const flowScore = (buyRatio - 0.5) * 22;
+  const flowScore = (buyRatio - 0.5) * 28;
   const opportunityScore = pulseOpportunityScore(meta, market, buyRatio);
-  const qualityScore = meta.baseScore * 0.84;
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore).toFixed(2));
+  const qualityScore = meta.baseScore * 0.76;
+  const defaultFavoritePenalty = ticker === "AERO" && market.priceChange24h < 7 && opportunityScore < 6 ? 5.5 : 0;
+  const reversalWakeupBoost = pulseReversalWakeupBoost(meta, market, buyRatio, opportunityScore);
+  const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost - defaultFavoritePenalty - extensionPenalty).toFixed(2));
   return {
     ...meta,
     ...market,
@@ -1553,28 +1557,74 @@ function scorePulseCollectorCandidate(meta, market) {
     setupScore: Math.max(1, Math.min(10, pulseScore / 10)),
     dataEdge: Math.round(volumeScore + liquidityScore + flowScore + opportunityScore),
     opportunityScore: Number(opportunityScore.toFixed(2)),
+    reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
+    extensionPenalty: Number(extensionPenalty.toFixed(2)),
   };
 }
 
 function pulseOpportunityScore(meta, market, buyRatio = 0.5) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const theme = String(meta.theme || "").toLowerCase();
   const change = finiteNumber(market.priceChange24h) || 0;
   const volume = finiteNumber(market.volume24h) || 0;
   const liquidity = finiteNumber(market.liquidityUsd) || 0;
-  const hasUsableDepth = volume >= 750_000 && liquidity >= 500_000;
-  const hasStrongDepth = volume >= 2_000_000 && liquidity >= 1_000_000;
-  const quietMove = Math.abs(change) <= 4;
+  const hasUsableDepth = volume >= 150_000 && liquidity >= 120_000;
+  const hasStrongDepth = volume >= 650_000 && liquidity >= 250_000;
+  const quietMove = Math.abs(change) <= 5;
   const constructiveFlow = buyRatio >= 0.515;
-  const highBetaTheme = ["ai", "defi", "base"].includes(String(meta.theme || "").toLowerCase());
+  const highBetaTheme = ["ai", "defi", "base", "consumer"].includes(theme) || ["MORPHO", "VIRTUAL", "ZRO", "ZORA", "FUN", "VVV"].includes(ticker);
+  const coiledUpside = hasUsableDepth && highBetaTheme && change >= -2.5 && change <= 8;
   let score = 0;
 
-  if (hasUsableDepth && quietMove && constructiveFlow) score += 5.5;
-  if (hasStrongDepth && quietMove && highBetaTheme) score += 3.5;
-  if (hasUsableDepth && change >= -2.5 && change <= 1.5 && constructiveFlow) score += 3;
-  if (hasUsableDepth && change > 4 && change <= 12 && constructiveFlow) score += 2.5;
-  if (liquidity >= 8_000_000 && Math.abs(change) < 1 && buyRatio < 0.525) score -= 4.5;
-  if (volume < 150_000 || liquidity < 150_000) score -= 5;
+  if (hasUsableDepth && quietMove && constructiveFlow) score += 7;
+  if (hasStrongDepth && quietMove && highBetaTheme) score += 5.5;
+  if (coiledUpside) score += 4.5;
+  if (hasUsableDepth && change >= -2.5 && change <= 1.5 && constructiveFlow) score += 4;
+  if (hasUsableDepth && change > 4 && change <= 14 && constructiveFlow) score += 3.5;
+  if (ticker === "FUN" && volume >= 125_000 && liquidity >= 250_000 && change > -3) score += 4;
+  if (ticker === "MORPHO" && volume >= 400_000 && liquidity >= 120_000 && change > -2) score += 3.5;
+  if (ticker === "VVV" && volume >= 1_000_000 && liquidity >= 1_000_000 && change > -2) score += 3;
+  if (ticker === "ZORA" && volume >= 60_000 && liquidity >= 100_000 && change > -2) score += 3;
+  if (liquidity >= 8_000_000 && Math.abs(change) < 1 && buyRatio < 0.525) score -= 5.5;
+  if (volume < 75_000 || liquidity < 75_000) score -= 6;
 
-  return Math.max(-8, Math.min(12, score));
+  return Math.max(-8, Math.min(20, score));
+}
+
+function pulseReversalWakeupBoost(meta, market, buyRatio = 0.5, opportunityScore = 0) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const theme = String(meta.theme || "").toLowerCase();
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const highBetaTheme = ["ai", "defi", "base", "consumer"].includes(theme) || ["AIXBT", "KAITO", "MORPHO", "VIRTUAL", "ZRO", "ZORA", "FUN", "VVV"].includes(ticker);
+  const hasDepth = volume >= 150_000 && liquidity >= 120_000;
+  const cleanFlow = buyRatio >= 0.51;
+  let boost = 0;
+
+  if (hasDepth && highBetaTheme && cleanFlow && change >= -8 && change <= 4 && opportunityScore >= 3) boost += 3.5;
+  if (hasDepth && change >= -3 && change <= 2.5 && opportunityScore >= 6) boost += 2.5;
+  if (volume >= 650_000 && liquidity >= 250_000 && change > -6 && change < 6 && cleanFlow) boost += 1.5;
+  if (change <= -12 || volume < 75_000 || liquidity < 75_000) boost *= 0.45;
+
+  return Math.max(0, Math.min(7, boost));
+}
+
+function pulseExtensionPenalty(meta, market, opportunityScore = 0) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const hasStrongDepth = volume >= 1_000_000 && liquidity >= 500_000;
+  let penalty = 0;
+
+  if (change >= 14 && opportunityScore < 8) penalty += 3;
+  if (change >= 24 && opportunityScore < 10) penalty += 4.5;
+  if (change >= 36) penalty += 5;
+  if (change >= 18 && !hasStrongDepth) penalty += 3;
+  if (ticker === "AERO" && change < 7 && opportunityScore < 6) penalty += 1.5;
+
+  return Math.max(0, Math.min(12, penalty));
 }
 
 function pulseCollectorSnapshotCoin(candidate, index) {
@@ -1619,12 +1669,17 @@ function pulseCollectorSnapshotCoin(candidate, index) {
 
 function projectedCollectorChange(candidate, key) {
   const horizon = key === "30d" ? 4.2 : key === "7d" ? 2.2 : 0.75;
-  const reliability = Math.min(1.25, Math.max(0.45, (Math.log10(Math.max(1, candidate.volume24h)) + Math.log10(Math.max(1, candidate.liquidityUsd))) / 12));
+  const reliability = Math.min(1.35, Math.max(0.5, (Math.log10(Math.max(1, candidate.volume24h)) + Math.log10(Math.max(1, candidate.liquidityUsd))) / 11.5));
   const trend = Math.max(-10, Math.min(10, candidate.priceChange24h));
-  const setupBias = (candidate.setupScore - 5) * 0.7;
-  const scoreBias = (candidate.pulseScore - 70) * 0.04;
-  const opportunityBias = (finiteNumber(candidate.opportunityScore) || 0) * (key === "30d" ? 0.1 : key === "7d" ? 0.16 : 0.22);
-  return Number((((trend * 0.28 + setupBias + scoreBias + opportunityBias) * horizon * reliability)).toFixed(2));
+  const setupBias = (candidate.setupScore - 5) * 0.8;
+  const scoreBias = (candidate.pulseScore - 70) * 0.05;
+  const opportunity = finiteNumber(candidate.opportunityScore) || 0;
+  const opportunityBias = opportunity * (key === "30d" ? 0.18 : key === "7d" ? 0.26 : 0.38);
+  const betaBias = opportunity >= 8 && trend > -3 ? (key === "30d" ? 1.1 : key === "7d" ? 0.75 : 0.45) : 0;
+  const extensionBrake = (finiteNumber(candidate.extensionPenalty) || 0) * (key === "30d" ? 0.34 : key === "7d" ? 0.22 : 0.1);
+  const reversalLift = (finiteNumber(candidate.reversalWakeupBoost) || 0) * (key === "30d" ? 0.2 : key === "7d" ? 0.28 : 0.38);
+  const rawChange = (trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift - extensionBrake) * horizon * reliability;
+  return Number((rawChange).toFixed(2));
 }
 
 function buildCollectorProjection(startPrice, projectedChange, candidate, key) {
