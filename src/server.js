@@ -1479,6 +1479,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
   try {
     const candidates = [];
     const skipped = [];
+    const rankingContext = await buildPulseRankingContext();
     for (const meta of pulseCollectorWatchlist) {
       try {
         const market = await fetchPulseCollectorMarket(meta);
@@ -1495,7 +1496,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
           });
           continue;
         }
-        candidates.push(scorePulseCollectorCandidate(meta, market));
+        candidates.push(scorePulseCollectorCandidate(meta, market, rankingContext));
       } catch (error) {
         pulseCollectorState.lastError = `${meta.ticker}: ${error.message || "market lookup failed"}`;
         skipped.push({ ticker: meta.ticker, reason: error.message || "market lookup failed" });
@@ -1559,7 +1560,54 @@ async function fetchPulseCollectorMarket(meta) {
   return matches[0] || null;
 }
 
-function scorePulseCollectorCandidate(meta, market) {
+async function buildPulseRankingContext() {
+  try {
+    const snapshots = await pulseSnapshotRepository.listSnapshots({ limit: 288 });
+    const ordered = (Array.isArray(snapshots) ? snapshots : [])
+      .slice()
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const marketContext = buildMarketHealthContext(ordered);
+    const tickerHistory = buildTickerRankHistory(ordered);
+    return {
+      available: ordered.length >= 6,
+      sampleSize: ordered.length,
+      regime: marketContext?.regime || "mixed",
+      marketContext,
+      tickerHistory,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      sampleSize: 0,
+      regime: "mixed",
+      marketContext: null,
+      tickerHistory: new Map(),
+      error: error.message || "Ranking context unavailable",
+    };
+  }
+}
+
+function buildTickerRankHistory(snapshots = []) {
+  const history = new Map();
+  for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+    const createdAt = snapshot.createdAt || "";
+    for (const coin of Array.isArray(snapshot.coins) ? snapshot.coins : []) {
+      const ticker = safeText(coin.ticker, 20).toUpperCase();
+      if (!ticker) continue;
+      if (!history.has(ticker)) history.set(ticker, []);
+      history.get(ticker).push({
+        createdAt,
+        rank: finiteNumber(coin.rank),
+        change24h: finiteNumber(coin.change24h),
+        projected24hChange: finiteNumber(coin.projected24hChange),
+        pulseScore: finiteNumber(coin.pulseScore),
+      });
+    }
+  }
+  return history;
+}
+
+function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const ticker = safeText(meta.ticker, 20).toUpperCase();
   const volumeScore = Math.min(20, Math.log10(Math.max(1, market.volume24h)) * 3.15);
   const liquidityScore = Math.min(14, Math.log10(Math.max(1, market.liquidityUsd)) * 1.95);
@@ -1573,7 +1621,27 @@ function scorePulseCollectorCandidate(meta, market) {
   const reversalWakeupBoost = pulseReversalWakeupBoost(meta, market, buyRatio, opportunityScore);
   const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
   const speculativeTrapPenalty = pulseSpeculativeTrapPenalty(meta, market, buyRatio, opportunityScore);
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty).toFixed(2));
+  const rankMomentum = pulseRankMomentum(ticker, rankingContext);
+  const regimeFit = pulseRegimeFit(meta, market, buyRatio, rankingContext, opportunityScore);
+  const confidenceScore = pulseConfidenceScore(meta, market, {
+    buyRatio,
+    opportunityScore,
+    reversalWakeupBoost,
+    extensionPenalty,
+    speculativeTrapPenalty,
+    rankMomentum,
+    regimeFit,
+    rankingContext,
+  });
+  const fragilityScore = pulseFragilityScore(meta, market, {
+    buyRatio,
+    extensionPenalty,
+    speculativeTrapPenalty,
+    confidenceScore,
+  });
+  const confidenceBoost = (confidenceScore - 50) * 0.08;
+  const fragilityPenalty = Math.max(0, fragilityScore - 48) * 0.075;
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + rankMomentum + regimeFit + confidenceBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
   return {
     ...meta,
     ...market,
@@ -1581,10 +1649,119 @@ function scorePulseCollectorCandidate(meta, market) {
     setupScore: Math.max(1, Math.min(10, pulseScore / 10)),
     dataEdge: Math.round(volumeScore + liquidityScore + flowScore + opportunityScore),
     opportunityScore: Number(opportunityScore.toFixed(2)),
+    rankMomentum: Number(rankMomentum.toFixed(2)),
+    regimeFit: Number(regimeFit.toFixed(2)),
+    confidenceScore,
+    fragilityScore,
+    confidenceLabel: confidenceScore >= 72 ? "higher-confidence" : confidenceScore >= 54 ? "medium-confidence" : "low-confidence",
+    regime: rankingContext?.regime || "mixed",
     reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
     speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
   };
+}
+
+function pulseRankMomentum(ticker, rankingContext = {}) {
+  const rows = rankingContext?.tickerHistory instanceof Map ? rankingContext.tickerHistory.get(ticker) : null;
+  const clean = (Array.isArray(rows) ? rows : []).filter((row) => Number.isFinite(row.rank));
+  if (clean.length < 4) return 0;
+  const recent = clean.slice(-4);
+  const prior = clean.slice(Math.max(0, clean.length - 16), Math.max(0, clean.length - 4));
+  if (prior.length < 3) return 0;
+  const recentRank = averageValue(recent.map((row) => row.rank));
+  const priorRank = averageValue(prior.map((row) => row.rank));
+  if (!Number.isFinite(recentRank) || !Number.isFinite(priorRank)) return 0;
+  const rankImprovement = priorRank - recentRank;
+  const scoreTrend = averageValue(recent.map((row) => row.pulseScore).filter(Number.isFinite)) - averageValue(prior.map((row) => row.pulseScore).filter(Number.isFinite));
+  const scoreSignal = Number.isFinite(scoreTrend) ? clamp(scoreTrend / 8, -1.5, 1.5) : 0;
+  return clamp(rankImprovement * 1.15 + scoreSignal, -5, 6);
+}
+
+function pulseRegimeFit(meta, market, buyRatio = 0.5, rankingContext = {}, opportunityScore = 0) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const theme = String(meta.theme || "").toLowerCase();
+  const regime = String(rankingContext?.regime || "mixed").toLowerCase();
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const highBeta = ["ai", "base", "consumer", "creator"].includes(theme) || ["DEGEN", "TOSHI", "BRETT", "ZORA", "FUN", "VVV", "AIXBT"].includes(ticker);
+  const defiOrInfra = ["defi", "infrastructure", "l2"].includes(theme) || ["AERO", "MORPHO", "ZRO", "AVNT"].includes(ticker);
+  const hasDepth = volume >= 200_000 && liquidity >= 150_000;
+  const strongDepth = volume >= 750_000 && liquidity >= 300_000;
+  const constructive = change > -3 && buyRatio >= 0.51;
+  let score = 0;
+
+  if (regime === "risk-on") {
+    if (highBeta && hasDepth && constructive) score += 3.2;
+    if (defiOrInfra && strongDepth && change > 0) score += 1.6;
+  } else if (regime === "late-risk-on" || regime === "fragile-chase") {
+    if (change >= 10 && !strongDepth) score -= 4.5;
+    if (highBeta && !strongDepth) score -= 2;
+    if (defiOrInfra && strongDepth && change < 9) score += 1.4;
+  } else if (regime === "reversal-building") {
+    if (hasDepth && change >= -4 && change <= 5 && opportunityScore >= 4) score += 4;
+    if (change >= 12) score -= 2.5;
+  } else if (regime === "risk-off") {
+    if (strongDepth && Math.abs(change) <= 6) score += 2.2;
+    if (highBeta && !strongDepth) score -= 4;
+    if (change >= 12) score -= 2.5;
+  } else {
+    if (hasDepth && constructive && change <= 8) score += 1.2;
+    if (!hasDepth && highBeta) score -= 1.8;
+  }
+
+  return clamp(score, -7, 7);
+}
+
+function pulseConfidenceScore(meta, market, context = {}) {
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const buyRatio = finiteNumber(context.buyRatio) || 0.5;
+  const rankMomentum = finiteNumber(context.rankMomentum) || 0;
+  const regimeFit = finiteNumber(context.regimeFit) || 0;
+  const historySize = finiteNumber(context.rankingContext?.sampleSize) || 0;
+  let score = 38;
+
+  score += clamp(Math.log10(Math.max(1, volume)) - 5, 0, 2.2) * 7;
+  score += clamp(Math.log10(Math.max(1, liquidity)) - 5, 0, 2.4) * 6;
+  score += clamp((buyRatio - 0.5) * 90, -7, 8);
+  score += clamp(rankMomentum, -4, 5) * 1.6;
+  score += clamp(regimeFit, -5, 5) * 1.35;
+  score += clamp(finiteNumber(context.opportunityScore) || 0, -4, 12) * 0.65;
+  score += clamp(finiteNumber(context.reversalWakeupBoost) || 0, 0, 8) * 0.75;
+  score -= clamp(finiteNumber(context.extensionPenalty) || 0, 0, 12) * 1.25;
+  score -= clamp(finiteNumber(context.speculativeTrapPenalty) || 0, 0, 10) * 1.45;
+  if (Math.abs(change) <= 7) score += 4;
+  if (historySize >= 48) score += 3;
+
+  return Math.round(clamp(score, 18, 92));
+}
+
+function pulseFragilityScore(meta, market, context = {}) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const theme = String(meta.theme || "").toLowerCase();
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const buyRatio = finiteNumber(context.buyRatio) || 0.5;
+  const highBeta = ["ai", "base", "consumer", "creator"].includes(theme) || ["DEGEN", "TOSHI", "BRETT", "ZORA", "FUN", "VVV", "AIXBT"].includes(ticker);
+  let score = 22;
+
+  if (volume < 150_000) score += 16;
+  else if (volume < 500_000) score += 7;
+  if (liquidity < 150_000) score += 18;
+  else if (liquidity < 500_000) score += 7;
+  if (highBeta) score += 8;
+  if (change >= 12) score += 8;
+  if (change >= 22) score += 10;
+  if (change <= -8) score += 6;
+  if (buyRatio < 0.49) score += 7;
+  score += clamp(finiteNumber(context.extensionPenalty) || 0, 0, 12) * 1.6;
+  score += clamp(finiteNumber(context.speculativeTrapPenalty) || 0, 0, 10) * 1.9;
+  score -= clamp((finiteNumber(context.confidenceScore) || 50) - 50, -20, 24) * 0.45;
+
+  return Math.round(clamp(score, 8, 96));
 }
 
 function pulseOpportunityScore(meta, market, buyRatio = 0.5) {
@@ -1698,6 +1875,12 @@ function pulseCollectorSnapshotCoin(candidate, index) {
     setupScore: Number(candidate.setupScore.toFixed(1)),
     dataEdge: candidate.dataEdge,
     pulseScore: candidate.pulseScore,
+    confidenceScore: candidate.confidenceScore,
+    confidenceLabel: candidate.confidenceLabel,
+    fragilityScore: candidate.fragilityScore,
+    rankMomentum: candidate.rankMomentum,
+    regimeFit: candidate.regimeFit,
+    regime: candidate.regime,
     projected24hChange,
     projected7dChange,
     projected30dChange,
@@ -1721,8 +1904,14 @@ function projectedCollectorChange(candidate, key) {
   const betaBias = opportunity >= 8 && trend > -3 ? (key === "30d" ? 1.1 : key === "7d" ? 0.75 : 0.45) : 0;
   const extensionBrake = (finiteNumber(candidate.extensionPenalty) || 0) * (key === "30d" ? 0.34 : key === "7d" ? 0.22 : 0.1);
   const reversalLift = (finiteNumber(candidate.reversalWakeupBoost) || 0) * (key === "30d" ? 0.2 : key === "7d" ? 0.28 : 0.38);
-  const rawChange = (trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift - extensionBrake) * horizon * reliability;
-  return Number((rawChange).toFixed(2));
+  const rankLift = (finiteNumber(candidate.rankMomentum) || 0) * (key === "30d" ? 0.22 : key === "7d" ? 0.34 : 0.18);
+  const regimeLift = (finiteNumber(candidate.regimeFit) || 0) * (key === "30d" ? 0.24 : key === "7d" ? 0.32 : 0.16);
+  const confidence = finiteNumber(candidate.confidenceScore) || 50;
+  const fragility = finiteNumber(candidate.fragilityScore) || 45;
+  const confidenceMultiplier = clamp(0.82 + (confidence - 50) / 140, 0.72, 1.18);
+  const fragilityBrake = Math.max(0, fragility - 52) * (key === "30d" ? 0.06 : key === "7d" ? 0.045 : 0.025);
+  const rawChange = ((trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift + rankLift + regimeLift - extensionBrake) * horizon * reliability * confidenceMultiplier) - fragilityBrake;
+  return Number((clamp(rawChange, key === "30d" ? -44 : key === "7d" ? -28 : -12, key === "30d" ? 58 : key === "7d" ? 34 : 15)).toFixed(2));
 }
 
 function buildCollectorProjection(startPrice, projectedChange, candidate, key) {
