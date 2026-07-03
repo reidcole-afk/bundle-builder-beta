@@ -1,0 +1,463 @@
+{
+  "generatedAt": "2026-07-03T06:40:03.463Z",
+  "method": "Daily rolling wake-up replay against eventual monthly winners. Uses only data available as of each replay day.",
+  "windows": [
+    {
+      "label": "May 2026",
+      "start": "2026-05-01",
+      "end": "2026-05-31",
+      "coinsTested": 17,
+      "topMonthlyPerformers": [
+        {
+          "ticker": "FUN",
+          "theme": "gaming",
+          "actualReturn": 176.91
+        },
+        {
+          "ticker": "BNKR",
+          "theme": "ai/base",
+          "actualReturn": 153.89
+        },
+        {
+          "ticker": "NOCK",
+          "theme": "infrastructure",
+          "actualReturn": 122.05
+        },
+        {
+          "ticker": "VVV",
+          "theme": "ai/privacy",
+          "actualReturn": 98.44
+        },
+        {
+          "ticker": "DEGEN",
+          "theme": "meme/base",
+          "actualReturn": 30.72
+        },
+        {
+          "ticker": "MORPHO",
+          "theme": "defi",
+          "actualReturn": 9.74
+        },
+        {
+          "ticker": "VIRTUAL",
+          "theme": "ai",
+          "actualReturn": 4.35
+        },
+        {
+          "ticker": "KAITO",
+          "theme": "ai/info",
+          "actualReturn": 1.8
+        },
+        {
+          "ticker": "PROS",
+          "theme": "defi",
+          "actualReturn": 0.66
+        },
+        {
+          "ticker": "AVNT",
+          "theme": "defi",
+          "actualReturn": -1.71
+        }
+      ],
+      "winnerDetection": [
+        {
+          "monthWinnerRank": 1,
+          "ticker": "FUN",
+          "theme": "gaming",
+          "actualReturn": 176.91,
+          "firstTop10": {
+            "date": "2026-05-01",
+            "rank": 1,
+            "wakeScore": 96.5,
+            "confirmedWakeScore": 79.62,
+            "r7": 25.24,
+            "r30": null,
+            "rebound30": 35.69,
+            "relative7": 28.27,
+            "next7d": 21.04,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "confirmed impulse",
+              "reversal from weakness"
+            ]
+          },
+          "firstTop5": {
+            "date": "2026-05-01",
+            "rank": 1,
+            "wakeScore": 96.5,
+            "confirmedWakeScore": 79.62,
+            "r7": 25.24,
+            "r30": null,
+            "rebound30": 35.69,
+            "relative7": 28.27,
+            "next7d": 21.04,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "confirmed impulse",
+              "reversal from weakness"
+            ]
+          },
+          "firstTop3": {
+            "date": "2026-05-01",
+            "rank": 1,
+            "wakeScore": 96.5,
+            "confirmedWakeScore": 79.62,
+            "r7": 25.24,
+            "r30": null,
+            "rebound30": 35.69,
+            "relative7": 28.27,
+            "next7d": 21.04,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "confirmed impulse",
+              "reversal from weakness"
+            ]
+          },
+          "bestWake": {
+            "date": "2026-05-02",
+            "rank": 1,
+            "wakeScore": 100,
+            "confirmedWakeScore": 82,
+            "r7": 36.08,
+            "r30": -63.84,
+            "rebound30": 44.9,
+            "relative7": 36,
+            "next7d": 27.07,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "rebound wake-up",
+              "confirmed impulse",
+              "reversal from weakness"
+            ]
+          }
+        },
+        {
+          "monthWinnerRank": 2,
+          "ticker": "BNKR",
+          "theme": "ai/base",
+          "actualReturn": 153.89,
+          "firstTop10": {
+            "date": "2026-05-03",
+            "rank": 9,
+            "wakeScore": 22.76,
+            "confirmedWakeScore": 15.48,
+            "r7": -1.91,
+            "r30": -3.93,
+            "rebound30": 10.08,
+            "relative7": -2.85,
+            "next7d": 5.17,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "rebound wake-up"
+            ]
+          },
+          "firstTop5": {
+            "date": "2026-05-05",
+            "rank": 5,
+            "wakeScore": 38.3,
+            "confirmedWakeScore": 38.04,
+            "r7": 3.8,
+            "r30": -3.17,
+            "rebound30": 10.93,
+            "relative7": 0.57,
+            "next7d": -0.75,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "rebound wake-up",
+              "wake strengthening",
+              "rank improving"
+            ]
+          },
+          "firstTop3": {
+            "date": "2026-05-14",
+            "rank": 2,
+            "wakeScore": 90.29,
+            "confirmedWakeScore": 70.4,
+            "r7": 25.53,
+            "r30": 13.21,
+            "rebound30": 51.93,
+            "relative7": 28.62,
+            "next7d": 19.54,
+            "flags": [
+              "high-beta lane",
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "confirmed impulse"
+            ]
+          },
+          "bestWake": {
+            "date": "2026-05-17",
+            "rank": 1,
+            "wakeScore": 100,
+            "confirmedWakeScore": 93,
+            "r7": 77.42,
+            "r30": 67.35,
+            "rebound30": 99.69,
+            "relative7": 82.24,
+            "next7d": -15.25,
+            "flags": [
+              "high-beta lane",
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "persistent wake-up",
+              "wake strengthening",
+              "rank improving"
+            ]
+          }
+        },
+        {
+          "monthWinnerRank": 3,
+          "ticker": "NOCK",
+          "theme": "infrastructure",
+          "actualReturn": 122.05,
+          "firstTop10": {
+            "date": "2026-05-01",
+            "rank": 4,
+            "wakeScore": 96.54,
+            "confirmedWakeScore": 53.65,
+            "r7": 151.6,
+            "r30": null,
+            "rebound30": 378.55,
+            "relative7": 154.63,
+            "next7d": 20.94,
+            "flags": [
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "unconfirmed extreme move"
+            ]
+          },
+          "firstTop5": {
+            "date": "2026-05-01",
+            "rank": 4,
+            "wakeScore": 96.54,
+            "confirmedWakeScore": 53.65,
+            "r7": 151.6,
+            "r30": null,
+            "rebound30": 378.55,
+            "relative7": 154.63,
+            "next7d": 20.94,
+            "flags": [
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "unconfirmed extreme move"
+            ]
+          },
+          "firstTop3": {
+            "date": "2026-05-02",
+            "rank": 3,
+            "wakeScore": 85.8,
+            "confirmedWakeScore": 58.34,
+            "r7": 75.44,
+            "r30": 113.82,
+            "rebound30": 301.9,
+            "relative7": 75.37,
+            "next7d": 43.27,
+            "flags": [
+              "washed out but stabilizing",
+              "relative strength flip",
+              "rebound wake-up"
+            ]
+          },
+          "bestWake": {
+            "date": "2026-05-29",
+            "rank": 2,
+            "wakeScore": 100,
+            "confirmedWakeScore": 88,
+            "r7": 73.86,
+            "r30": 155.19,
+            "rebound30": 208.68,
+            "relative7": 79.51,
+            "next7d": 5.12,
+            "flags": [
+              "relative strength flip",
+              "green against weak market",
+              "rebound wake-up",
+              "persistent wake-up",
+              "wake strengthening"
+            ]
+          }
+        },
+        {
+          "monthWinnerRank": 4,
+          "ticker": "VVV",
+          "theme": "ai/privacy",
+          "actualReturn": 98.44,
+          "firstTop10": {
+            "date": "2026-05-02",
+            "rank": 7,
+            "wakeScore": 37.54,
+            "confirmedWakeScore": 25.53,
+            "r7": 5.18,
+            "r30": 34.14,
+            "rebound30": 40.32,
+            "relative7": 5.1,
+            "next7d": 49,
+            "flags": [
+              "high-beta lane",
+              "relative strength flip",
+              "rebound wake-up"
+            ]
+          },
+          "firstTop5": {
+            "date": "2026-05-07",
+            "rank": 2,
+            "wakeScore": 97.32,
+            "confirmedWakeScore": 82.18,
+            "r7": 39.31,
+            "r30": 79.44,
+            "rebound30": 85.12,
+            "relative7": 33.72,
+            "next7d": 19.04,
+            "flags": [
+              "high-beta lane",
+              "relative strength flip",
+              "rebound wake-up",
+              "wake strengthening",
+              "confirmed impulse"
+            ]
+          },
+          "firstTop3": {
+            "date": "2026-05-07",
+            "rank": 2,
+            "wakeScore": 97.32,
+            "confirmedWakeScore": 82.18,
+            "r7": 39.31,
+            "r30": 79.44,
+            "rebound30": 85.12,
+            "relative7": 33.72,
+            "next7d": 19.04,
+            "flags": [
+              "high-beta lane",
+              "relative strength flip",
+              "rebound wake-up",
+              "wake strengthening",
+              "confirmed impulse"
+            ]
+          },
+          "bestWake": {
+            "date": "2026-05-10",
+            "rank": 1,
+            "wakeScore": 98.6,
+            "confirmedWakeScore": 92.05,
+            "r7": 73.33,
+            "r30": 114.91,
+            "rebound30": 117.93,
+            "relative7": 72.01,
+            "next7d": -18.05,
+            "flags": [
+              "high-beta lane",
+              "relative strength flip",
+              "rebound wake-up",
+              "persistent wake-up",
+              "wake strengthening",
+              "rank improving"
+            ]
+          }
+        },
+        {
+          "monthWinnerRank": 5,
+          "ticker": "DEGEN",
+          "theme": "meme/base",
+          "actualReturn": 30.72,
+          "firstTop10": {
+            "date": "2026-05-04",
+            "rank": 10,
+            "wakeScore": 2.4,
+            "confirmedWakeScore": 1.63,
+            "r7": -0.65,
+            "r30": 3.13,
+            "rebound30": 5.16,
+            "relative7": -0.73,
+            "next7d": 12.59,
+            "flags": [
+              "high-beta lane"
+            ]
+          },
+          "firstTop5": {
+            "date": "2026-05-15",
+            "rank": 1,
+            "wakeScore": 100,
+            "confirmedWakeScore": 82,
+            "r7": 49.66,
+            "r30": 45.8,
+            "rebound30": 61.88,
+            "relative7": 48.48,
+            "next7d": -10.09,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "rebound wake-up",
+              "rank improving",
+              "confirmed impulse"
+            ]
+          },
+          "firstTop3": {
+            "date": "2026-05-15",
+            "rank": 1,
+            "wakeScore": 100,
+            "confirmedWakeScore": 82,
+            "r7": 49.66,
+            "r30": 45.8,
+            "rebound30": 61.88,
+            "relative7": 48.48,
+            "next7d": -10.09,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "rebound wake-up",
+              "rank improving",
+              "confirmed impulse"
+            ]
+          },
+          "bestWake": {
+            "date": "2026-05-15",
+            "rank": 1,
+            "wakeScore": 100,
+            "confirmedWakeScore": 82,
+            "r7": 49.66,
+            "r30": 45.8,
+            "rebound30": 61.88,
+            "relative7": 48.48,
+            "next7d": -10.09,
+            "flags": [
+              "high-beta lane",
+              "washed out but stabilizing",
+              "relative strength flip",
+              "rebound wake-up",
+              "rank improving",
+              "confirmed impulse"
+            ]
+          }
+        }
+      ],
+      "dailyTop5": {
+        "observations": 155,
+        "avgNext7d": 7.27,
+        "hitRateNext7dOver10": 37.4
+      }
+    }
+  ]
+}

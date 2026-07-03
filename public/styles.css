@@ -1121,9 +1121,10 @@ svg {
   opacity: 0.92;
   filter: none;
   stroke-width: 4px;
-  stroke-dasharray: 6 94;
-  stroke-dashoffset: 96;
-  animation: pulseLineTrace 3.2s ease-in-out infinite alternate;
+  stroke-dasharray: var(--pulse-line-sweep, 18) var(--pulse-line-gap, 82);
+  stroke-dashoffset: var(--pulse-line-length, 100);
+  will-change: stroke-dashoffset;
+  animation: pulseLineTrace 2.6s linear infinite;
 }
 
 .pulse-line-trace-projected {
@@ -1132,7 +1133,7 @@ svg {
 
 @keyframes pulseLineTrace {
   0% {
-    stroke-dashoffset: 96;
+    stroke-dashoffset: var(--pulse-line-length, 100);
   }
   100% {
     stroke-dashoffset: 0;

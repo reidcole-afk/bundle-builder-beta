@@ -51,8 +51,9 @@ function createFilePulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PAT
       const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, 50);
       return store.snapshots.slice(-boundedLimit).reverse();
     },
-    accuracySummary() {
-      return computeAccuracySummary(readStore(filePath).snapshots);
+    accuracySummary({ limit = MAX_SNAPSHOTS } = {}) {
+      const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, MAX_SNAPSHOTS);
+      return computeAccuracySummary(readStore(filePath).snapshots.slice(-boundedLimit));
     },
     exportData({ limit = MAX_SNAPSHOTS } = {}) {
       const store = readStore(filePath);
@@ -235,12 +236,13 @@ function createPostgresPulseSnapshotRepository({ connectionString, tableName, fa
         return readSnapshots(boundedLimit, "desc");
       }, () => fallbackRepository.listSnapshots({ limit }));
     },
-    async accuracySummary() {
+    async accuracySummary({ limit = MAX_SNAPSHOTS } = {}) {
       return withFallback(async () => {
-        const snapshots = await readSnapshots(MAX_SNAPSHOTS, "asc");
+        const boundedLimit = clampInteger(limit, 1, MAX_SNAPSHOTS, MAX_SNAPSHOTS);
+        const snapshots = await readSnapshots(boundedLimit, "asc");
         lastSnapshotCount = snapshots.length;
         return computeAccuracySummary(snapshots);
-      }, () => fallbackRepository.accuracySummary());
+      }, () => fallbackRepository.accuracySummary({ limit }));
     },
     async exportData({ limit = MAX_SNAPSHOTS } = {}) {
       return withFallback(async () => {

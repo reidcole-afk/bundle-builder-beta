@@ -9555,6 +9555,7 @@ function renderPulseWindowChart(favorite = currentFavorite) {
     const scenario = projectedPulseScenario(favorite, selectedPulseWindow);
     pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeProjectedPulseChart(scenario)}`;
     pulseChart.setAttribute("aria-label", `${pulseWindowLabel(selectedPulseWindow)} scenario chart for ${favorite.ticker || "this coin"}`);
+    refreshPulseChartMotion();
     return;
   }
   const prices = pulsePricesForWindow(favorite, selectedPulseWindow);
@@ -9568,6 +9569,24 @@ function renderPulseWindowChart(favorite = currentFavorite) {
     pulseChart.innerHTML = `${entryCautionFlag(favorite)}${makeSparkline(prices, change, pulseWindowLabel(selectedPulseWindow))}`;
   }
   pulseChart.setAttribute("aria-label", `${pulseWindowLabel(selectedPulseWindow)} price sparkline for ${favorite.ticker || "this coin"}`);
+  refreshPulseChartMotion();
+}
+
+function refreshPulseChartMotion() {
+  if (!pulseChart) return;
+  requestAnimationFrame(() => {
+    pulseChart.querySelectorAll(".pulse-line-trace").forEach((path) => {
+      if (typeof path.getTotalLength !== "function") return;
+      const length = path.getTotalLength();
+      if (!Number.isFinite(length) || length <= 0) return;
+      path.style.setProperty("--pulse-line-length", length.toFixed(2));
+      path.style.setProperty("--pulse-line-sweep", Math.max(18, length * 0.18).toFixed(2));
+      path.style.setProperty("--pulse-line-gap", Math.max(30, length * 0.82).toFixed(2));
+      path.style.animation = "none";
+      path.getBoundingClientRect();
+      path.style.animation = "";
+    });
+  });
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {

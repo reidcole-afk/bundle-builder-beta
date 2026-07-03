@@ -461,7 +461,11 @@ async function handleRequest(request, response) {
           count: snapshots.length,
           storage: pulseSnapshotRepository.descriptor(),
           snapshots,
-          accuracy: await pulseSnapshotRepository.accuracySummary(),
+          accuracy: isTruthy(url.searchParams.get("includeAccuracy"))
+            ? await pulseSnapshotRepository.accuracySummary({
+              limit: clampInteger(url.searchParams.get("accuracyLimit"), 24, 6000, 600),
+            })
+            : null,
         });
         return;
       }
@@ -474,7 +478,11 @@ async function handleRequest(request, response) {
             ok: true,
             storage: pulseSnapshotRepository.descriptor(),
             snapshot,
-            accuracy: await pulseSnapshotRepository.accuracySummary(),
+            accuracy: isTruthy(url.searchParams.get("includeAccuracy"))
+              ? await pulseSnapshotRepository.accuracySummary({
+                limit: clampInteger(url.searchParams.get("accuracyLimit"), 24, 6000, 600),
+              })
+              : null,
           });
         } catch (error) {
           if (error.code !== "EMPTY_PULSE_SNAPSHOT") throw error;
@@ -491,17 +499,18 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/machine-accuracy") {
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 6000, 1000);
       sendJson(response, 200, {
         ok: true,
         storage: pulseSnapshotRepository.descriptor(),
         collector: pulseCollectorState,
-        accuracy: await pulseSnapshotRepository.accuracySummary(),
+        accuracy: await pulseSnapshotRepository.accuracySummary({ limit }),
       });
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/market-health") {
-      const limit = clampInteger(url.searchParams.get("limit"), 24, 5000, 2000);
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 5000, 288);
       const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
       sendJson(response, 200, {
         ok: true,
@@ -512,11 +521,16 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/pulse-collector/status") {
+      const includeAccuracy = isTruthy(url.searchParams.get("includeAccuracy"));
       sendJson(response, 200, {
         ok: true,
         collector: pulseCollectorState,
         storage: pulseSnapshotRepository.descriptor(),
-        accuracy: await pulseSnapshotRepository.accuracySummary(),
+        accuracy: includeAccuracy
+          ? await pulseSnapshotRepository.accuracySummary({
+            limit: clampInteger(url.searchParams.get("accuracyLimit"), 24, 6000, 600),
+          })
+          : null,
       });
       return;
     }
