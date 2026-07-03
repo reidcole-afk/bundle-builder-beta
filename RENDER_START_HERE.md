@@ -30,7 +30,6 @@ NODE_ENV=production
 HOST=0.0.0.0
 CORS_ORIGIN=https://bundlebuilder.vicicoin.io
 BUNDLE_BUILDER_ALLOWED_NETWORKS=base
-BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
 DATABASE_URL=your-supabase-pooled-postgres-url
 VICI_COIN_DATA_API_BASE_URL=https://app.viciswap.io/api/coin_data
 BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD=20
@@ -55,7 +54,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-"version": "0.1.103",
+  "version": "0.1.107",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true

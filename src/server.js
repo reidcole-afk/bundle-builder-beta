@@ -1549,7 +1549,8 @@ function scorePulseCollectorCandidate(meta, market) {
   const defaultFavoritePenalty = ticker === "AERO" && market.priceChange24h < 7 && opportunityScore < 6 ? 5.5 : 0;
   const reversalWakeupBoost = pulseReversalWakeupBoost(meta, market, buyRatio, opportunityScore);
   const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost - defaultFavoritePenalty - extensionPenalty).toFixed(2));
+  const speculativeTrapPenalty = pulseSpeculativeTrapPenalty(meta, market, buyRatio, opportunityScore);
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty).toFixed(2));
   return {
     ...meta,
     ...market,
@@ -1559,6 +1560,7 @@ function scorePulseCollectorCandidate(meta, market) {
     opportunityScore: Number(opportunityScore.toFixed(2)),
     reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
+    speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
   };
 }
 
@@ -1573,12 +1575,13 @@ function pulseOpportunityScore(meta, market, buyRatio = 0.5) {
   const quietMove = Math.abs(change) <= 5;
   const constructiveFlow = buyRatio >= 0.515;
   const highBetaTheme = ["ai", "defi", "base", "consumer"].includes(theme) || ["MORPHO", "VIRTUAL", "ZRO", "ZORA", "FUN", "VVV"].includes(ticker);
-  const coiledUpside = hasUsableDepth && highBetaTheme && change >= -2.5 && change <= 8;
+  const coiledUpside = hasUsableDepth && highBetaTheme && constructiveFlow && change >= -3 && change <= 6 && (hasStrongDepth || change > 0.8);
   let score = 0;
 
   if (hasUsableDepth && quietMove && constructiveFlow) score += 7;
   if (hasStrongDepth && quietMove && highBetaTheme) score += 5.5;
   if (coiledUpside) score += 4.5;
+  if (hasUsableDepth && highBetaTheme && quietMove && !constructiveFlow && !hasStrongDepth) score -= 3.5;
   if (hasUsableDepth && change >= -2.5 && change <= 1.5 && constructiveFlow) score += 4;
   if (hasUsableDepth && change > 4 && change <= 14 && constructiveFlow) score += 3.5;
   if (ticker === "FUN" && volume >= 125_000 && liquidity >= 250_000 && change > -3) score += 4;
@@ -1589,6 +1592,23 @@ function pulseOpportunityScore(meta, market, buyRatio = 0.5) {
   if (volume < 75_000 || liquidity < 75_000) score -= 6;
 
   return Math.max(-8, Math.min(20, score));
+}
+
+function pulseSpeculativeTrapPenalty(meta, market, buyRatio = 0.5, opportunityScore = 0) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const theme = String(meta.theme || "").toLowerCase();
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const highBetaTheme = ["ai", "base", "consumer"].includes(theme) || ["AIXBT", "BRETT", "DEGEN", "KAITO", "TOSHI", "VIRTUAL", "ZORA"].includes(ticker);
+  let penalty = 0;
+
+  if (highBetaTheme && (volume < 150_000 || liquidity < 120_000)) penalty += 4;
+  if (highBetaTheme && change < 0 && buyRatio < 0.51 && opportunityScore < 5) penalty += 3.5;
+  if (change <= -8 && (volume < 350_000 || liquidity < 250_000)) penalty += 3;
+  if (change >= 18 && liquidity < 300_000) penalty += 3.5;
+
+  return Math.max(0, Math.min(10, penalty));
 }
 
 function pulseReversalWakeupBoost(meta, market, buyRatio = 0.5, opportunityScore = 0) {
@@ -1602,12 +1622,12 @@ function pulseReversalWakeupBoost(meta, market, buyRatio = 0.5, opportunityScore
   const cleanFlow = buyRatio >= 0.51;
   let boost = 0;
 
-  if (hasDepth && highBetaTheme && cleanFlow && change >= -8 && change <= 4 && opportunityScore >= 3) boost += 3.5;
+  if (hasDepth && highBetaTheme && cleanFlow && change >= -8 && change <= 4 && opportunityScore >= 3) boost += 4.5;
   if (hasDepth && change >= -3 && change <= 2.5 && opportunityScore >= 6) boost += 2.5;
-  if (volume >= 650_000 && liquidity >= 250_000 && change > -6 && change < 6 && cleanFlow) boost += 1.5;
+  if (volume >= 650_000 && liquidity >= 250_000 && change > -6 && change < 6 && cleanFlow) boost += 2;
   if (change <= -12 || volume < 75_000 || liquidity < 75_000) boost *= 0.45;
 
-  return Math.max(0, Math.min(7, boost));
+  return Math.max(0, Math.min(8.5, boost));
 }
 
 function pulseExtensionPenalty(meta, market, opportunityScore = 0) {
@@ -1618,10 +1638,10 @@ function pulseExtensionPenalty(meta, market, opportunityScore = 0) {
   const hasStrongDepth = volume >= 1_000_000 && liquidity >= 500_000;
   let penalty = 0;
 
-  if (change >= 14 && opportunityScore < 8) penalty += 3;
-  if (change >= 24 && opportunityScore < 10) penalty += 4.5;
+  if (change >= 14 && opportunityScore < 8) penalty += 4;
+  if (change >= 24 && opportunityScore < 10) penalty += 5.5;
   if (change >= 36) penalty += 5;
-  if (change >= 18 && !hasStrongDepth) penalty += 3;
+  if (change >= 18 && !hasStrongDepth) penalty += 4;
   if (ticker === "AERO" && change < 7 && opportunityScore < 6) penalty += 1.5;
 
   return Math.max(0, Math.min(12, penalty));

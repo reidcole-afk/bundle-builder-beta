@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Bundle Builder Beta</title>
     <link rel="icon" href="./assets/vici-logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=198" />
+    <link rel="stylesheet" href="./styles.css?v=199" />
   </head>
   <body>
     <header class="app-header">
@@ -57,6 +57,28 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 8v5" /><path d="M12 17h.01" /></svg>
               <span>Educational tool only, not financial advice. The safety screen is not a rug-pull detector or contract audit. Users must verify routes, liquidity, slippage, fees, and risk before swapping.</span>
             </div>
+            <section class="market-health" id="marketHealth" aria-label="General market health">
+              <div class="market-health-card">
+                <div class="market-health-copy">
+                  <p class="eyebrow">Market health</p>
+                </div>
+                <div class="market-health-ring-wrap">
+                  <div class="market-health-ring" id="marketHealthRing" style="--health-score: 50; --health-color: #14b86a;">
+                    <span id="marketHealthScore">--</span>
+                  </div>
+                </div>
+                <div class="market-health-benchmarks">
+                  <div class="market-health-benchmark">
+                    <span>BTC 24h</span>
+                    <strong id="marketHealthBtc">--</strong>
+                  </div>
+                  <div class="market-health-benchmark">
+                    <span>ETH 24h</span>
+                    <strong id="marketHealthEth">--</strong>
+                  </div>
+                </div>
+              </div>
+            </section>
             <aside class="market-pulse" id="marketPulse" aria-live="polite">
               <div class="pulse-deck">
                 <div class="pulse-card pulse-card-front">

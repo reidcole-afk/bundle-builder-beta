@@ -18,8 +18,6 @@ services:
       - key: BUNDLE_BUILDER_MIN_VOLUME_24H_USD
         value: "100000"
       - key: CORS_ORIGIN
-        value: https://bundle.vicicoin.io
-      - key: BUNDLE_BUILDER_DATA_DIR
-        value: /var/data/bundle-builder-beta
+        value: https://bundlebuilder.vicicoin.io
       - key: DATABASE_URL
         sync: false

@@ -36,7 +36,7 @@ Environment variables:
 ```text
 NODE_ENV=production
 HOST=0.0.0.0
-CORS_ORIGIN=https://bundle.vicicoin.io
+CORS_ORIGIN=https://bundlebuilder.vicicoin.io
 BUNDLE_BUILDER_ALLOWED_NETWORKS=base
 VICI_COIN_DATA_API_BASE_URL=https://app.viciswap.io/api/coin_data
 BUNDLE_BUILDER_MAX_DIFF_THOUSAND_USD=20
@@ -44,7 +44,6 @@ BUNDLE_BUILDER_LOW_MAX_DIFF_THOUSAND_USD=20
 BUNDLE_BUILDER_MODERATE_MAX_DIFF_THOUSAND_USD=35
 BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD=60
 BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
-BUNDLE_BUILDER_DATA_DIR=/var/data/bundle-builder-beta
 DATABASE_URL=your-supabase-pooled-postgres-url
 BUNDLE_BUILDER_AUTH_SECRET=replace-with-a-long-random-secret
 BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response
@@ -67,7 +66,7 @@ Bundle Builder now includes a standalone prototype profile store in `src/profile
 - review alerts
 - builder preferences
 
-The current beta stores those profile snapshots in `profiles.json` under `BUNDLE_BUILDER_DATA_DIR`. Machine pulse snapshots use Supabase/Postgres when `DATABASE_URL` is configured. Profile data may still reset on Render Free until profiles are moved to Supabase too.
+The current beta stores those profile snapshots in a local fallback file unless `BUNDLE_BUILDER_DATA_DIR` is explicitly configured. Leave `BUNDLE_BUILDER_DATA_DIR` unset on Render Free unless a persistent disk is mounted. Machine pulse snapshots use Supabase/Postgres when `DATABASE_URL` is configured. Profile data may still reset on Render Free until profiles are moved to Supabase too.
 
 For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast.
 
@@ -111,12 +110,6 @@ https://bundle-builder-beta.example-host.com
 ```
 
 Send that URL to Luke and ask him to point:
-
-```text
-bundle.vicicoin.io
-```
-
-or:
 
 ```text
 bundlebuilder.vicicoin.io

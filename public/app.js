@@ -580,7 +580,9 @@ const BUILDER_TOKEN_UNIVERSE_MESSAGE = "VICI_TOKEN_UNIVERSE";
 const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
 const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
+const LIVE_BACKEND_BASE_URL = "https://bundlebuilder.vicicoin.io";
 const MARKET_CHART_CACHE_MS = 1000 * 60 * 15;
+const MARKET_HEALTH_CACHE_MS = 1000 * 60 * 5;
 const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 6;
 const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 30;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
@@ -931,6 +933,10 @@ const useFavoriteCoin = document.getElementById("useFavoriteCoin");
 const favoriteMarketCoin = document.getElementById("favoriteMarketCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
+const marketHealthRing = document.getElementById("marketHealthRing");
+const marketHealthScore = document.getElementById("marketHealthScore");
+const marketHealthBtc = document.getElementById("marketHealthBtc");
+const marketHealthEth = document.getElementById("marketHealthEth");
 const coinPreferenceGrid = document.querySelector(".coin-chip-grid");
 const profileButton = document.getElementById("profileButton");
 const profileDialog = document.getElementById("profileDialog");
@@ -979,6 +985,7 @@ let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
 let pendingPulseWindowLoads = new Map();
 let unavailablePulseWindows = new Map();
+let marketHealthCache = null;
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseChartWarmSeq = 0;
@@ -4407,6 +4414,7 @@ function qualityAdjustedPulseScore(candidate = {}) {
   if (["MORPHO", "FUN", "VVV", "ZORA"].includes(ticker) && opportunityScore >= 6) score += 5;
   score += liveReversalWakeupBoost(candidate, setup, direction, opportunityScore);
   score -= liveExtensionPenalty(candidate, setup, opportunityScore);
+  score -= liveSpeculativeTrapPenalty(candidate, setup, direction, opportunityScore);
   if (ticker === "AERO" && Number.isFinite(change24h) && change24h < 7 && opportunityScore < 6) score -= 7;
   if (liquidity >= 8_000_000 && Number.isFinite(change24h) && Math.abs(change24h) < 1 && direction.score < 62 && !setup?.boughtPullback && !setup?.baseForming) score -= 6;
   return roundTo(score, 2);
@@ -4425,13 +4433,15 @@ function liveOpportunityScore(candidate = {}, setup = {}, edge = {}, direction =
   const hasStrongDepth = volume >= 650_000 && liquidity >= 250_000;
   const quietMove = Math.abs(change24h) <= 5;
   const shortTermFirming = (Number.isFinite(change1h) && change1h > 0.15) || (Number.isFinite(change3h) && change3h > 0.35);
+  const chartConstructive = setup?.baseForming || setup?.boughtPullback || shortTermFirming || direction.score >= 50;
   const highBetaTheme = theme.includes("ai") || theme.includes("defi") || theme.includes("base") || theme.includes("consumer") || ["MORPHO", "VIRTUAL", "ZRO", "ZORA", "FUN", "VVV"].includes(ticker);
-  const coiledUpside = hasUsableDepth && highBetaTheme && change24h >= -2.5 && change24h <= 8;
+  const coiledUpside = hasUsableDepth && highBetaTheme && chartConstructive && change24h >= -3 && change24h <= 6 && (hasStrongDepth || shortTermFirming || change24h > 0.8);
   let score = 0;
 
-  if (hasUsableDepth && quietMove && (setup?.baseForming || setup?.boughtPullback || shortTermFirming || direction.score >= 50)) score += 8;
+  if (hasUsableDepth && quietMove && chartConstructive) score += 8;
   if (hasStrongDepth && quietMove && highBetaTheme) score += 5.5;
   if (coiledUpside) score += 5;
+  if (hasUsableDepth && highBetaTheme && quietMove && !chartConstructive && !hasStrongDepth) score -= 4;
   if (hasUsableDepth && change24h >= -2.5 && change24h <= 1.5 && (direction.score >= 50 || shortTermFirming)) score += 4.5;
   if (hasUsableDepth && change24h > 4 && change24h <= 14 && direction.score >= 52) score += 3.5;
   if (Number.isFinite(change7d) && change7d > 0 && quietMove && hasUsableDepth) score += 2.5;
@@ -4444,6 +4454,23 @@ function liveOpportunityScore(candidate = {}, setup = {}, edge = {}, direction =
   if (setup?.extended && setup?.fading) score -= 5;
 
   return clamp(score, -10, 20);
+}
+
+function liveSpeculativeTrapPenalty(candidate = {}, setup = {}, direction = {}, opportunityScore = 0) {
+  const ticker = normalizeTicker(candidate.ticker || candidate.symbol);
+  const theme = String(candidate.theme || "").toLowerCase();
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume) || 0;
+  const liquidity = finiteOrNull(candidate.liquidityUsd) || 0;
+  const change24h = finiteOrNull(candidate.change24h ?? candidate.price_change_percentage_24h_in_currency ?? candidate.price_change_percentage_24h) || 0;
+  const highBetaTheme = theme.includes("ai") || theme.includes("base") || theme.includes("consumer") || ["AIXBT", "BRETT", "DEGEN", "KAITO", "TOSHI", "VIRTUAL", "ZORA"].includes(ticker);
+  let penalty = 0;
+
+  if (highBetaTheme && (volume < 150_000 || liquidity < 120_000)) penalty += 5;
+  if (highBetaTheme && change24h < 0 && direction.score < 48 && opportunityScore < 5) penalty += 3.5;
+  if (change24h <= -8 && (volume < 350_000 || liquidity < 250_000) && !setup?.baseForming) penalty += 3;
+  if (change24h >= 18 && liquidity < 300_000) penalty += 3.5;
+
+  return clamp(penalty, 0, 11);
 }
 
 function liveReversalWakeupBoost(candidate = {}, setup = {}, direction = {}, opportunityScore = 0) {
@@ -4460,12 +4487,13 @@ function liveReversalWakeupBoost(candidate = {}, setup = {}, direction = {}, opp
   const chartConstructive = setup?.baseForming || setup?.boughtPullback || shortTermFirming || direction.score >= 50;
   let boost = 0;
 
-  if (hasDepth && highBetaTheme && chartConstructive && change24h >= -8 && change24h <= 4 && opportunityScore >= 3) boost += 3.5;
+  if (hasDepth && highBetaTheme && chartConstructive && change24h >= -8 && change24h <= 4 && opportunityScore >= 3) boost += 4.5;
   if (hasDepth && change24h >= -3 && change24h <= 2.5 && opportunityScore >= 6) boost += 2.5;
-  if (volume >= 650_000 && liquidity >= 250_000 && change24h > -6 && change24h < 6 && chartConstructive) boost += 1.5;
+  if (Number.isFinite(finiteOrNull(candidate.change7d ?? candidate.price_change_percentage_7d_in_currency)) && finiteOrNull(candidate.change7d ?? candidate.price_change_percentage_7d_in_currency) > 1.5 && hasDepth && chartConstructive && change24h > -6) boost += 2;
+  if (volume >= 650_000 && liquidity >= 250_000 && change24h > -6 && change24h < 6 && chartConstructive) boost += 2;
   if (change24h <= -12 || volume < 75_000 || liquidity < 75_000) boost *= 0.45;
 
-  return clamp(boost, 0, 7);
+  return clamp(boost, 0, 8.5);
 }
 
 function liveExtensionPenalty(candidate = {}, setup = {}, opportunityScore = 0) {
@@ -4477,10 +4505,10 @@ function liveExtensionPenalty(candidate = {}, setup = {}, opportunityScore = 0) 
   const hasStrongDepth = volume >= 1_000_000 && liquidity >= 500_000;
   let penalty = 0;
 
-  if (change24h >= 14 && opportunityScore < 8) penalty += 3;
-  if (change24h >= 24 && opportunityScore < 10) penalty += 4.5;
+  if (change24h >= 14 && opportunityScore < 8) penalty += 4;
+  if (change24h >= 24 && opportunityScore < 10) penalty += 5.5;
   if (change24h >= 36) penalty += 5;
-  if (change24h >= 18 && !hasStrongDepth) penalty += 3;
+  if (change24h >= 18 && !hasStrongDepth) penalty += 4;
   if (Number.isFinite(change7d) && change7d >= 35 && !setup?.baseForming && !setup?.boughtPullback) penalty += 2.5;
   if (setup?.extended && setup?.fading) penalty += 4;
   if (ticker === "AERO" && change24h < 7 && opportunityScore < 6) penalty += 1.5;
@@ -5903,6 +5931,8 @@ renderProfile();
 if (isProfileSignedIn()) loadProfileSnapshot({ silent: true });
 showDueReviewAlerts();
 if (hasAcceptedTerms() && !hasSeenTour()) window.setTimeout(() => openTour(), 350);
+renderMarketHealth();
+window.setInterval(() => renderMarketHealth({ force: true }), MARKET_HEALTH_CACHE_MS);
 refreshMarketPulse({ preserveSelection: false });
 refreshViciCoinsFromApi({ announce: false }).catch(() => {
   // If the office API is temporarily offline, the builder keeps using scan/starter support data.
@@ -6948,7 +6978,8 @@ async function fetchBackendMarketChart({ id = "", chainId = "", pairAddress = ""
   if (pairAddress) params.set("pairAddress", pairAddress);
   if (source) params.set("source", source);
   if (force) params.set("force", "true");
-  const payload = await fetchJsonUrl(`/api/v1/market-chart?${params.toString()}`);
+  const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
+  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-chart?${params.toString()}`);
   const prices = normalizePriceSeries(payload.prices);
   if (prices.length < 2) throw new Error("Backend market chart empty");
   return payload;
@@ -6966,7 +6997,11 @@ async function fetchCoinGeckoChartWithBestSource(coinGeckoId, { force = false, d
   if (window.location.protocol !== "file:") {
     return fetchBackendCoinGeckoChart(coinGeckoId, { force, days });
   }
-  return fetchDirectCoinGeckoChart(coinGeckoId, days);
+  try {
+    return await fetchBackendCoinGeckoChart(coinGeckoId, { force, days });
+  } catch (error) {
+    return fetchDirectCoinGeckoChart(coinGeckoId, days);
+  }
 }
 
 async function fetchDirectCoinGeckoChart(coinGeckoId, days = 1) {
@@ -6983,6 +7018,129 @@ async function fetchDirectCoinGeckoChart(coinGeckoId, days = 1) {
     stale: false,
     cacheStatus: "direct",
   };
+}
+
+async function renderMarketHealth({ force = false } = {}) {
+  if (!marketHealthRing || !marketHealthScore) return;
+  if (!force && marketHealthCache?.loadedAt && Date.now() - marketHealthCache.loadedAt < MARKET_HEALTH_CACHE_MS) {
+    const breadth = marketPulseBreadthRead(currentFavorites);
+    const health = buildMarketHealthRead(marketHealthCache.btc, marketHealthCache.eth, breadth);
+    marketHealthCache = { ...marketHealthCache, ...health, breadth };
+    updateMarketHealthUi(marketHealthCache);
+    return;
+  }
+
+  updateMarketHealthUi({ loading: true });
+  const results = await Promise.allSettled([
+    loadBenchmarkHealthCoin("bitcoin", "BTC"),
+    loadBenchmarkHealthCoin("ethereum", "ETH"),
+  ]);
+  const btc = results[0].status === "fulfilled" ? results[0].value : null;
+  const eth = results[1].status === "fulfilled" ? results[1].value : null;
+  const breadth = marketPulseBreadthRead(currentFavorites);
+  const health = buildMarketHealthRead(btc, eth, breadth);
+  marketHealthCache = { ...health, btc, eth, breadth, loadedAt: Date.now() };
+  updateMarketHealthUi(marketHealthCache);
+}
+
+async function loadBenchmarkHealthCoin(id, ticker) {
+  const chartData = await fetchCoinGeckoChartWithBestSource(id, { days: 1 });
+  const prices = normalizePriceSeries(chartData.prices);
+  if (prices.length < 2) throw new Error(`${ticker} chart unavailable`);
+  return {
+    id,
+    ticker,
+    change24h: percentChangeFromPrices(prices),
+    price: prices.at(-1) || null,
+    updatedAt: chartData.updatedAt || new Date().toISOString(),
+  };
+}
+
+function marketPulseBreadthRead(deck = []) {
+  const coins = (Array.isArray(deck) ? deck : [])
+    .map((coin) => ({
+      change24h: finiteOrNull(coin.change24h ?? coin.price_change_percentage_24h_in_currency ?? coin.price_change_percentage_24h),
+      volume: finiteOrNull(coin.volume24h ?? coin.total_volume) || 0,
+      liquidity: finiteOrNull(coin.liquidityUsd) || 0,
+    }))
+    .filter((coin) => Number.isFinite(coin.change24h) && (coin.volume >= 75_000 || coin.liquidity >= 75_000));
+  if (coins.length < 3) return null;
+  const bullishCount = coins.filter((coin) => coin.change24h > 0).length;
+  const avgChange = coins.reduce((sum, coin) => sum + clamp(coin.change24h, -12, 12), 0) / coins.length;
+  const breadth = bullishCount / coins.length;
+  const scoreDelta = (breadth - 0.5) * 28 + clamp(avgChange, -5, 5) * 2.2;
+  return {
+    count: coins.length,
+    bullishCount,
+    breadth,
+    avgChange,
+    scoreDelta,
+  };
+}
+
+function buildMarketHealthRead(btc = null, eth = null, breadth = null) {
+  const btcChange = finiteOrNull(btc?.change24h);
+  const ethChange = finiteOrNull(eth?.change24h);
+  let score = 50;
+  let activeInputs = 0;
+
+  if (Number.isFinite(btcChange)) {
+    score += clamp(btcChange, -8, 8) * 3.2;
+    activeInputs += 1;
+  }
+  if (Number.isFinite(ethChange)) {
+    score += clamp(ethChange, -10, 10) * 2.45;
+    activeInputs += 1;
+  }
+  if (Number.isFinite(btcChange) && Number.isFinite(ethChange)) {
+    const spread = ethChange - btcChange;
+    if (btcChange > 0 && ethChange > 0) score += 8;
+    if (btcChange < 0 && ethChange < 0) score -= 12;
+    if (spread > 1.2) score += 4;
+    if (spread < -2) score -= 4;
+  }
+  if (breadth?.count) {
+    score += clamp(breadth.scoreDelta, -18, 18);
+    activeInputs += 1;
+  }
+  if (!activeInputs) score = 50;
+
+  const rounded = Math.round(clamp(score, 0, 100));
+  const label = rounded >= 75 ? "Risk-on market"
+    : rounded >= 62 ? "Constructive market"
+      : rounded >= 45 ? "Mixed market"
+        : rounded >= 30 ? "Defensive market"
+          : "Risk-off market";
+  const summary = activeInputs
+    ? "BTC, ETH, and DEX Screener breadth are setting the broad backdrop for bundle risk."
+    : "Waiting for BTC and ETH benchmark data.";
+  return { score: rounded, label, summary };
+}
+
+function updateMarketHealthUi(read = {}) {
+  if (!marketHealthRing || !marketHealthScore) return;
+  const loading = Boolean(read.loading);
+  const score = loading ? 50 : finiteOrNull(read.score);
+  const safeScore = Number.isFinite(score) ? Math.round(clamp(score, 0, 100)) : 50;
+  const color = safeScore >= 70 ? "#22c76f" : safeScore >= 55 ? "#14b86a" : safeScore >= 40 ? "#d5a21b" : "#d95a4f";
+  marketHealthRing.style.setProperty("--health-score", String(safeScore));
+  marketHealthRing.style.setProperty("--health-color", color);
+  marketHealthScore.textContent = loading ? "--" : String(safeScore);
+  updateBenchmarkChange(marketHealthBtc, read.btc?.change24h);
+  updateBenchmarkChange(marketHealthEth, read.eth?.change24h);
+}
+
+function updateBenchmarkChange(element, change) {
+  if (!element) return;
+  const value = finiteOrNull(change);
+  element.classList.remove("positive", "negative");
+  if (!Number.isFinite(value)) {
+    element.textContent = "--";
+    return;
+  }
+  element.textContent = formatPercent(value);
+  if (value > 0) element.classList.add("positive");
+  if (value < 0) element.classList.add("negative");
 }
 
 async function fetchDexScreenerMarketRows(eligibleCandidates, network) {
@@ -9082,6 +9240,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   if (pulsePrev) pulsePrev.disabled = (favorites || []).length <= 1;
   if (pulseNext) pulseNext.disabled = (favorites || []).length <= 1;
   updateFavoriteToggle();
+  renderMarketHealth();
 }
 
 function renderPulseSevenDayMeter(favorite = currentFavorite) {
@@ -10258,14 +10417,16 @@ function projectedPulseScenario(favorite = {}, key = "next7d") {
   const betaLift = opportunity >= 8 && change24h > -3 ? (key === "next1mo" ? 2.2 : 0.65) : 0;
   const reversalLift = liveReversalWakeupBoost(favorite, setup, read, opportunity) * (key === "next1mo" ? 0.16 : 0.34);
   const extensionBrake = liveExtensionPenalty(favorite, setup, opportunity) * (key === "next1mo" ? 0.42 : 0.18);
-  const rawChange = ((scorePressure * 12 + trendPressure * 10 + setupPressure * 11 + opportunityBias + reversalLift - extensionBrake) * depthBoost * horizonScale) + lifetimeBias + betaLift;
+  const trapBrake = liveSpeculativeTrapPenalty(favorite, setup, read, opportunity) * (key === "next1mo" ? 0.46 : 0.24);
+  const rawChange = ((scorePressure * 12 + trendPressure * 10 + setupPressure * 11 + opportunityBias + reversalLift - extensionBrake - trapBrake) * depthBoost * horizonScale) + lifetimeBias + betaLift;
   const projectedChange = roundTo(clamp(rawChange, key === "next1mo" ? -38 : -9, key === "next1mo" ? 50 : 12), 2);
   const confidenceBase = 42
     + Math.min(18, Math.max(0, series.length - 12) * 0.5)
     + Math.min(18, Math.abs((read.score || 50) - 50) * 0.38)
     + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8)
     - (key === "next1mo" ? 6 : 0)
-    - Math.min(10, extensionBrake * 1.8);
+    - Math.min(10, extensionBrake * 1.8)
+    - Math.min(8, trapBrake * 1.4);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
   let projectedPrices = buildProjectionSeries(series, projectedChange, { stats, setup, read, ticker: `${favorite.ticker || ""}-${key}`, key, confidenceScore, lifetimeBias });
@@ -10368,13 +10529,15 @@ function projectedSevenDayScenario(favorite = {}) {
   const betaLift = opportunity >= 8 && change24h > -3 ? 1.25 : 0;
   const reversalLift = liveReversalWakeupBoost(favorite, setup, read, opportunity) * 0.28;
   const extensionBrake = liveExtensionPenalty(favorite, setup, opportunity) * 0.26;
-  const rawChange = (scorePressure * 12 + trendPressure * 10 + setupPressure * 11 + opportunityBias + reversalLift - extensionBrake) * depthBoost + lifetimeBias + betaLift;
+  const trapBrake = liveSpeculativeTrapPenalty(favorite, setup, read, opportunity) * 0.28;
+  const rawChange = (scorePressure * 12 + trendPressure * 10 + setupPressure * 11 + opportunityBias + reversalLift - extensionBrake - trapBrake) * depthBoost + lifetimeBias + betaLift;
   const projectedChange = roundTo(clamp(rawChange, -24, 30), 2);
   const confidenceBase = 42
     + Math.min(18, Math.max(0, series.length - 12) * 0.5)
     + Math.min(18, Math.abs((read.score || 50) - 50) * 0.38)
     + (depthBoost >= 1 ? 12 : depthBoost >= 0.72 ? 6 : -8)
-    - Math.min(10, extensionBrake * 1.6);
+    - Math.min(10, extensionBrake * 1.6)
+    - Math.min(8, trapBrake * 1.35);
   const confidenceScore = Math.round(clamp(confidenceBase, 20, 86));
   const confidence = confidenceScore >= 70 ? "Higher confidence" : confidenceScore >= 50 ? "Medium confidence" : "Low confidence";
   const next24hScenario = projectedPulseScenario(favorite, "next24h");
