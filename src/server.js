@@ -1898,7 +1898,8 @@ function isAllowedMarketProxyUrl(targetUrl) {
 }
 
 function cacheControlForPath(filePath) {
-  return path.basename(filePath) === "index.html"
+  const basename = path.basename(filePath);
+  return basename === "index.html" || basename === "app.js" || basename === "styles.css"
     ? "no-store"
     : "public, max-age=3600";
 }
