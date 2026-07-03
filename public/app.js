@@ -7184,7 +7184,6 @@ function startMarketHealthLiveScore(baseScore) {
   marketHealthLiveCurrent = base;
   renderMarketHealthLiveScore(base);
   if (marketHealthLiveTimer) clearTimeout(marketHealthLiveTimer);
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
   scheduleMarketHealthLiveTick();
 }
 
@@ -7241,14 +7240,9 @@ function randomInt(min, max) {
 function renderMarketHealthLiveScore(score) {
   const targetScore = Math.round(clamp(score, 0, 100));
   const fromScore = Number.isFinite(marketHealthRenderedScore) ? marketHealthRenderedScore : targetScore;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
   if (marketHealthRenderFrame) {
     cancelAnimationFrame(marketHealthRenderFrame);
     marketHealthRenderFrame = null;
-  }
-  if (reduceMotion) {
-    applyMarketHealthRenderedScore(targetScore);
-    return;
   }
   const startedAt = performance.now();
   const duration = 700;
@@ -9620,7 +9614,6 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 function refreshPulseChartMotion() {
   if (!pulseChart) return;
   pulseChart.classList.remove("motion-ready");
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
   requestAnimationFrame(() => {
     const traces = [...pulseChart.querySelectorAll(".pulse-line-trace")];
     let prepared = false;
@@ -9651,7 +9644,7 @@ function startPulseChartMotionLoop() {
   const startedAt = performance.now();
   const duration = 2600;
   const tick = (now) => {
-    if (!pulseChart || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+    if (!pulseChart) {
       pulseMotionFrame = null;
       return;
     }

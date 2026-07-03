@@ -830,15 +830,14 @@ svg {
   height: 92px;
   place-items: center;
   border-radius: 999px;
-  background:
-    conic-gradient(var(--health-color) calc(var(--health-score) * 1%), #e5ecf5 0);
+  background: #ffffff;
   color: var(--ink);
   box-shadow:
     0 12px 24px rgba(23, 32, 51, 0.1),
     0 0 0 0 color-mix(in srgb, var(--health-color) 24%, transparent);
   isolation: isolate;
   animation: healthPulseHalo 2.8s ease-out infinite;
-  transition: --health-score 900ms ease, box-shadow 360ms ease;
+  transition: box-shadow 360ms ease;
 }
 
 .market-health-ring::after {
@@ -1877,17 +1876,6 @@ body.pulse-ai-modal-open {
 @media (prefers-reduced-motion: reduce) {
   .pulse-read-motion {
     animation: none;
-  }
-
-  .market-health-ring,
-  .market-health-ring::before,
-  .pulse-line-trace {
-    animation: none;
-  }
-
-  .pulse-line-trace {
-    display: none;
-    stroke-dasharray: none;
   }
 }
 
