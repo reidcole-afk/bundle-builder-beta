@@ -7047,7 +7047,7 @@ async function renderMarketHealth({ force = false } = {}) {
 
 async function fetchMarketHealthContext() {
   const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
-  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-health?limit=12000`);
+  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-health?limit=2000`);
   return payload?.context || null;
 }
 
@@ -7076,7 +7076,7 @@ function marketPulseBreadthRead(deck = []) {
   const bullishCount = coins.filter((coin) => coin.change24h > 0).length;
   const avgChange = coins.reduce((sum, coin) => sum + clamp(coin.change24h, -12, 12), 0) / coins.length;
   const breadth = bullishCount / coins.length;
-  const scoreDelta = (breadth - 0.5) * 28 + clamp(avgChange, -5, 5) * 2.2;
+  const scoreDelta = (breadth - 0.5) * 20 + clamp(avgChange, -5, 5) * 1.55;
   return {
     count: coins.length,
     bullishCount,
@@ -7093,22 +7093,22 @@ function buildMarketHealthRead(btc = null, eth = null, breadth = null, context =
   let activeInputs = 0;
 
   if (Number.isFinite(btcChange)) {
-    currentScore += clamp(btcChange, -8, 8) * 2.7;
+    currentScore += clamp(btcChange, -8, 8) * 2.15;
     activeInputs += 1;
   }
   if (Number.isFinite(ethChange)) {
-    currentScore += clamp(ethChange, -10, 10) * 2.05;
+    currentScore += clamp(ethChange, -10, 10) * 1.65;
     activeInputs += 1;
   }
   if (Number.isFinite(btcChange) && Number.isFinite(ethChange)) {
     const spread = ethChange - btcChange;
-    if (btcChange > 0 && ethChange > 0) currentScore += 5;
+    if (btcChange > 0 && ethChange > 0) currentScore += 2.5;
     if (btcChange < 0 && ethChange < 0) currentScore -= 10;
-    if (spread > 1.2) currentScore += 3;
+    if (spread > 1.2) currentScore += 1.5;
     if (spread < -2) currentScore -= 4;
   }
   if (breadth?.count) {
-    currentScore += clamp(breadth.scoreDelta, -15, 15);
+    currentScore += clamp(breadth.scoreDelta, -12, 12);
     activeInputs += 1;
   }
   let score = currentScore;
@@ -7135,9 +7135,9 @@ function buildMarketHealthRead(btc = null, eth = null, breadth = null, context =
 function historicalMarketHealthWeight(context = {}) {
   const sampleSize = finiteOrNull(context.sampleSize) || 0;
   const explicitWeight = finiteOrNull(context.historyWeight);
-  const sampleWeight = clamp(sampleSize / 2400, 0.08, 0.62);
-  const confidenceWeight = clamp((finiteOrNull(context.confidence) || 0) / 100, 0.08, 1) * 0.62;
-  return clamp(Number.isFinite(explicitWeight) ? explicitWeight : Math.max(sampleWeight, confidenceWeight), 0.08, 0.62);
+  const sampleWeight = clamp(sampleSize / 1800, 0.22, 0.72);
+  const confidenceWeight = clamp((finiteOrNull(context.confidence) || 0) / 100, 0.18, 1) * 0.72;
+  return clamp(Number.isFinite(explicitWeight) ? Math.max(explicitWeight, sampleWeight) : Math.max(sampleWeight, confidenceWeight), 0.22, 0.72);
 }
 
 function contextMarketHealthLabel(regime = "") {
@@ -10907,7 +10907,9 @@ function alignProjectionForDisplay(projectedPrices = [], actualPrices = [], scen
     return clamp(price, anchor * (1 - softLimit), anchor * (1 + softLimit));
   });
 
+  aligned = limitProjectionStepMoves(aligned, scenario);
   aligned = smoothDisplayProjection(aligned);
+  aligned = limitProjectionStepMoves(aligned, scenario);
   aligned[0] = anchor;
   return aligned;
 }
@@ -10933,6 +10935,39 @@ function smoothDisplayProjection(prices = []) {
   smoothed[0] = series[0];
   smoothed[smoothed.length - 1] = series.at(-1);
   return smoothed;
+}
+
+function limitProjectionStepMoves(prices = [], scenario = {}) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 3) return series;
+  const maxStep = projectionDisplayStepLimit(scenario, series.length);
+  const limited = [series[0]];
+  for (let index = 1; index < series.length; index += 1) {
+    const previous = limited[index - 1];
+    const target = series[index];
+    const floor = previous * (1 - maxStep);
+    const ceiling = previous * (1 + maxStep);
+    limited.push(clamp(target, floor, ceiling));
+  }
+  const lastTarget = series.at(-1);
+  for (let index = limited.length - 2; index >= 0; index -= 1) {
+    const next = limited[index + 1];
+    const floor = next * (1 - maxStep);
+    const ceiling = next * (1 + maxStep);
+    limited[index] = clamp(limited[index], floor, ceiling);
+  }
+  limited[0] = series[0];
+  limited[limited.length - 1] = lastTarget;
+  return limited;
+}
+
+function projectionDisplayStepLimit(scenario = {}, length = 100) {
+  const key = scenario.key || "next7d";
+  const confidenceScore = finiteOrNull(scenario.confidenceScore) ?? 52;
+  const base = key === "next24h" ? 0.026 : key === "next1mo" ? 0.042 : 0.032;
+  const confidenceRoom = confidenceScore >= 70 ? 0.012 : confidenceScore >= 50 ? 0.006 : 0;
+  const densityAdjustment = clamp(110 / Math.max(32, length), 0.8, 1.35);
+  return clamp((base + confidenceRoom) * densityAdjustment, 0.018, key === "next1mo" ? 0.065 : 0.048);
 }
 
 function samplePriceSeries(prices = [], limit = 120) {

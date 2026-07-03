@@ -501,7 +501,7 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/market-health") {
-      const limit = clampInteger(url.searchParams.get("limit"), 24, 20000, 12000);
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 5000, 2000);
       const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
       sendJson(response, 200, {
         ok: true,
@@ -1961,7 +1961,7 @@ function buildMarketHealthContext(snapshots = []) {
     regime,
     confidence,
     sampleSize: ordered.length,
-    historyWeight: roundTo(clamp(ordered.length / 2400, 0.08, 0.62), 3),
+    historyWeight: roundTo(clamp(ordered.length / 1800, 0.22, 0.72), 3),
     latestAt: latest.createdAt,
     latest: publicMarketRead(latest),
     percentiles: {
