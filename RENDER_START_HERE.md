@@ -12,7 +12,7 @@ Use this folder as the code for the Render service.
 Runtime: Node
 Build Command: npm install --omit=dev
 Start Command: npm start
-Health Check Path: /health
+Health Check Path: /healthz
 ```
 
 4. Add the Supabase pooled Postgres URL as a secret environment variable:
@@ -47,6 +47,7 @@ Check:
 
 ```text
 https://bundlebuilder.vicicoin.io/
+https://bundlebuilder.vicicoin.io/healthz
 https://bundlebuilder.vicicoin.io/health
 https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus=defi&coinCount=6&amountUsd=100
 ```
@@ -54,7 +55,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.108",
+  "version": "0.1.109",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true

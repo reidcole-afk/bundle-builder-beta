@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.108");
+  assert.equal(health.body.version, "0.1.109");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -23,6 +23,7 @@ global.fetch = async (url) => {
   assert.equal(health.body.catalystIntelligenceEndpoint, true);
   assert.equal(health.body.machineAccuracyEndpoint, true);
   assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
+  assert.equal(health.body.coingeckoChartBackgroundPreload.startupDelayMs, 90000);
   assert.equal(typeof health.body.pulseBackgroundCollector.enabled, "boolean");
   assert(Number.isFinite(health.body.pulseBackgroundCollector.intervalMs));
   assert.equal(health.body.pulseBackgroundCollector.deckSize, 10);

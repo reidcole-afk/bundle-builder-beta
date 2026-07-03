@@ -28,6 +28,7 @@ const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHA
 const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 6);
 const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
 const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 60 * 3);
+const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STARTUP_DELAY_MS || 1000 * 90);
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 1500);
 const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED !== "false";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
@@ -36,7 +37,7 @@ const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STA
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 5);
-const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 20);
+const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 75);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 10);
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
@@ -204,6 +205,7 @@ async function handleRequest(request, response) {
         coingeckoChartBackgroundPreload: {
           enabled: COINGECKO_CHART_PRELOAD_ENABLED,
           intervalMs: COINGECKO_CHART_PRELOAD_INTERVAL_MS,
+          startupDelayMs: COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS,
           idCount: COINGECKO_CHART_PRELOAD_IDS.length,
           dayWindows: COINGECKO_CHART_PRELOAD_DAYS,
         },
@@ -214,6 +216,16 @@ async function handleRequest(request, response) {
           indexExists: fs.existsSync(path.join(PUBLIC_DIR, "index.html")),
         },
         betaScope: "invite-only Base beta by default",
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/healthz") {
+      sendJson(response, 200, {
+        ok: true,
+        service: "bundle-builder-api",
+        version: API_VERSION,
+        uptimeSeconds: Math.round(process.uptime()),
       });
       return;
     }
@@ -1348,7 +1360,7 @@ function startCoinGeckoChartPreloader() {
     runCoinGeckoChartPreloadCycle("startup").catch((error) => {
       coingeckoChartPreloadState.lastError = error.message || "CoinGecko preload startup failed";
     });
-  }, 1000).unref?.();
+  }, COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS).unref?.();
   coingeckoChartPreloadTimer = setInterval(() => {
     runCoinGeckoChartPreloadCycle("interval").catch((error) => {
       coingeckoChartPreloadState.lastError = error.message || "CoinGecko preload interval failed";
