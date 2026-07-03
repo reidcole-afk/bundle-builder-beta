@@ -39,6 +39,11 @@ const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABL
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 5);
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 75);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 10);
+const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
+const ADMIN_SECRET = process.env.BUNDLE_BUILDER_ADMIN_SECRET || "";
+const AUTH_SECRET_CONFIGURED = Boolean(process.env.BUNDLE_BUILDER_AUTH_SECRET);
+const ADMIN_SECRET_CONFIGURED = Boolean(ADMIN_SECRET);
+const rateLimitStore = new Map();
 const submittedBundleRepository = createSubmittedBundleRepository();
 const profileRepository = createProfileRepository();
 const pulseSnapshotRepository = createPulseSnapshotRepository();
@@ -183,6 +188,7 @@ async function handleRequest(request, response) {
     }
 
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
+    if (!checkRouteRateLimit(request, response, url)) return;
 
     if (request.method === "GET" && url.pathname === "/health") {
       sendJson(response, 200, {
@@ -198,6 +204,7 @@ async function handleRequest(request, response) {
         coingeckoApiKeyConfigured: Boolean(process.env.COINGECKO_API_KEY || process.env.CG_API_KEY),
         catalystIntelligenceEndpoint: true,
         profileAuthEndpoint: true,
+        productionSafety: productionSafetyDescriptor(),
         profileStorage: profileRepository.descriptor(),
         machineAccuracyEndpoint: true,
         pulseSnapshotStorage: pulseSnapshotRepository.descriptor(),
@@ -243,6 +250,7 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/pulse-snapshots/export") {
+      if (!requireAdmin(request, response)) return;
       const limit = clampInteger(url.searchParams.get("limit"), 1, 6000, 6000);
       const exportData = await pulseSnapshotRepository.exportData({ limit });
       const fileDate = new Date().toISOString().slice(0, 10);
@@ -418,6 +426,7 @@ async function handleRequest(request, response) {
 
     if (url.pathname === "/api/v1/submitted-bundles") {
       if (request.method === "GET") {
+        if (!requireAdmin(request, response)) return;
         const limit = clampInteger(url.searchParams.get("limit"), 1, submittedBundleRepository.limit, 100);
         const records = submittedBundleRepository.list({ limit });
         sendJson(response, 200, {
@@ -454,6 +463,7 @@ async function handleRequest(request, response) {
 
     if (url.pathname === "/api/v1/pulse-snapshots") {
       if (request.method === "GET") {
+        if (!requireAdmin(request, response)) return;
         const limit = clampInteger(url.searchParams.get("limit"), 1, 600, 50);
         const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
         sendJson(response, 200, {
@@ -471,6 +481,7 @@ async function handleRequest(request, response) {
       }
 
       if (request.method === "POST") {
+        if (!requireAdmin(request, response)) return;
         const body = await readJsonBody(request);
         try {
           const snapshot = await pulseSnapshotRepository.saveSnapshot(body);
@@ -499,6 +510,7 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/machine-accuracy") {
+      if (!requireAdmin(request, response)) return;
       const limit = clampInteger(url.searchParams.get("limit"), 24, 6000, 1000);
       sendJson(response, 200, {
         ok: true,
@@ -649,6 +661,8 @@ async function handleRequest(request, response) {
 }
 
 function startServer(serverInstance = server) {
+  validateProductionSafety();
+  if (process.exitCode) return;
   serverInstance.on("error", handleServerError);
   serverInstance.listen(PORT, HOST, () => {
     console.log(`Bundle Builder API listening on http://${HOST}:${PORT}`);
@@ -697,6 +711,101 @@ function bearerToken(request) {
 
 function emailDeliveryMode() {
   return process.env.BUNDLE_BUILDER_EMAIL_DELIVERY === "provider" ? "provider" : "dev-response";
+}
+
+function productionSafetyDescriptor() {
+  return {
+    productionRuntime: IS_PRODUCTION_RUNTIME,
+    authSecretConfigured: AUTH_SECRET_CONFIGURED,
+    adminSecretConfigured: ADMIN_SECRET_CONFIGURED,
+    emailDelivery: emailDeliveryMode(),
+    devLoginCodesEnabled: emailDeliveryMode() === "dev-response",
+    adminProtectedEndpoints: true,
+    rateLimiting: true,
+  };
+}
+
+function validateProductionSafety() {
+  if (!IS_PRODUCTION_RUNTIME) return;
+  const missing = [];
+  if (!AUTH_SECRET_CONFIGURED) missing.push("BUNDLE_BUILDER_AUTH_SECRET");
+  if (!ADMIN_SECRET_CONFIGURED) missing.push("BUNDLE_BUILDER_ADMIN_SECRET");
+  if (emailDeliveryMode() !== "provider") missing.push("BUNDLE_BUILDER_EMAIL_DELIVERY=provider");
+  if (emailDeliveryMode() === "provider" && !process.env.RESEND_API_KEY) missing.push("RESEND_API_KEY");
+  if (!missing.length) return;
+  console.error(`Bundle Builder refused to start with unsafe production auth settings. Missing: ${missing.join(", ")}`);
+  process.exitCode = 1;
+}
+
+function requireAdmin(request, response) {
+  if (!ADMIN_SECRET_CONFIGURED && !IS_PRODUCTION_RUNTIME) return true;
+  const provided = adminSecretFromRequest(request);
+  if (provided && safeEqual(provided, ADMIN_SECRET)) return true;
+  sendJson(response, 401, {
+    ok: false,
+    error: "Admin access required.",
+  });
+  return false;
+}
+
+function adminSecretFromRequest(request) {
+  const headerSecret = String(request.headers["x-bundle-builder-admin-secret"] || "").trim();
+  if (headerSecret) return headerSecret;
+  return bearerToken(request);
+}
+
+function safeEqual(leftValue, rightValue) {
+  const crypto = require("node:crypto");
+  const left = Buffer.from(String(leftValue || ""));
+  const right = Buffer.from(String(rightValue || ""));
+  return left.length === right.length && left.length > 0 && crypto.timingSafeEqual(left, right);
+}
+
+function checkRouteRateLimit(request, response, url) {
+  const rule = rateLimitRuleFor(request, url);
+  if (!rule) return true;
+  const key = `${rule.name}:${clientIp(request)}:${rateLimitSubject(request, rule)}`;
+  const now = Date.now();
+  const bucket = rateLimitStore.get(key) || { resetAt: now + rule.windowMs, count: 0 };
+  if (bucket.resetAt <= now) {
+    bucket.resetAt = now + rule.windowMs;
+    bucket.count = 0;
+  }
+  bucket.count += 1;
+  rateLimitStore.set(key, bucket);
+  pruneRateLimitStore(now);
+  if (bucket.count <= rule.limit) return true;
+  response.setHeader("Retry-After", String(Math.ceil((bucket.resetAt - now) / 1000)));
+  sendJson(response, 429, {
+    ok: false,
+    error: "Too many requests. Please wait and try again.",
+  });
+  return false;
+}
+
+function rateLimitRuleFor(request, url) {
+  if (request.method === "POST" && url.pathname === "/api/v1/auth/request-code") return { name: "auth-request", limit: 5, windowMs: 15 * 60 * 1000 };
+  if (request.method === "POST" && url.pathname === "/api/v1/auth/verify-code") return { name: "auth-verify", limit: 10, windowMs: 15 * 60 * 1000 };
+  if (request.method === "POST" && url.pathname === "/api/v1/submitted-bundles") return { name: "bundle-submit", limit: 20, windowMs: 10 * 60 * 1000 };
+  if (request.method === "POST" && url.pathname === "/api/v1/pulse-snapshots") return { name: "pulse-snapshot-write", limit: 60, windowMs: 10 * 60 * 1000 };
+  if (request.method === "PUT" && url.pathname === "/api/v1/profile") return { name: "profile-write", limit: 60, windowMs: 10 * 60 * 1000 };
+  return null;
+}
+
+function rateLimitSubject(request, rule) {
+  if (rule.name.startsWith("auth-")) return String(request.headers["x-bundle-builder-email"] || "email").toLowerCase();
+  return "route";
+}
+
+function clientIp(request) {
+  return String(request.headers["x-forwarded-for"] || request.socket?.remoteAddress || "local").split(",")[0].trim();
+}
+
+function pruneRateLimitStore(now) {
+  if (rateLimitStore.size < 1000) return;
+  for (const [key, bucket] of rateLimitStore.entries()) {
+    if (bucket.resetAt <= now) rateLimitStore.delete(key);
+  }
 }
 
 async function sendLoginCodeEmail(login) {

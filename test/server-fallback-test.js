@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 process.env.BUNDLE_BUILDER_CHART_CACHE_FILE = path.join(os.tmpdir(), `bundle-builder-test-charts-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+process.env.BUNDLE_BUILDER_ADMIN_SECRET = "test-admin-secret";
 
 const { handleRequest, handleServerError } = require("../src/server");
 
@@ -17,7 +18,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.128");
+  assert.equal(health.body.version, "0.1.129");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -130,10 +131,19 @@ global.fetch = async (url) => {
   assert.equal(submittedBundle.body.ok, true);
   assert.equal(submittedBundle.body.bundle.coins.length, 2);
 
-  const submittedFeed = await getJson("/api/v1/submitted-bundles?limit=5");
+  const submittedFeedBlocked = await getJson("/api/v1/submitted-bundles?limit=5");
+  assert.equal(submittedFeedBlocked.statusCode, 401);
+
+  const submittedFeed = await getJson("/api/v1/submitted-bundles?limit=5", adminHeaders());
   assert.equal(submittedFeed.statusCode, 200);
   assert.equal(submittedFeed.body.ok, true);
   assert(submittedFeed.body.bundles.some((bundle) => bundle.bundleName === "Test Bundle"));
+
+  const pulseSnapshotBlocked = await postJson("/api/v1/pulse-snapshots?includeAccuracy=true", {
+    network: "Base",
+    coins: [{ ticker: "AERO", priceUsd: 0.5 }],
+  });
+  assert.equal(pulseSnapshotBlocked.statusCode, 401);
 
   const pulseSnapshot = await postJson("/api/v1/pulse-snapshots?includeAccuracy=true", {
     network: "Base",
@@ -161,14 +171,20 @@ global.fetch = async (url) => {
         forecastPaths: { next24h: [100, 99.5, 99], next7d: [100, 100.5, 101], next30d: [100, 101.5, 103] },
       },
     ],
-  });
+  }, adminHeaders());
   assert.equal(pulseSnapshot.statusCode, 201);
   assert.equal(pulseSnapshot.body.ok, true);
   assert.equal(pulseSnapshot.body.snapshot.coins.length, 2);
   assert.equal(pulseSnapshot.body.snapshot.coins[0].forecastPaths.next24h.length, 3);
   assert.equal(pulseSnapshot.body.accuracy.totalSnapshots >= 1, true);
 
-  const machineAccuracy = await getJson("/api/v1/machine-accuracy");
+  const machineAccuracyBlocked = await getJson("/api/v1/machine-accuracy");
+  assert.equal(machineAccuracyBlocked.statusCode, 401);
+
+  const snapshotExportBlocked = await getJson("/api/v1/pulse-snapshots/export?limit=1");
+  assert.equal(snapshotExportBlocked.statusCode, 401);
+
+  const machineAccuracy = await getJson("/api/v1/machine-accuracy", adminHeaders());
   assert.equal(machineAccuracy.statusCode, 200);
   assert.equal(machineAccuracy.body.ok, true);
   assert.equal(typeof machineAccuracy.body.collector.enabled, "boolean");
@@ -318,12 +334,16 @@ function putJson(path, payload, token) {
   }).then(({ statusCode, headers, body }) => ({ statusCode, headers, body: JSON.parse(body) }));
 }
 
-function postJson(path, payload) {
+function postJson(path, payload, headers = {}) {
   return getRaw(path, {
     method: "POST",
     body: JSON.stringify(payload),
-    headers: { "content-type": "application/json", host: "localhost" },
+    headers: { "content-type": "application/json", host: "localhost", ...headers },
   }).then(({ statusCode, headers, body }) => ({ statusCode, headers, body: JSON.parse(body) }));
+}
+
+function adminHeaders() {
+  return { "x-bundle-builder-admin-secret": "test-admin-secret" };
 }
 
 function getRaw(path, options = {}) {

@@ -23,7 +23,20 @@ DATABASE_URL=postgresql://postgres.PROJECT_ID:YOUR_PASSWORD@aws-...pooler.supaba
 
 This is required for machine snapshots to survive deploys or overnight restarts on Render Free. Render disks are paid-only, so Supabase is the free durable memory path.
 
-5. Confirm these environment variables:
+5. Add production auth secrets:
+
+```text
+BUNDLE_BUILDER_AUTH_SECRET=long-random-secret-used-to-hash-login-codes
+BUNDLE_BUILDER_ADMIN_SECRET=long-random-secret-for-admin-api-access
+BUNDLE_BUILDER_EMAIL_DELIVERY=provider
+BUNDLE_BUILDER_EMAIL_PROVIDER=resend
+RESEND_API_KEY=your-resend-api-key
+BUNDLE_BUILDER_EMAIL_FROM=Bundle Builder <login@bundlebuilder.vicicoin.io>
+```
+
+Production refuses to start without `BUNDLE_BUILDER_AUTH_SECRET`, `BUNDLE_BUILDER_ADMIN_SECRET`, provider email delivery, and the email provider key. Admin-only endpoints accept the admin secret through the `x-bundle-builder-admin-secret` header or a bearer token.
+
+6. Confirm these environment variables:
 
 ```text
 NODE_ENV=production
@@ -55,7 +68,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.128",
+  "version": "0.1.129",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true

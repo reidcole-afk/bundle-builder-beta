@@ -277,8 +277,17 @@ function makeId(prefix) {
 }
 
 function hashSecret(value) {
-  const pepper = process.env.BUNDLE_BUILDER_AUTH_SECRET || "bundle-builder-prototype-secret";
+  const pepper = authSecret();
   return crypto.createHash("sha256").update(`${pepper}:${value}`).digest("hex");
+}
+
+function authSecret() {
+  const secret = process.env.BUNDLE_BUILDER_AUTH_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production" || process.env.RENDER) {
+    throw new Error("BUNDLE_BUILDER_AUTH_SECRET is required in production.");
+  }
+  return "bundle-builder-prototype-secret";
 }
 
 function normalizeEmail(value) {
