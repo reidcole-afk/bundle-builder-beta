@@ -935,6 +935,7 @@ const favoriteMarketCoin = document.getElementById("favoriteMarketCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
 const marketHealthRing = document.getElementById("marketHealthRing");
+const marketHealthRingArc = document.getElementById("marketHealthRingArc");
 const marketHealthScore = document.getElementById("marketHealthScore");
 const marketHealthBtc = document.getElementById("marketHealthBtc");
 const marketHealthEth = document.getElementById("marketHealthEth");
@@ -990,6 +991,8 @@ let marketHealthCache = null;
 let marketHealthLiveTimer = null;
 let marketHealthLiveBase = null;
 let marketHealthLiveCurrent = null;
+let marketHealthRenderedScore = 50;
+let marketHealthRenderFrame = null;
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseChartWarmSeq = 0;
@@ -7190,6 +7193,10 @@ function stopMarketHealthLiveScore() {
     clearTimeout(marketHealthLiveTimer);
     marketHealthLiveTimer = null;
   }
+  if (marketHealthRenderFrame) {
+    cancelAnimationFrame(marketHealthRenderFrame);
+    marketHealthRenderFrame = null;
+  }
   marketHealthLiveBase = null;
   marketHealthLiveCurrent = null;
 }
@@ -7232,9 +7239,47 @@ function randomInt(min, max) {
 }
 
 function renderMarketHealthLiveScore(score) {
-  const liveScore = Math.round(clamp(score, 0, 100));
-  marketHealthRing.style.setProperty("--health-score", String(liveScore));
-  marketHealthScore.textContent = String(liveScore);
+  const targetScore = Math.round(clamp(score, 0, 100));
+  const fromScore = Number.isFinite(marketHealthRenderedScore) ? marketHealthRenderedScore : targetScore;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  if (marketHealthRenderFrame) {
+    cancelAnimationFrame(marketHealthRenderFrame);
+    marketHealthRenderFrame = null;
+  }
+  if (reduceMotion) {
+    applyMarketHealthRenderedScore(targetScore);
+    return;
+  }
+  const startedAt = performance.now();
+  const duration = 700;
+  const tick = (now) => {
+    const progress = clamp((now - startedAt) / duration, 0, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const next = fromScore + (targetScore - fromScore) * eased;
+    applyMarketHealthRenderedScore(next);
+    if (progress < 1) {
+      marketHealthRenderFrame = requestAnimationFrame(tick);
+    } else {
+      marketHealthRenderFrame = null;
+      applyMarketHealthRenderedScore(targetScore);
+    }
+  };
+  marketHealthRenderFrame = requestAnimationFrame(tick);
+}
+
+function applyMarketHealthRenderedScore(score) {
+  const rendered = clamp(Number(score) || 0, 0, 100);
+  const rounded = Math.round(rendered);
+  marketHealthRenderedScore = rendered;
+  marketHealthRing.style.setProperty("--health-score", String(rendered));
+  marketHealthScore.textContent = String(rounded);
+  if (marketHealthRingArc && typeof marketHealthRingArc.getTotalLength === "function") {
+    const length = marketHealthRingArc.getTotalLength();
+    if (Number.isFinite(length) && length > 0) {
+      marketHealthRing.style.setProperty("--health-ring-length", length.toFixed(2));
+      marketHealthRing.style.setProperty("--health-ring-offset", (length * (1 - rendered / 100)).toFixed(2));
+    }
+  }
 }
 
 function updateBenchmarkChange(element, change) {
@@ -9574,19 +9619,57 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 
 function refreshPulseChartMotion() {
   if (!pulseChart) return;
+  pulseChart.classList.remove("motion-ready");
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
   requestAnimationFrame(() => {
-    pulseChart.querySelectorAll(".pulse-line-trace").forEach((path) => {
+    const traces = [...pulseChart.querySelectorAll(".pulse-line-trace")];
+    let prepared = false;
+    traces.forEach((path, index) => {
       if (typeof path.getTotalLength !== "function") return;
       const length = path.getTotalLength();
       if (!Number.isFinite(length) || length <= 0) return;
       path.style.setProperty("--pulse-line-length", length.toFixed(2));
       path.style.setProperty("--pulse-line-sweep", Math.max(18, length * 0.18).toFixed(2));
       path.style.setProperty("--pulse-line-gap", Math.max(30, length * 0.82).toFixed(2));
-      path.style.animation = "none";
-      path.getBoundingClientRect();
-      path.style.animation = "";
+      path.dataset.motionLength = String(length);
+      path.dataset.motionOffset = String(index * length * 0.34);
+      path.style.strokeDasharray = `${Math.max(18, length * 0.18)} ${Math.max(30, length * 0.82)}`;
+      path.style.strokeDashoffset = String(length);
+      prepared = true;
     });
+    if (prepared) {
+      pulseChart.classList.add("motion-ready");
+      startPulseChartMotionLoop();
+    }
   });
+}
+
+let pulseMotionFrame = null;
+
+function startPulseChartMotionLoop() {
+  if (pulseMotionFrame) return;
+  const startedAt = performance.now();
+  const duration = 2600;
+  const tick = (now) => {
+    if (!pulseChart || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      pulseMotionFrame = null;
+      return;
+    }
+    const traces = [...pulseChart.querySelectorAll(".pulse-line-trace")];
+    if (!traces.length) {
+      pulseMotionFrame = null;
+      return;
+    }
+    traces.forEach((path) => {
+      const length = Number(path.dataset.motionLength);
+      if (!Number.isFinite(length) || length <= 0) return;
+      const offset = Number(path.dataset.motionOffset) || 0;
+      const progress = ((now - startedAt + offset) % duration) / duration;
+      path.style.strokeDashoffset = String(length - progress * length);
+    });
+    pulseMotionFrame = requestAnimationFrame(tick);
+  };
+  pulseMotionFrame = requestAnimationFrame(tick);
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
