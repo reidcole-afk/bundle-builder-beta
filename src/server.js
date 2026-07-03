@@ -501,7 +501,7 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/market-health") {
-      const limit = clampInteger(url.searchParams.get("limit"), 24, 1000, 360);
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 20000, 12000);
       const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
       sendJson(response, 200, {
         ok: true,
@@ -1939,12 +1939,12 @@ function buildMarketHealthContext(snapshots = []) {
   const topRankPercentile = percentileRank(baseline.map((item) => item.topRankPressure), latest.topRankPressure);
 
   let scoreDelta = 0;
-  scoreDelta += percentileDelta(breadthPercentile) * 12;
-  scoreDelta += percentileDelta(avgChangePercentile) * 10;
-  scoreDelta += percentileDelta(participationPercentile) * 8;
+  scoreDelta += percentileDelta(breadthPercentile) * 15;
+  scoreDelta += percentileDelta(avgChangePercentile) * 13;
+  scoreDelta += percentileDelta(participationPercentile) * 9;
   scoreDelta += percentileDelta(reversalPercentile) * 6;
-  scoreDelta -= percentileDelta(extensionPercentile) * 10;
-  scoreDelta -= percentileDelta(topRankPercentile) * 5;
+  scoreDelta -= percentileDelta(extensionPercentile) * 14;
+  scoreDelta -= percentileDelta(topRankPercentile) * 7;
 
   const flags = [];
   if (breadthPercentile >= 0.65 && avgChangePercentile >= 0.6) flags.push("broad participation");
@@ -1954,13 +1954,14 @@ function buildMarketHealthContext(snapshots = []) {
   if (breadthPercentile <= 0.35 && avgChangePercentile <= 0.35) flags.push("weak breadth");
 
   const regime = regimeLabel({ breadthPercentile, avgChangePercentile, extensionPercentile, reversalPercentile, latest });
-  const confidence = Math.round(clamp((ordered.length / 96) * 100, 12, 100));
+  const confidence = Math.round(clamp((ordered.length / 2000) * 100, ordered.length >= 24 ? 18 : 8, 100));
   return {
     available: ordered.length >= 3,
-    scoreDelta: roundTo(clamp(scoreDelta, -18, 18), 1),
+    scoreDelta: roundTo(clamp(scoreDelta, -28, 28), 1),
     regime,
     confidence,
     sampleSize: ordered.length,
+    historyWeight: roundTo(clamp(ordered.length / 2400, 0.08, 0.62), 3),
     latestAt: latest.createdAt,
     latest: publicMarketRead(latest),
     percentiles: {

@@ -55,7 +55,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.111",
+  "version": "0.1.112",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true

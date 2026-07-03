@@ -7047,7 +7047,7 @@ async function renderMarketHealth({ force = false } = {}) {
 
 async function fetchMarketHealthContext() {
   const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
-  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-health?limit=360`);
+  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-health?limit=12000`);
   return payload?.context || null;
 }
 
@@ -7089,30 +7089,33 @@ function marketPulseBreadthRead(deck = []) {
 function buildMarketHealthRead(btc = null, eth = null, breadth = null, context = null) {
   const btcChange = finiteOrNull(btc?.change24h);
   const ethChange = finiteOrNull(eth?.change24h);
-  let score = 50;
+  let currentScore = 50;
   let activeInputs = 0;
 
   if (Number.isFinite(btcChange)) {
-    score += clamp(btcChange, -8, 8) * 3.2;
+    currentScore += clamp(btcChange, -8, 8) * 2.7;
     activeInputs += 1;
   }
   if (Number.isFinite(ethChange)) {
-    score += clamp(ethChange, -10, 10) * 2.45;
+    currentScore += clamp(ethChange, -10, 10) * 2.05;
     activeInputs += 1;
   }
   if (Number.isFinite(btcChange) && Number.isFinite(ethChange)) {
     const spread = ethChange - btcChange;
-    if (btcChange > 0 && ethChange > 0) score += 8;
-    if (btcChange < 0 && ethChange < 0) score -= 12;
-    if (spread > 1.2) score += 4;
-    if (spread < -2) score -= 4;
+    if (btcChange > 0 && ethChange > 0) currentScore += 5;
+    if (btcChange < 0 && ethChange < 0) currentScore -= 10;
+    if (spread > 1.2) currentScore += 3;
+    if (spread < -2) currentScore -= 4;
   }
   if (breadth?.count) {
-    score += clamp(breadth.scoreDelta, -18, 18);
+    currentScore += clamp(breadth.scoreDelta, -15, 15);
     activeInputs += 1;
   }
+  let score = currentScore;
   if (context?.available && Number.isFinite(finiteOrNull(context.scoreDelta))) {
-    score += clamp(finiteOrNull(context.scoreDelta), -18, 18);
+    const historyScore = 50 + clamp(finiteOrNull(context.scoreDelta), -28, 28);
+    const historyWeight = historicalMarketHealthWeight(context);
+    score = currentScore * (1 - historyWeight) + historyScore * historyWeight;
     activeInputs += 1;
   }
   if (!activeInputs) score = 50;
@@ -7127,6 +7130,14 @@ function buildMarketHealthRead(btc = null, eth = null, breadth = null, context =
     ? "BTC, ETH, DEX Screener breadth, and stored pulse history are setting the broad backdrop for bundle risk."
     : "Waiting for BTC and ETH benchmark data.");
   return { score: rounded, label, summary };
+}
+
+function historicalMarketHealthWeight(context = {}) {
+  const sampleSize = finiteOrNull(context.sampleSize) || 0;
+  const explicitWeight = finiteOrNull(context.historyWeight);
+  const sampleWeight = clamp(sampleSize / 2400, 0.08, 0.62);
+  const confidenceWeight = clamp((finiteOrNull(context.confidence) || 0) / 100, 0.08, 1) * 0.62;
+  return clamp(Number.isFinite(explicitWeight) ? explicitWeight : Math.max(sampleWeight, confidenceWeight), 0.08, 0.62);
 }
 
 function contextMarketHealthLabel(regime = "") {
