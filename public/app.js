@@ -7024,7 +7024,7 @@ async function renderMarketHealth({ force = false } = {}) {
   if (!marketHealthRing || !marketHealthScore) return;
   if (!force && marketHealthCache?.loadedAt && Date.now() - marketHealthCache.loadedAt < MARKET_HEALTH_CACHE_MS) {
     const breadth = marketPulseBreadthRead(currentFavorites);
-    const health = buildMarketHealthRead(marketHealthCache.btc, marketHealthCache.eth, breadth);
+    const health = buildMarketHealthRead(marketHealthCache.btc, marketHealthCache.eth, breadth, marketHealthCache.context);
     marketHealthCache = { ...marketHealthCache, ...health, breadth };
     updateMarketHealthUi(marketHealthCache);
     return;
@@ -7034,13 +7034,21 @@ async function renderMarketHealth({ force = false } = {}) {
   const results = await Promise.allSettled([
     loadBenchmarkHealthCoin("bitcoin", "BTC"),
     loadBenchmarkHealthCoin("ethereum", "ETH"),
+    fetchMarketHealthContext(),
   ]);
   const btc = results[0].status === "fulfilled" ? results[0].value : null;
   const eth = results[1].status === "fulfilled" ? results[1].value : null;
+  const context = results[2].status === "fulfilled" ? results[2].value : null;
   const breadth = marketPulseBreadthRead(currentFavorites);
-  const health = buildMarketHealthRead(btc, eth, breadth);
-  marketHealthCache = { ...health, btc, eth, breadth, loadedAt: Date.now() };
+  const health = buildMarketHealthRead(btc, eth, breadth, context);
+  marketHealthCache = { ...health, btc, eth, breadth, context, loadedAt: Date.now() };
   updateMarketHealthUi(marketHealthCache);
+}
+
+async function fetchMarketHealthContext() {
+  const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
+  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-health?limit=360`);
+  return payload?.context || null;
 }
 
 async function loadBenchmarkHealthCoin(id, ticker) {
@@ -7078,7 +7086,7 @@ function marketPulseBreadthRead(deck = []) {
   };
 }
 
-function buildMarketHealthRead(btc = null, eth = null, breadth = null) {
+function buildMarketHealthRead(btc = null, eth = null, breadth = null, context = null) {
   const btcChange = finiteOrNull(btc?.change24h);
   const ethChange = finiteOrNull(eth?.change24h);
   let score = 50;
@@ -7103,18 +7111,33 @@ function buildMarketHealthRead(btc = null, eth = null, breadth = null) {
     score += clamp(breadth.scoreDelta, -18, 18);
     activeInputs += 1;
   }
+  if (context?.available && Number.isFinite(finiteOrNull(context.scoreDelta))) {
+    score += clamp(finiteOrNull(context.scoreDelta), -18, 18);
+    activeInputs += 1;
+  }
   if (!activeInputs) score = 50;
 
   const rounded = Math.round(clamp(score, 0, 100));
-  const label = rounded >= 75 ? "Risk-on market"
+  const label = contextMarketHealthLabel(context?.regime) || (rounded >= 75 ? "Risk-on market"
     : rounded >= 62 ? "Constructive market"
       : rounded >= 45 ? "Mixed market"
         : rounded >= 30 ? "Defensive market"
-          : "Risk-off market";
-  const summary = activeInputs
-    ? "BTC, ETH, and DEX Screener breadth are setting the broad backdrop for bundle risk."
-    : "Waiting for BTC and ETH benchmark data.";
+          : "Risk-off market");
+  const summary = context?.message || (activeInputs
+    ? "BTC, ETH, DEX Screener breadth, and stored pulse history are setting the broad backdrop for bundle risk."
+    : "Waiting for BTC and ETH benchmark data.");
   return { score: rounded, label, summary };
+}
+
+function contextMarketHealthLabel(regime = "") {
+  const normalized = String(regime || "").toLowerCase();
+  if (normalized === "risk-on") return "Risk-on market";
+  if (normalized === "late-risk-on") return "Late risk-on market";
+  if (normalized === "reversal-building") return "Reversal building";
+  if (normalized === "risk-off") return "Risk-off market";
+  if (normalized === "fragile-chase") return "Fragile chase";
+  if (normalized === "mixed") return "Mixed market";
+  return "";
 }
 
 function updateMarketHealthUi(read = {}) {
@@ -10855,6 +10878,52 @@ function projectionActualPointLimit(key = "next7d") {
   return 120;
 }
 
+function alignProjectionForDisplay(projectedPrices = [], actualPrices = [], scenario = {}) {
+  const projected = normalizePriceSeries(projectedPrices);
+  const actual = normalizePriceSeries(actualPrices);
+  const anchor = finiteOrNull(actual.at(-1));
+  const firstProjected = finiteOrNull(projected[0]);
+  if (projected.length < 2 || !anchor || !firstProjected) return projected;
+
+  const ratio = anchor / firstProjected;
+  let aligned = projected.map((price) => Math.max(0.0000001, price * ratio));
+  aligned[0] = anchor;
+
+  const displayMove = projectionDisplayMoveLimit(scenario);
+  aligned = aligned.map((price, index) => {
+    const t = index / Math.max(1, aligned.length - 1);
+    const softLimit = displayMove * (0.42 + t * 0.58);
+    return clamp(price, anchor * (1 - softLimit), anchor * (1 + softLimit));
+  });
+
+  aligned = smoothDisplayProjection(aligned);
+  aligned[0] = anchor;
+  return aligned;
+}
+
+function projectionDisplayMoveLimit(scenario = {}) {
+  const key = scenario.key || "next7d";
+  const projectedChange = Math.abs(finiteOrNull(scenario.projectedChange) || 0) / 100;
+  const confidenceScore = finiteOrNull(scenario.confidenceScore) ?? 52;
+  const horizonBase = key === "next1mo" ? 0.9 : key === "next24h" ? 0.24 : 0.52;
+  const confidenceRoom = confidenceScore >= 70 ? 0.18 : confidenceScore >= 50 ? 0.1 : 0.04;
+  return clamp(Math.max(horizonBase, projectedChange * 1.65 + confidenceRoom), 0.18, key === "next1mo" ? 1.15 : key === "next24h" ? 0.38 : 0.7);
+}
+
+function smoothDisplayProjection(prices = []) {
+  const series = normalizePriceSeries(prices);
+  if (series.length < 5) return series;
+  const smoothed = series.map((price, index) => {
+    if (index === 0 || index === series.length - 1) return price;
+    const previous = series[index - 1] ?? price;
+    const next = series[index + 1] ?? price;
+    return previous * 0.24 + price * 0.52 + next * 0.24;
+  });
+  smoothed[0] = series[0];
+  smoothed[smoothed.length - 1] = series.at(-1);
+  return smoothed;
+}
+
 function samplePriceSeries(prices = [], limit = 120) {
   const series = normalizePriceSeries(prices);
   const maxPoints = Math.max(2, Math.round(finiteOrNull(limit) || 120));
@@ -10873,7 +10942,7 @@ function samplePriceSeries(prices = [], limit = 120) {
 
 function makeProjectedPulseChart(scenario = {}) {
   const actual = samplePriceSeries(scenario.sourcePrices, projectionActualPointLimit(scenario.key));
-  const projected = normalizePriceSeries(scenario.projectedPrices);
+  const projected = alignProjectionForDisplay(scenario.projectedPrices, actual, scenario);
   const width = 420;
   const height = 176;
   const padX = 24;

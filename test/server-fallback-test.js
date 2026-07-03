@@ -12,7 +12,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.109");
+  assert.equal(health.body.version, "0.1.111");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -174,6 +174,13 @@ global.fetch = async (url) => {
   assert.equal(machineAccuracy.body.accuracy.pathAccuracy[0].label, "Next 24h");
   assert.equal(machineAccuracy.body.accuracy.partialPathAccuracy.length, 3);
   assert.equal(machineAccuracy.body.accuracy.partialPathAccuracy[0].label, "Next 24h");
+
+  const marketHealth = await getJson("/api/v1/market-health");
+  assert.equal(marketHealth.statusCode, 200);
+  assert.equal(marketHealth.body.ok, true);
+  assert.equal(typeof marketHealth.body.context.scoreDelta, "number");
+  assert.equal(typeof marketHealth.body.context.regime, "string");
+  assert(Number.isFinite(marketHealth.body.context.sampleSize));
 
   const collectorStatus = await getJson("/api/v1/pulse-collector/status");
   assert.equal(collectorStatus.statusCode, 200);

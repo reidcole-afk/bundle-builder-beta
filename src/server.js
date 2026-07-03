@@ -500,6 +500,17 @@ async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/v1/market-health") {
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 1000, 360);
+      const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
+      sendJson(response, 200, {
+        ok: true,
+        storage: pulseSnapshotRepository.descriptor(),
+        context: buildMarketHealthContext(snapshots),
+      });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/v1/pulse-collector/status") {
       sendJson(response, 200, {
         ok: true,
@@ -613,7 +624,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
+      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/market-health", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -1899,6 +1910,153 @@ function statusForBundleResult(result) {
   if (result.code === "LIQUIDITY_SOURCE_UNAVAILABLE") return 503;
   if (result.code === "INSUFFICIENT_LIQUIDITY_FOR_RISK") return 422;
   return 500;
+}
+
+function buildMarketHealthContext(snapshots = []) {
+  const ordered = (Array.isArray(snapshots) ? snapshots : [])
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .map(snapshotMarketRead)
+    .filter(Boolean);
+  const latest = ordered.at(-1) || null;
+  if (!latest) {
+    return {
+      available: false,
+      scoreDelta: 0,
+      regime: "insufficient-history",
+      confidence: 0,
+      sampleSize: 0,
+      message: "Waiting for enough stored pulse snapshots to compare the market against its own recent history.",
+    };
+  }
+
+  const baseline = ordered.length >= 6 ? ordered.slice(0, -1) : ordered;
+  const breadthPercentile = percentileRank(baseline.map((item) => item.breadth), latest.breadth);
+  const avgChangePercentile = percentileRank(baseline.map((item) => item.avgChange), latest.avgChange);
+  const participationPercentile = percentileRank(baseline.map((item) => item.participationScore), latest.participationScore);
+  const extensionPercentile = percentileRank(baseline.map((item) => item.extensionPressure), latest.extensionPressure);
+  const reversalPercentile = percentileRank(baseline.map((item) => item.reversalPressure), latest.reversalPressure);
+  const topRankPercentile = percentileRank(baseline.map((item) => item.topRankPressure), latest.topRankPressure);
+
+  let scoreDelta = 0;
+  scoreDelta += percentileDelta(breadthPercentile) * 12;
+  scoreDelta += percentileDelta(avgChangePercentile) * 10;
+  scoreDelta += percentileDelta(participationPercentile) * 8;
+  scoreDelta += percentileDelta(reversalPercentile) * 6;
+  scoreDelta -= percentileDelta(extensionPercentile) * 10;
+  scoreDelta -= percentileDelta(topRankPercentile) * 5;
+
+  const flags = [];
+  if (breadthPercentile >= 0.65 && avgChangePercentile >= 0.6) flags.push("broad participation");
+  if (reversalPercentile >= 0.7 && latest.avgChange >= -2) flags.push("reversal wake-up");
+  if (extensionPercentile >= 0.75) flags.push("late-runner pressure");
+  if (topRankPercentile >= 0.75) flags.push("top-heavy deck");
+  if (breadthPercentile <= 0.35 && avgChangePercentile <= 0.35) flags.push("weak breadth");
+
+  const regime = regimeLabel({ breadthPercentile, avgChangePercentile, extensionPercentile, reversalPercentile, latest });
+  const confidence = Math.round(clamp((ordered.length / 96) * 100, 12, 100));
+  return {
+    available: ordered.length >= 3,
+    scoreDelta: roundTo(clamp(scoreDelta, -18, 18), 1),
+    regime,
+    confidence,
+    sampleSize: ordered.length,
+    latestAt: latest.createdAt,
+    latest: publicMarketRead(latest),
+    percentiles: {
+      breadth: roundTo(breadthPercentile, 3),
+      avgChange: roundTo(avgChangePercentile, 3),
+      participation: roundTo(participationPercentile, 3),
+      extension: roundTo(extensionPercentile, 3),
+      reversal: roundTo(reversalPercentile, 3),
+      topRank: roundTo(topRankPercentile, 3),
+    },
+    flags,
+    message: flags.length
+      ? `Historical pulse read: ${flags.join(", ")}.`
+      : "Historical pulse read is close to its recent baseline.",
+  };
+}
+
+function snapshotMarketRead(snapshot = {}) {
+  const coins = (Array.isArray(snapshot.coins) ? snapshot.coins : [])
+    .map((coin) => ({
+      rank: finiteNumber(coin.rank),
+      change24h: finiteNumber(coin.change24h),
+      projected24hChange: finiteNumber(coin.projected24hChange),
+      volume24h: finiteNumber(coin.volume24h),
+      liquidityUsd: finiteNumber(coin.liquidityUsd),
+    }))
+    .filter((coin) => Number.isFinite(coin.change24h) && ((coin.volume24h || 0) >= 75_000 || (coin.liquidityUsd || 0) >= 75_000));
+  if (coins.length < 3) return null;
+  const bullishCount = coins.filter((coin) => coin.change24h > 0).length;
+  const avgChange = averageValue(coins.map((coin) => clamp(coin.change24h, -18, 18))) || 0;
+  const avgProjection = averageValue(coins.map((coin) => clamp(coin.projected24hChange, -18, 18)).filter(Number.isFinite)) || 0;
+  const strongVolumeCount = coins.filter((coin) => (coin.volume24h || 0) >= 200_000 && (coin.liquidityUsd || 0) >= 150_000).length;
+  const extensionCount = coins.filter((coin) => coin.change24h >= 10 || (coin.projected24hChange || 0) >= 7).length;
+  const reversalCount = coins.filter((coin) => coin.change24h > 1 && (coin.projected24hChange || 0) > 2 && coin.change24h < 9).length;
+  const topRanks = coins.filter((coin) => Number.isFinite(coin.rank) && coin.rank <= 3);
+  const topRankPressure = topRanks.length
+    ? averageValue(topRanks.map((coin) => Math.max(0, clamp(coin.change24h, -12, 18)))) || 0
+    : 0;
+  return {
+    createdAt: snapshot.createdAt || "",
+    count: coins.length,
+    bullishCount,
+    breadth: bullishCount / coins.length,
+    avgChange,
+    avgProjection,
+    participationScore: strongVolumeCount / coins.length,
+    extensionPressure: extensionCount / coins.length,
+    reversalPressure: reversalCount / coins.length,
+    topRankPressure,
+  };
+}
+
+function publicMarketRead(read = {}) {
+  return {
+    count: read.count,
+    bullishCount: read.bullishCount,
+    breadth: roundTo(read.breadth, 3),
+    avgChange: roundTo(read.avgChange, 2),
+    avgProjection: roundTo(read.avgProjection, 2),
+    participationScore: roundTo(read.participationScore, 3),
+    extensionPressure: roundTo(read.extensionPressure, 3),
+    reversalPressure: roundTo(read.reversalPressure, 3),
+    topRankPressure: roundTo(read.topRankPressure, 2),
+  };
+}
+
+function percentileRank(values = [], value) {
+  const clean = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!clean.length || !Number.isFinite(value)) return 0.5;
+  const belowOrEqual = clean.filter((item) => item <= value).length;
+  return belowOrEqual / clean.length;
+}
+
+function percentileDelta(percentile) {
+  return clamp((Number(percentile) || 0.5) - 0.5, -0.5, 0.5) * 2;
+}
+
+function regimeLabel({ breadthPercentile, avgChangePercentile, extensionPercentile, reversalPercentile, latest }) {
+  if (extensionPercentile >= 0.78 && latest.avgChange >= 5) return "late-risk-on";
+  if (breadthPercentile >= 0.65 && avgChangePercentile >= 0.6) return "risk-on";
+  if (reversalPercentile >= 0.7 && latest.avgChange >= -2) return "reversal-building";
+  if (breadthPercentile <= 0.35 && avgChangePercentile <= 0.35) return "risk-off";
+  if (extensionPercentile >= 0.72) return "fragile-chase";
+  return "mixed";
+}
+
+function averageValue(values = []) {
+  const clean = values.filter(Number.isFinite);
+  return clean.length ? clean.reduce((sum, value) => sum + value, 0) / clean.length : null;
+}
+
+function roundTo(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  const factor = 10 ** digits;
+  return Math.round(number * factor) / factor;
 }
 
 function isTruthy(value) {
