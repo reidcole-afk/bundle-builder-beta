@@ -824,15 +824,104 @@ async function sendLoginCodeEmail(login) {
     body: JSON.stringify({
       from,
       to: login.email,
-      subject: "Your Bundle Builder login code",
-      text: `Your Bundle Builder login code is ${login.code}. It expires at ${login.expiresAt}.`,
-      html: `<p>Your Bundle Builder login code is:</p><p style="font-size:24px;font-weight:700;letter-spacing:4px;">${login.code}</p><p>This code expires at ${login.expiresAt}.</p>`,
+      subject: "Bundle Builder sign-in code",
+      text: buildLoginCodeEmailText(login),
+      html: buildLoginCodeEmailHtml(login),
     }),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(`Email provider failed: HTTP ${response.status}${text ? ` ${text.slice(0, 180)}` : ""}`);
   }
+}
+
+function buildLoginCodeEmailText(login) {
+  const expiresAt = formatLoginCodeExpiration(login.expiresAt);
+  return [
+    `Your Bundle Builder sign-in code is ${login.code}.`,
+    "",
+    `It expires ${expiresAt}.`,
+    "",
+    "If you did not request this code, you can safely ignore this email.",
+    "",
+    "Bundle Builder beta",
+    "https://bundlebuilder.vicicoin.io/",
+  ].join("\n");
+}
+
+function buildLoginCodeEmailHtml(login) {
+  const code = escapeHtml(login.code);
+  const expiresAt = escapeHtml(formatLoginCodeExpiration(login.expiresAt));
+  const logoUrl = escapeHtml(publicAssetUrl("/assets/vici-logo.svg"));
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f4f7fb;color:#182238;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;margin:0;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border:1px solid #d9e3f1;border-radius:14px;overflow:hidden;">
+            <tr>
+              <td style="background:#141d31;color:#ffffff;padding:22px 26px;">
+                <table role="presentation" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td style="vertical-align:middle;padding-right:14px;">
+                      <img src="${logoUrl}" width="48" height="48" alt="Bundle Builder" style="display:block;width:48px;height:48px;border-radius:10px;background:#ffffff;border:1px solid rgba(255,255,255,.28);" />
+                    </td>
+                    <td style="vertical-align:middle;">
+                      <div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8bd6cc;">ViciSwap Bundle Advisor</div>
+                      <div style="font-size:24px;font-weight:800;line-height:1.2;margin-top:6px;">Bundle Builder beta</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 26px 10px;">
+                <h1 style="font-size:22px;line-height:1.25;margin:0 0 12px;color:#182238;">Your sign-in code</h1>
+                <p style="font-size:15px;line-height:1.6;margin:0 0 18px;color:#40506a;">Use this one-time code to finish signing in to your Bundle Builder profile.</p>
+                <div style="font-size:34px;font-weight:800;letter-spacing:8px;text-align:center;color:#0f766e;background:#eefbf8;border:1px solid #bdebe3;border-radius:12px;padding:18px 10px;margin:0 0 18px;">${code}</div>
+                <p style="font-size:14px;line-height:1.6;margin:0;color:#5c6a81;">This code expires ${expiresAt}.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:14px 26px 26px;">
+                <div style="font-size:13px;line-height:1.55;color:#6b7688;background:#f8fafc;border:1px solid #e4ebf5;border-radius:10px;padding:14px 16px;">If you did not request this code, you can safely ignore this email. No changes will be made to your profile.</div>
+                <p style="font-size:12px;line-height:1.5;margin:18px 0 0;color:#8792a3;">Bundle Builder beta<br><a href="https://bundlebuilder.vicicoin.io/" style="color:#0f766e;text-decoration:none;">bundlebuilder.vicicoin.io</a></p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function publicAssetUrl(pathname) {
+  const base = String(process.env.BUNDLE_BUILDER_PUBLIC_URL || process.env.CORS_ORIGIN || "https://bundlebuilder.vicicoin.io").replace(/\/+$/, "");
+  const path = String(pathname || "").startsWith("/") ? pathname : `/${pathname}`;
+  return `${base}${path}`;
+}
+
+function formatLoginCodeExpiration(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "soon";
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function parseCoinGeckoPreloadIds(value) {
