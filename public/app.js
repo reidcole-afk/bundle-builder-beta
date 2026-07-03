@@ -583,6 +583,7 @@ const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
 const LIVE_BACKEND_BASE_URL = "https://bundlebuilder.vicicoin.io";
 const MARKET_CHART_CACHE_MS = 1000 * 60 * 15;
 const MARKET_HEALTH_CACHE_MS = 1000 * 60 * 5;
+const MARKET_HEALTH_LIVE_DRIFT = 1;
 const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 6;
 const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 30;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
@@ -986,6 +987,9 @@ let pendingPulseChartLoads = new Map();
 let pendingPulseWindowLoads = new Map();
 let unavailablePulseWindows = new Map();
 let marketHealthCache = null;
+let marketHealthLiveTimer = null;
+let marketHealthLiveBase = null;
+let marketHealthLiveCurrent = null;
 let marketPulseRefreshSeq = 0;
 let pulseSelectionSeq = 0;
 let pulseChartWarmSeq = 0;
@@ -7157,11 +7161,80 @@ function updateMarketHealthUi(read = {}) {
   const score = loading ? 50 : finiteOrNull(read.score);
   const safeScore = Number.isFinite(score) ? Math.round(clamp(score, 0, 100)) : 50;
   const color = safeScore >= 70 ? "#22c76f" : safeScore >= 55 ? "#14b86a" : safeScore >= 40 ? "#d5a21b" : "#d95a4f";
-  marketHealthRing.style.setProperty("--health-score", String(safeScore));
   marketHealthRing.style.setProperty("--health-color", color);
-  marketHealthScore.textContent = loading ? "--" : String(safeScore);
+  marketHealthRing.dataset.actualScore = String(safeScore);
+  if (loading) {
+    stopMarketHealthLiveScore();
+    marketHealthRing.style.setProperty("--health-score", String(safeScore));
+    marketHealthScore.textContent = "--";
+  } else {
+    startMarketHealthLiveScore(safeScore);
+  }
   updateBenchmarkChange(marketHealthBtc, read.btc?.change24h);
   updateBenchmarkChange(marketHealthEth, read.eth?.change24h);
+}
+
+function startMarketHealthLiveScore(baseScore) {
+  if (!marketHealthRing || !marketHealthScore) return;
+  const base = Math.round(clamp(baseScore, 0, 100));
+  marketHealthLiveBase = base;
+  marketHealthLiveCurrent = base;
+  renderMarketHealthLiveScore(base);
+  if (marketHealthLiveTimer) clearTimeout(marketHealthLiveTimer);
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+  scheduleMarketHealthLiveTick();
+}
+
+function stopMarketHealthLiveScore() {
+  if (marketHealthLiveTimer) {
+    clearTimeout(marketHealthLiveTimer);
+    marketHealthLiveTimer = null;
+  }
+  marketHealthLiveBase = null;
+  marketHealthLiveCurrent = null;
+}
+
+function scheduleMarketHealthLiveTick() {
+  const delay = randomInt(720, 2100);
+  marketHealthLiveTimer = window.setTimeout(() => {
+    const base = Number.isFinite(marketHealthLiveBase) ? marketHealthLiveBase : 50;
+    const nextScore = nextMarketHealthLiveScore(base);
+    marketHealthLiveCurrent = nextScore;
+    renderMarketHealthLiveScore(nextScore);
+    scheduleMarketHealthLiveTick();
+  }, delay);
+}
+
+function nextMarketHealthLiveScore(base) {
+  const current = Number.isFinite(marketHealthLiveCurrent) ? marketHealthLiveCurrent : base;
+  const offsets = [-MARKET_HEALTH_LIVE_DRIFT, 0, MARKET_HEALTH_LIVE_DRIFT];
+  const weights = [0.34, 0.28, 0.38];
+  let next = Math.round(clamp(base + weightedRandomChoice(offsets, weights), 0, 100));
+  if (next === current && Math.random() > 0.38) {
+    const direction = current <= base ? 1 : -1;
+    next = Math.round(clamp(current + direction, base - MARKET_HEALTH_LIVE_DRIFT, base + MARKET_HEALTH_LIVE_DRIFT));
+  }
+  return Math.round(clamp(next, Math.max(0, base - MARKET_HEALTH_LIVE_DRIFT), Math.min(100, base + MARKET_HEALTH_LIVE_DRIFT)));
+}
+
+function weightedRandomChoice(values, weights) {
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let roll = Math.random() * total;
+  for (let index = 0; index < values.length; index += 1) {
+    roll -= weights[index];
+    if (roll <= 0) return values[index];
+  }
+  return values.at(-1);
+}
+
+function randomInt(min, max) {
+  return Math.floor(min + Math.random() * (max - min + 1));
+}
+
+function renderMarketHealthLiveScore(score) {
+  const liveScore = Math.round(clamp(score, 0, 100));
+  marketHealthRing.style.setProperty("--health-score", String(liveScore));
+  marketHealthScore.textContent = String(liveScore);
 }
 
 function updateBenchmarkChange(element, change) {
@@ -11030,12 +11103,14 @@ function makeProjectedPulseChart(scenario = {}) {
   const forecastText = scenario.label || "Next 7d";
   return `
     <div class="pulse-forecast-panel graph-only">
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(forecastText)} machine scenario chart">
+      <svg class="pulse-sparkline-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(forecastText)} machine scenario chart">
         <rect x="${nowX.toFixed(1)}" y="${padTop}" width="${(futureEnd - nowX).toFixed(1)}" height="${chartHeight}" fill="#f1f5f9" opacity="0.78"></rect>
         ${gridLines}
         <path d="${actualArea}" fill="${color}" opacity="0.11"></path>
         <path d="${actualLine}" fill="none" stroke="${color}" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"></path>
         <path d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path class="pulse-line-trace" d="${actualLine}" fill="none" stroke="${color}" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round" pathLength="100"></path>
+        <path class="pulse-line-trace pulse-line-trace-projected" d="${projectedLine}" fill="none" stroke="${projectedColor}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" pathLength="100"></path>
         <line x1="${nowX.toFixed(1)}" y1="${padTop}" x2="${nowX.toFixed(1)}" y2="${height - padBottom}" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="4 6"></line>
         <circle cx="${actualPoints.at(-1)[0].toFixed(1)}" cy="${actualPoints.at(-1)[1].toFixed(1)}" r="4.1" fill="#fff" stroke="${color}" stroke-width="2.35"></circle>
         <circle cx="${terminalX.toFixed(1)}" cy="${terminalY.toFixed(1)}" r="4.2" fill="#fff" stroke="${projectedColor}" stroke-width="2.1"></circle>
@@ -11094,9 +11169,10 @@ function makeSparkline(prices, change, windowLabel = "24h") {
   const area = `${line} L ${width - pad} ${height - pad} L ${pad} ${height - pad} Z`;
   const color = change >= 0 ? "#1f8a5f" : "#c8503e";
   return `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(windowLabel)} sparkline">
+    <svg class="pulse-sparkline-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(windowLabel)} sparkline">
       <path d="${area}" fill="${color}" opacity="0.12"></path>
       <path d="${line}" fill="none" stroke="${color}" stroke-width="2.2"></path>
+      <path class="pulse-line-trace" d="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" pathLength="100"></path>
       <circle cx="${points.at(-1)[0].toFixed(1)}" cy="${points.at(-1)[1].toFixed(1)}" r="4" fill="${color}"></circle>
     </svg>
   `;

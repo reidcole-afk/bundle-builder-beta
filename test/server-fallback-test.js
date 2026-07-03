@@ -1,5 +1,10 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const os = require("node:os");
+const path = require("node:path");
+
+process.env.BUNDLE_BUILDER_CHART_CACHE_FILE = path.join(os.tmpdir(), `bundle-builder-test-charts-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+
 const { handleRequest, handleServerError } = require("../src/server");
 
 const originalFetch = global.fetch;
@@ -12,7 +17,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.115");
+  assert.equal(health.body.version, "0.1.123");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);

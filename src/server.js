@@ -1601,6 +1601,10 @@ function buildTickerRankHistory(snapshots = []) {
         change24h: finiteNumber(coin.change24h),
         projected24hChange: finiteNumber(coin.projected24hChange),
         pulseScore: finiteNumber(coin.pulseScore),
+        volume24h: finiteNumber(coin.volume24h),
+        liquidityUsd: finiteNumber(coin.liquidityUsd),
+        wakeUpScore: finiteNumber(coin.wakeUpScore),
+        confirmedWakeUpScore: finiteNumber(coin.confirmedWakeUpScore),
       });
     }
   }
@@ -1622,11 +1626,26 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
   const speculativeTrapPenalty = pulseSpeculativeTrapPenalty(meta, market, buyRatio, opportunityScore);
   const rankMomentum = pulseRankMomentum(ticker, rankingContext);
+  const wakeUpSignal = pulseWakeUpSignal(meta, market, buyRatio, rankingContext, {
+    opportunityScore,
+    reversalWakeupBoost,
+    rankMomentum,
+  });
+  const confirmedWakeUpSignal = pulseConfirmedWakeUpSignal(meta, market, buyRatio, rankingContext, {
+    wakeUpSignal,
+    opportunityScore,
+    reversalWakeupBoost,
+    rankMomentum,
+    extensionPenalty,
+    speculativeTrapPenalty,
+  });
   const regimeFit = pulseRegimeFit(meta, market, buyRatio, rankingContext, opportunityScore);
   const confidenceScore = pulseConfidenceScore(meta, market, {
     buyRatio,
     opportunityScore,
     reversalWakeupBoost,
+    wakeUpScore: wakeUpSignal.score,
+    confirmedWakeUpScore: confirmedWakeUpSignal.score,
     extensionPenalty,
     speculativeTrapPenalty,
     rankMomentum,
@@ -1638,10 +1657,14 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     extensionPenalty,
     speculativeTrapPenalty,
     confidenceScore,
+    wakeUpScore: wakeUpSignal.score,
+    confirmedWakeUpScore: confirmedWakeUpSignal.score,
   });
   const confidenceBoost = (confidenceScore - 50) * 0.08;
   const fragilityPenalty = Math.max(0, fragilityScore - 48) * 0.075;
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + rankMomentum + regimeFit + confidenceBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
+  const wakeUpBoost = clamp((wakeUpSignal.score - 42) / 6, -3.5, 9.5);
+  const confirmedWakeBoost = clamp((confirmedWakeUpSignal.score - 50) / 6, -4, 10);
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
   return {
     ...meta,
     ...market,
@@ -1650,6 +1673,12 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     dataEdge: Math.round(volumeScore + liquidityScore + flowScore + opportunityScore),
     opportunityScore: Number(opportunityScore.toFixed(2)),
     rankMomentum: Number(rankMomentum.toFixed(2)),
+    wakeUpScore: wakeUpSignal.score,
+    wakeUpLabel: wakeUpSignal.label,
+    wakeUpFlags: wakeUpSignal.flags,
+    confirmedWakeUpScore: confirmedWakeUpSignal.score,
+    confirmedWakeUpLabel: confirmedWakeUpSignal.label,
+    confirmedWakeUpFlags: confirmedWakeUpSignal.flags,
     regimeFit: Number(regimeFit.toFixed(2)),
     confidenceScore,
     fragilityScore,
@@ -1658,6 +1687,164 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
     speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
+  };
+}
+
+function pulseConfirmedWakeUpSignal(meta, market, buyRatio = 0.5, rankingContext = {}, context = {}) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const history = rankingContext?.tickerHistory instanceof Map ? rankingContext.tickerHistory.get(ticker) : [];
+  const clean = (Array.isArray(history) ? history : []).filter((row) => Number.isFinite(row.pulseScore) || Number.isFinite(row.wakeUpScore));
+  const recent = clean.slice(-3);
+  const prior = clean.slice(Math.max(0, clean.length - 18), Math.max(0, clean.length - 3));
+  const currentWake = finiteNumber(context.wakeUpSignal?.score) || 0;
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const txnTotal = (finiteNumber(market.buys24h) || 0) + (finiteNumber(market.sells24h) || 0);
+  const recentWakeAvg = averageValue(recent.map((row) => row.wakeUpScore).filter(Number.isFinite));
+  const priorWakeAvg = averageValue(prior.map((row) => row.wakeUpScore).filter(Number.isFinite));
+  const recentVolume = averageValue(recent.map((row) => row.volume24h).filter(Number.isFinite));
+  const priorVolume = averageValue(prior.map((row) => row.volume24h).filter(Number.isFinite));
+  const recentRank = averageValue(recent.map((row) => row.rank).filter(Number.isFinite));
+  const priorRank = averageValue(prior.map((row) => row.rank).filter(Number.isFinite));
+  const wakePersistence = recent.filter((row) => (finiteNumber(row.wakeUpScore) || 0) >= 58).length;
+  const scoreTrend = Number.isFinite(recentWakeAvg) && Number.isFinite(priorWakeAvg) ? recentWakeAvg - priorWakeAvg : 0;
+  const volumeExpansion = Number.isFinite(recentVolume) && Number.isFinite(priorVolume) && priorVolume > 0 ? volume / priorVolume : null;
+  const rankImproving = Number.isFinite(recentRank) && Number.isFinite(priorRank) ? priorRank - recentRank : 0;
+  const strongDepth = volume >= 650_000 && liquidity >= 250_000;
+  const usableDepth = volume >= 150_000 && liquidity >= 120_000;
+  const constructiveFlow = buyRatio >= 0.515 || (txnTotal >= 60 && buyRatio >= 0.505);
+  const flags = [];
+  let score = currentWake * 0.72;
+
+  if (wakePersistence >= 2) {
+    score += 12;
+    flags.push("persistent wake-up");
+  } else if (recent.length >= 2 && currentWake >= 74) {
+    score += 5;
+    flags.push("strong fresh wake-up");
+  }
+  if (scoreTrend >= 6) {
+    score += 7;
+    flags.push("wake-up strengthening");
+  }
+  if (Number.isFinite(volumeExpansion) && volumeExpansion >= 1.18 && usableDepth) {
+    score += 7;
+    flags.push("volume expansion");
+  }
+  if (strongDepth) {
+    score += 5;
+    flags.push("depth confirmed");
+  }
+  if (constructiveFlow) {
+    score += clamp((buyRatio - 0.5) * 95, 0, 8);
+    flags.push("buy flow supportive");
+  }
+  if (rankImproving >= 2) {
+    score += 5;
+    flags.push("rank improving");
+  }
+  if (!usableDepth) {
+    score -= 14;
+    flags.push("thin depth");
+  }
+  if (change >= 18 && !strongDepth) {
+    score -= 12;
+    flags.push("late thin spike");
+  }
+  if (change >= 28) {
+    score -= 10;
+    flags.push("overheated");
+  }
+  if ((finiteNumber(context.extensionPenalty) || 0) >= 6 && wakePersistence < 2) {
+    score -= 7;
+    flags.push("extension unconfirmed");
+  }
+  if ((finiteNumber(context.speculativeTrapPenalty) || 0) >= 5 && !constructiveFlow) {
+    score -= 7;
+    flags.push("fragile flow");
+  }
+
+  const finalScore = Math.round(clamp(score, 0, 100));
+  return {
+    score: finalScore,
+    label: finalScore >= 76 ? "confirmed-wake-up" : finalScore >= 58 ? "building-confirmation" : finalScore >= 42 ? "unconfirmed" : "weak-confirmation",
+    flags: flags.slice(0, 6),
+  };
+}
+
+function pulseWakeUpSignal(meta, market, buyRatio = 0.5, rankingContext = {}, context = {}) {
+  const ticker = safeText(meta.ticker, 20).toUpperCase();
+  const theme = String(meta.theme || "").toLowerCase();
+  const history = rankingContext?.tickerHistory instanceof Map ? rankingContext.tickerHistory.get(ticker) : [];
+  const clean = (Array.isArray(history) ? history : []).filter((row) => Number.isFinite(row.change24h) || Number.isFinite(row.pulseScore));
+  const recent = clean.slice(-6);
+  const prior = clean.slice(Math.max(0, clean.length - 30), Math.max(0, clean.length - 6));
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const recentAvgChange = averageValue(recent.map((row) => row.change24h).filter(Number.isFinite));
+  const priorAvgChange = averageValue(prior.map((row) => row.change24h).filter(Number.isFinite));
+  const recentAvgScore = averageValue(recent.map((row) => row.pulseScore).filter(Number.isFinite));
+  const priorAvgScore = averageValue(prior.map((row) => row.pulseScore).filter(Number.isFinite));
+  const scoreAcceleration = Number.isFinite(recentAvgScore) && Number.isFinite(priorAvgScore) ? recentAvgScore - priorAvgScore : 0;
+  const changeAcceleration = Number.isFinite(recentAvgChange) && Number.isFinite(priorAvgChange) ? recentAvgChange - priorAvgChange : 0;
+  const highBeta = ["ai", "base", "consumer", "creator"].includes(theme) || ["AIXBT", "BNKR", "BRETT", "DEGEN", "FUN", "KAITO", "TOSHI", "VIRTUAL", "VVV", "ZORA"].includes(ticker);
+  const hasDepth = volume >= 140_000 && liquidity >= 100_000;
+  const strongDepth = volume >= 650_000 && liquidity >= 250_000;
+  const constructiveFlow = buyRatio >= 0.51;
+  const quietOrEarlyMove = change >= -7 && change <= 9;
+  const freshMove = change > -3 && change <= 14;
+  const stabilizing = prior.length >= 4 ? changeAcceleration >= 1.5 || scoreAcceleration >= 3 : change >= -2;
+  const flags = [];
+  let score = 34;
+
+  if (highBeta) {
+    score += 5;
+    flags.push("high-beta lane");
+  }
+  if (hasDepth) score += 8;
+  if (strongDepth) score += 5;
+  if (constructiveFlow) score += clamp((buyRatio - 0.5) * 95, 0, 8);
+  if (quietOrEarlyMove && hasDepth) {
+    score += 8;
+    flags.push("early move with depth");
+  }
+  if (freshMove && stabilizing) {
+    score += 7;
+    flags.push("stabilizing momentum");
+  }
+  if (changeAcceleration >= 3 || scoreAcceleration >= 5) {
+    score += 8;
+    flags.push("acceleration flip");
+  }
+  if ((finiteNumber(context.reversalWakeupBoost) || 0) >= 4 || (finiteNumber(context.opportunityScore) || 0) >= 8) {
+    score += 7;
+    flags.push("reversal wake-up");
+  }
+  if ((finiteNumber(context.rankMomentum) || 0) >= 2.5) {
+    score += 5;
+    flags.push("rank improving");
+  }
+  if (change >= 18 && !strongDepth) {
+    score -= 12;
+    flags.push("thin late spike");
+  }
+  if (change >= 28) {
+    score -= 10;
+    flags.push("overheated");
+  }
+  if (!hasDepth) {
+    score -= highBeta ? 14 : 8;
+    flags.push("needs depth");
+  }
+  if (buyRatio < 0.49 && change < 4) score -= 7;
+
+  const finalScore = Math.round(clamp(score, 0, 100));
+  return {
+    score: finalScore,
+    label: finalScore >= 78 ? "strong-wake-up" : finalScore >= 60 ? "building-wake-up" : finalScore >= 42 ? "watching" : "quiet",
+    flags: flags.slice(0, 6),
   };
 }
 
@@ -1730,6 +1917,8 @@ function pulseConfidenceScore(meta, market, context = {}) {
   score += clamp(regimeFit, -5, 5) * 1.35;
   score += clamp(finiteNumber(context.opportunityScore) || 0, -4, 12) * 0.65;
   score += clamp(finiteNumber(context.reversalWakeupBoost) || 0, 0, 8) * 0.75;
+  score += clamp((finiteNumber(context.wakeUpScore) || 40) - 48, -8, 32) * 0.28;
+  score += clamp((finiteNumber(context.confirmedWakeUpScore) || 40) - 52, -8, 34) * 0.22;
   score -= clamp(finiteNumber(context.extensionPenalty) || 0, 0, 12) * 1.25;
   score -= clamp(finiteNumber(context.speculativeTrapPenalty) || 0, 0, 10) * 1.45;
   if (Math.abs(change) <= 7) score += 4;
@@ -1760,6 +1949,8 @@ function pulseFragilityScore(meta, market, context = {}) {
   score += clamp(finiteNumber(context.extensionPenalty) || 0, 0, 12) * 1.6;
   score += clamp(finiteNumber(context.speculativeTrapPenalty) || 0, 0, 10) * 1.9;
   score -= clamp((finiteNumber(context.confidenceScore) || 50) - 50, -20, 24) * 0.45;
+  score -= clamp((finiteNumber(context.wakeUpScore) || 40) - 58, 0, 34) * 0.28;
+  score -= clamp((finiteNumber(context.confirmedWakeUpScore) || 40) - 62, 0, 32) * 0.22;
 
   return Math.round(clamp(score, 8, 96));
 }
@@ -1879,6 +2070,12 @@ function pulseCollectorSnapshotCoin(candidate, index) {
     confidenceLabel: candidate.confidenceLabel,
     fragilityScore: candidate.fragilityScore,
     rankMomentum: candidate.rankMomentum,
+    wakeUpScore: candidate.wakeUpScore,
+    wakeUpLabel: candidate.wakeUpLabel,
+    wakeUpFlags: candidate.wakeUpFlags,
+    confirmedWakeUpScore: candidate.confirmedWakeUpScore,
+    confirmedWakeUpLabel: candidate.confirmedWakeUpLabel,
+    confirmedWakeUpFlags: candidate.confirmedWakeUpFlags,
     regimeFit: candidate.regimeFit,
     regime: candidate.regime,
     projected24hChange,
@@ -1905,12 +2102,16 @@ function projectedCollectorChange(candidate, key) {
   const extensionBrake = (finiteNumber(candidate.extensionPenalty) || 0) * (key === "30d" ? 0.34 : key === "7d" ? 0.22 : 0.1);
   const reversalLift = (finiteNumber(candidate.reversalWakeupBoost) || 0) * (key === "30d" ? 0.2 : key === "7d" ? 0.28 : 0.38);
   const rankLift = (finiteNumber(candidate.rankMomentum) || 0) * (key === "30d" ? 0.22 : key === "7d" ? 0.34 : 0.18);
+  const wakeScore = finiteNumber(candidate.wakeUpScore) || 40;
+  const wakeLift = clamp((wakeScore - 55) / 9, -2, 6) * (key === "30d" ? 0.4 : key === "7d" ? 0.72 : 0.5);
+  const confirmedWakeScore = finiteNumber(candidate.confirmedWakeUpScore) || 40;
+  const confirmedWakeLift = clamp((confirmedWakeScore - 58) / 10, -2, 5) * (key === "30d" ? 0.32 : key === "7d" ? 0.6 : 0.44);
   const regimeLift = (finiteNumber(candidate.regimeFit) || 0) * (key === "30d" ? 0.24 : key === "7d" ? 0.32 : 0.16);
   const confidence = finiteNumber(candidate.confidenceScore) || 50;
   const fragility = finiteNumber(candidate.fragilityScore) || 45;
   const confidenceMultiplier = clamp(0.82 + (confidence - 50) / 140, 0.72, 1.18);
   const fragilityBrake = Math.max(0, fragility - 52) * (key === "30d" ? 0.06 : key === "7d" ? 0.045 : 0.025);
-  const rawChange = ((trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift + rankLift + regimeLift - extensionBrake) * horizon * reliability * confidenceMultiplier) - fragilityBrake;
+  const rawChange = ((trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift + wakeLift + confirmedWakeLift + rankLift + regimeLift - extensionBrake) * horizon * reliability * confidenceMultiplier) - fragilityBrake;
   return Number((clamp(rawChange, key === "30d" ? -44 : key === "7d" ? -28 : -12, key === "30d" ? 58 : key === "7d" ? 34 : 15)).toFixed(2));
 }
 

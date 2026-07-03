@@ -1,0 +1,4623 @@
+{
+  "generatedAt": "2026-07-03T05:25:31.400Z",
+  "method": "Rolling daily wake-up replay. Each day uses trailing 1d/3d/7d/14d/30d context only, then checks forward 1d/3d/7d returns.",
+  "period": "June 2026",
+  "daysTested": 30,
+  "targets": [
+    {
+      "ticker": "FUN",
+      "firstTop10": {
+        "date": "2026-06-01",
+        "ticker": "FUN",
+        "rank": 1,
+        "wakeScore": 100,
+        "r3": 31.05,
+        "r7": 54.03,
+        "r30": 187.88,
+        "rebound30": 188.32,
+        "relative7": 57.75,
+        "next3d": 1.68,
+        "next7d": 28.55,
+        "flags": [
+          "high-beta lane",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "firstTop5": {
+        "date": "2026-06-01",
+        "ticker": "FUN",
+        "rank": 1,
+        "wakeScore": 100,
+        "r3": 31.05,
+        "r7": 54.03,
+        "r30": 187.88,
+        "rebound30": 188.32,
+        "relative7": 57.75,
+        "next3d": 1.68,
+        "next7d": 28.55,
+        "flags": [
+          "high-beta lane",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "firstTop3": {
+        "date": "2026-06-01",
+        "ticker": "FUN",
+        "rank": 1,
+        "wakeScore": 100,
+        "r3": 31.05,
+        "r7": 54.03,
+        "r30": 187.88,
+        "rebound30": 188.32,
+        "relative7": 57.75,
+        "next3d": 1.68,
+        "next7d": 28.55,
+        "flags": [
+          "high-beta lane",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "bestWake": {
+        "date": "2026-06-01",
+        "ticker": "FUN",
+        "rank": 1,
+        "wakeScore": 100,
+        "r3": 31.05,
+        "r7": 54.03,
+        "r30": 187.88,
+        "rebound30": 188.32,
+        "relative7": 57.75,
+        "next3d": 1.68,
+        "next7d": 28.55,
+        "flags": [
+          "high-beta lane",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "bestForward7": {
+        "date": "2026-06-06",
+        "ticker": "FUN",
+        "rank": 2,
+        "wakeScore": 99.89,
+        "r3": 7.78,
+        "r7": 32.19,
+        "r30": 161.28,
+        "rebound30": 193.95,
+        "relative7": 50.45,
+        "next3d": 21.27,
+        "next7d": 59.24,
+        "flags": [
+          "high-beta lane",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      }
+    },
+    {
+      "ticker": "DEGEN",
+      "firstTop10": {
+        "date": "2026-06-01",
+        "ticker": "DEGEN",
+        "rank": 5,
+        "wakeScore": 62.36,
+        "r3": 5.88,
+        "r7": 8.03,
+        "r30": 47.61,
+        "rebound30": 47.55,
+        "relative7": 11.75,
+        "next3d": 19.01,
+        "next7d": 67.77,
+        "flags": [
+          "high-beta lane",
+          "washed out but stabilizing",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "firstTop5": {
+        "date": "2026-06-01",
+        "ticker": "DEGEN",
+        "rank": 5,
+        "wakeScore": 62.36,
+        "r3": 5.88,
+        "r7": 8.03,
+        "r30": 47.61,
+        "rebound30": 47.55,
+        "relative7": 11.75,
+        "next3d": 19.01,
+        "next7d": 67.77,
+        "flags": [
+          "high-beta lane",
+          "washed out but stabilizing",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "firstTop3": {
+        "date": "2026-06-02",
+        "ticker": "DEGEN",
+        "rank": 2,
+        "wakeScore": 87.19,
+        "r3": 12.61,
+        "r7": 19.68,
+        "r30": 53.6,
+        "rebound30": 55.39,
+        "relative7": 25.82,
+        "next3d": 39.73,
+        "next7d": 48.02,
+        "flags": [
+          "high-beta lane",
+          "washed out but stabilizing",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "bestWake": {
+        "date": "2026-06-04",
+        "ticker": "DEGEN",
+        "rank": 1,
+        "wakeScore": 100,
+        "r3": 19.01,
+        "r7": 45.72,
+        "r30": 70.27,
+        "rebound30": 71.17,
+        "relative7": 57.03,
+        "next3d": 28.15,
+        "next7d": 46.57,
+        "flags": [
+          "high-beta lane",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      },
+      "bestForward7": {
+        "date": "2026-06-01",
+        "ticker": "DEGEN",
+        "rank": 5,
+        "wakeScore": 62.36,
+        "r3": 5.88,
+        "r7": 8.03,
+        "r30": 47.61,
+        "rebound30": 47.55,
+        "relative7": 11.75,
+        "next3d": 19.01,
+        "next7d": 67.77,
+        "flags": [
+          "high-beta lane",
+          "washed out but stabilizing",
+          "relative strength flip",
+          "green against weak market",
+          "rebound wake-up"
+        ]
+      }
+    }
+  ],
+  "top5Summary": {
+    "observations": 150,
+    "avgNext7d": 1.17,
+    "hitRateNext7dOver10": 25.3
+  },
+  "daily": [
+    {
+      "date": "2026-06-01",
+      "btc": {
+        "r7": -3.7,
+        "r30": -5.45
+      },
+      "eth": {
+        "r7": -3.75,
+        "r30": -12.31
+      },
+      "top5": [
+        {
+          "date": "2026-06-01",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 31.05,
+          "r7": 54.03,
+          "r30": 187.88,
+          "rebound30": 188.32,
+          "relative7": 57.75,
+          "next3d": 1.68,
+          "next7d": 28.55,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-01",
+          "ticker": "BNKR",
+          "rank": 2,
+          "wakeScore": 85.58,
+          "r3": 25.19,
+          "r7": 16.74,
+          "r30": 110.85,
+          "rebound30": 110.67,
+          "relative7": 20.47,
+          "next3d": -14.1,
+          "next7d": -14.13,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-01",
+          "ticker": "NOCK",
+          "rank": 3,
+          "wakeScore": 82.72,
+          "r3": 5.12,
+          "r7": 70.23,
+          "r30": 153.71,
+          "rebound30": 204.02,
+          "relative7": 73.96,
+          "next3d": 0.16,
+          "next7d": -7.76,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-01",
+          "ticker": "ZORA",
+          "rank": 4,
+          "wakeScore": 62.73,
+          "r3": 15.49,
+          "r7": 4.87,
+          "r30": -8.58,
+          "rebound30": 18.51,
+          "relative7": 8.6,
+          "next3d": -2.46,
+          "next7d": -24.32,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-01",
+          "ticker": "DEGEN",
+          "rank": 5,
+          "wakeScore": 62.36,
+          "r3": 5.88,
+          "r7": 8.03,
+          "r30": 47.61,
+          "rebound30": 47.55,
+          "relative7": 11.75,
+          "next3d": 19.01,
+          "next7d": 67.77,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-01",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 31.05,
+          "r7": 54.03,
+          "r30": 187.88,
+          "rebound30": 188.32,
+          "relative7": 57.75,
+          "next3d": 1.68,
+          "next7d": 28.55,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-01",
+          "ticker": "DEGEN",
+          "rank": 5,
+          "wakeScore": 62.36,
+          "r3": 5.88,
+          "r7": 8.03,
+          "r30": 47.61,
+          "rebound30": 47.55,
+          "relative7": 11.75,
+          "next3d": 19.01,
+          "next7d": 67.77,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-02",
+      "btc": {
+        "r7": -7.45,
+        "r30": -9.46
+      },
+      "eth": {
+        "r7": -4.82,
+        "r30": -13.89
+      },
+      "top5": [
+        {
+          "date": "2026-06-02",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 27.4,
+          "r7": 58.69,
+          "r30": 177.29,
+          "rebound30": 195.06,
+          "relative7": 64.83,
+          "next3d": 5.58,
+          "next7d": 25.83,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-02",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 87.19,
+          "r3": 12.61,
+          "r7": 19.68,
+          "r30": 53.6,
+          "rebound30": 55.39,
+          "relative7": 25.82,
+          "next3d": 39.73,
+          "next7d": 48.02,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-02",
+          "ticker": "BNKR",
+          "rank": 3,
+          "wakeScore": 85.45,
+          "r3": 3.85,
+          "r7": 20.63,
+          "r30": 89.73,
+          "rebound30": 97.4,
+          "relative7": 26.77,
+          "next3d": -5.11,
+          "next7d": -14.73,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-02",
+          "ticker": "NOCK",
+          "rank": 4,
+          "wakeScore": 81.41,
+          "r3": 1.45,
+          "r7": 53.62,
+          "r30": 191.96,
+          "rebound30": 214.48,
+          "relative7": 59.75,
+          "next3d": -30.7,
+          "next7d": -18.91,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-02",
+          "ticker": "VVV",
+          "rank": 5,
+          "wakeScore": 73.95,
+          "r3": 19.84,
+          "r7": 6.7,
+          "r30": 100.53,
+          "rebound30": 106.9,
+          "relative7": 12.84,
+          "next3d": -14.79,
+          "next7d": -10.98,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-02",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 27.4,
+          "r7": 58.69,
+          "r30": 177.29,
+          "rebound30": 195.06,
+          "relative7": 64.83,
+          "next3d": 5.58,
+          "next7d": 25.83,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-02",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 87.19,
+          "r3": 12.61,
+          "r7": 19.68,
+          "r30": 53.6,
+          "rebound30": 55.39,
+          "relative7": 25.82,
+          "next3d": 39.73,
+          "next7d": 48.02,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-03",
+      "btc": {
+        "r7": -12.32,
+        "r30": -16.23
+      },
+      "eth": {
+        "r7": -9.67,
+        "r30": -20.36
+      },
+      "top5": [
+        {
+          "date": "2026-06-03",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 14.44,
+          "r7": 55.66,
+          "r30": 165.13,
+          "rebound30": 184.04,
+          "relative7": 66.66,
+          "next3d": 7.78,
+          "next7d": 37.77,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-03",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 99.49,
+          "r3": 12.16,
+          "r7": 22.74,
+          "r30": 45.18,
+          "rebound30": 48.32,
+          "relative7": 33.74,
+          "next3d": 19.89,
+          "next7d": 38.51,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-03",
+          "ticker": "VVV",
+          "rank": 3,
+          "wakeScore": 77.79,
+          "r3": 10.28,
+          "r7": 8.5,
+          "r30": 95.14,
+          "rebound30": 105.07,
+          "relative7": 19.5,
+          "next3d": -4.1,
+          "next7d": -17.7,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-03",
+          "ticker": "ZORA",
+          "rank": 4,
+          "wakeScore": 75.6,
+          "r3": 20.37,
+          "r7": 11.88,
+          "r30": -7.74,
+          "rebound30": 22.4,
+          "relative7": 22.87,
+          "next3d": -23.3,
+          "next7d": -31.53,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-03",
+          "ticker": "NOCK",
+          "rank": 5,
+          "wakeScore": 73.45,
+          "r3": -5.54,
+          "r7": 20.14,
+          "r30": 147.99,
+          "rebound30": 199.27,
+          "relative7": 31.14,
+          "next3d": -24.43,
+          "next7d": -28.15,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-03",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 14.44,
+          "r7": 55.66,
+          "r30": 165.13,
+          "rebound30": 184.04,
+          "relative7": 66.66,
+          "next3d": 7.78,
+          "next7d": 37.77,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-03",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 99.49,
+          "r3": 12.16,
+          "r7": 22.74,
+          "r30": 45.18,
+          "rebound30": 48.32,
+          "relative7": 33.74,
+          "next3d": 19.89,
+          "next7d": 38.51,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-04",
+      "btc": {
+        "r7": -12.82,
+        "r30": -19.04
+      },
+      "eth": {
+        "r7": -9.8,
+        "r30": -22.47
+      },
+      "top5": [
+        {
+          "date": "2026-06-04",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 19.01,
+          "r7": 45.72,
+          "r30": 70.27,
+          "rebound30": 71.17,
+          "relative7": 57.03,
+          "next3d": 28.15,
+          "next7d": 46.57,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-04",
+          "ticker": "VVV",
+          "rank": 2,
+          "wakeScore": 99.04,
+          "r3": 11.61,
+          "r7": 25.25,
+          "r30": 122.37,
+          "rebound30": 125.91,
+          "relative7": 36.56,
+          "next3d": -24.71,
+          "next7d": -36.19,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-04",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 94.93,
+          "r3": 1.68,
+          "r7": 41.46,
+          "r30": 165.07,
+          "rebound30": 172.22,
+          "relative7": 52.77,
+          "next3d": 22.05,
+          "next7d": 57.82,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-04",
+          "ticker": "NOCK",
+          "rank": 4,
+          "wakeScore": 85.5,
+          "r3": 0.16,
+          "r7": 26.48,
+          "r30": 169.45,
+          "rebound30": 204.51,
+          "relative7": 37.79,
+          "next3d": -27.58,
+          "next7d": -31.24,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-04",
+          "ticker": "BIO",
+          "rank": 5,
+          "wakeScore": 75.92,
+          "r3": 11.48,
+          "r7": 8.86,
+          "r30": -38.94,
+          "rebound30": 18.34,
+          "relative7": 20.17,
+          "next3d": -23.58,
+          "next7d": -15.3,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-04",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 19.01,
+          "r7": 45.72,
+          "r30": 70.27,
+          "rebound30": 71.17,
+          "relative7": 57.03,
+          "next3d": 28.15,
+          "next7d": 46.57,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-04",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 94.93,
+          "r3": 1.68,
+          "r7": 41.46,
+          "r30": 165.07,
+          "rebound30": 172.22,
+          "relative7": 52.77,
+          "next3d": 22.05,
+          "next7d": 57.82,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-05",
+      "btc": {
+        "r7": -13.23,
+        "r30": -21.51
+      },
+      "eth": {
+        "r7": -11.83,
+        "r30": -25.37
+      },
+      "top5": [
+        {
+          "date": "2026-06-05",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 39.73,
+          "r7": 56.01,
+          "r30": 100.77,
+          "rebound30": 107.66,
+          "relative7": 68.54,
+          "next3d": 13.86,
+          "next7d": 16.45,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-05",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 99.29,
+          "r3": 5.58,
+          "r7": 48.16,
+          "r30": 182.7,
+          "rebound30": 199.22,
+          "relative7": 60.69,
+          "next3d": 13.7,
+          "next7d": 37.99,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-05",
+          "ticker": "BNKR",
+          "rank": 3,
+          "wakeScore": 71.88,
+          "r3": -5.11,
+          "r7": 12.31,
+          "r30": 72.38,
+          "rebound30": 83.86,
+          "relative7": 24.84,
+          "next3d": -4.28,
+          "next7d": -20.76,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-05",
+          "ticker": "ZORA",
+          "rank": 4,
+          "wakeScore": 57.65,
+          "r3": -0.78,
+          "r7": 6.33,
+          "r30": -20.45,
+          "rebound30": 9.11,
+          "relative7": 18.86,
+          "next3d": -17.81,
+          "next7d": -20.85,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-05",
+          "ticker": "KAITO",
+          "rank": 5,
+          "wakeScore": 44.91,
+          "r3": 0.61,
+          "r7": 3.17,
+          "r30": -4.22,
+          "rebound30": 8.89,
+          "relative7": 15.7,
+          "next3d": -2.47,
+          "next7d": -10.43,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-05",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 39.73,
+          "r7": 56.01,
+          "r30": 100.77,
+          "rebound30": 107.66,
+          "relative7": 68.54,
+          "next3d": 13.86,
+          "next7d": 16.45,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-05",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 99.29,
+          "r3": 5.58,
+          "r7": 48.16,
+          "r30": 182.7,
+          "rebound30": 199.22,
+          "relative7": 60.69,
+          "next3d": 13.7,
+          "next7d": 37.99,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-06",
+      "btc": {
+        "r7": -15.99,
+        "r30": -24.2
+      },
+      "eth": {
+        "r7": -20.53,
+        "r30": -31.91
+      },
+      "top5": [
+        {
+          "date": "2026-06-06",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 19.89,
+          "r7": 29.77,
+          "r30": 63.56,
+          "rebound30": 71.26,
+          "relative7": 48.03,
+          "next3d": 28.44,
+          "next7d": 35.66,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-06",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 99.89,
+          "r3": 7.78,
+          "r7": 32.19,
+          "r30": 161.28,
+          "rebound30": 193.95,
+          "relative7": 50.45,
+          "next3d": 21.27,
+          "next7d": 59.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-06",
+          "ticker": "VVV",
+          "rank": 3,
+          "wakeScore": 73.17,
+          "r3": -4.1,
+          "r7": 13.91,
+          "r30": 47.11,
+          "rebound30": 50.86,
+          "relative7": 32.17,
+          "next3d": -6.35,
+          "next7d": -20.23,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-06",
+          "ticker": "KAITO",
+          "rank": 4,
+          "wakeScore": 50.64,
+          "r3": 3.6,
+          "r7": 2.28,
+          "r30": -7.3,
+          "rebound30": 8.43,
+          "relative7": 20.54,
+          "next3d": -4.12,
+          "next7d": -10.16,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-06",
+          "ticker": "BNKR",
+          "rank": 5,
+          "wakeScore": 39.58,
+          "r3": -0.85,
+          "r7": -7.67,
+          "r30": 49.16,
+          "rebound30": 72.28,
+          "relative7": 10.59,
+          "next3d": -4.09,
+          "next7d": -9.45,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "old move losing freshness"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-06",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 19.89,
+          "r7": 29.77,
+          "r30": 63.56,
+          "rebound30": 71.26,
+          "relative7": 48.03,
+          "next3d": 28.44,
+          "next7d": 35.66,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-06",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 99.89,
+          "r3": 7.78,
+          "r7": 32.19,
+          "r30": 161.28,
+          "rebound30": 193.95,
+          "relative7": 50.45,
+          "next3d": 21.27,
+          "next7d": 59.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-07",
+      "btc": {
+        "r7": -17.87,
+        "r30": -24.18
+      },
+      "eth": {
+        "r7": -22.84,
+        "r30": -31.83
+      },
+      "top5": [
+        {
+          "date": "2026-06-07",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 28.15,
+          "r7": 68.77,
+          "r30": 112.38,
+          "rebound30": 114.95,
+          "relative7": 89.13,
+          "next3d": -7.95,
+          "next7d": 7.88,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-07",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 100,
+          "r3": 22.05,
+          "r7": 37.77,
+          "r30": 215.18,
+          "rebound30": 228.34,
+          "relative7": 58.13,
+          "next3d": 14.44,
+          "next7d": 33.51,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-07",
+          "ticker": "KAITO",
+          "rank": 3,
+          "wakeScore": 37.28,
+          "r3": -5.13,
+          "r7": -3.04,
+          "r30": -12.34,
+          "rebound30": 3.65,
+          "relative7": 17.32,
+          "next3d": -6.28,
+          "next7d": 8.67,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-07",
+          "ticker": "BNKR",
+          "rank": 4,
+          "wakeScore": 33.58,
+          "r3": 1.77,
+          "r7": -26.38,
+          "r30": 60.76,
+          "rebound30": 79.16,
+          "relative7": -6.02,
+          "next3d": -11.08,
+          "next7d": -12.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-07",
+          "ticker": "VVV",
+          "rank": 5,
+          "wakeScore": 19.36,
+          "r3": -24.71,
+          "r7": -8.53,
+          "r30": 25.21,
+          "rebound30": 25.29,
+          "relative7": 11.82,
+          "next3d": -0.78,
+          "next7d": 8.17,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-07",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 28.15,
+          "r7": 68.77,
+          "r30": 112.38,
+          "rebound30": 114.95,
+          "relative7": 89.13,
+          "next3d": -7.95,
+          "next7d": 7.88,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-07",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 100,
+          "r3": 22.05,
+          "r7": 37.77,
+          "r30": 215.18,
+          "rebound30": 228.34,
+          "relative7": 58.13,
+          "next3d": 14.44,
+          "next7d": 33.51,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-08",
+      "btc": {
+        "r7": -14.86,
+        "r30": -21.64
+      },
+      "eth": {
+        "r7": -16.72,
+        "r30": -27.53
+      },
+      "top5": [
+        {
+          "date": "2026-06-08",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 97.09,
+          "r3": 13.7,
+          "r7": 28.55,
+          "r30": 191.22,
+          "rebound30": 227.76,
+          "relative7": 44.33,
+          "next3d": 24.83,
+          "next7d": 37.36,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-08",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 96.98,
+          "r3": 13.86,
+          "r7": 67.77,
+          "r30": 120.56,
+          "rebound30": 125.69,
+          "relative7": 83.56,
+          "next3d": 3.97,
+          "next7d": -4.94,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-08",
+          "ticker": "NOCK",
+          "rank": 3,
+          "wakeScore": 55.68,
+          "r3": 28.69,
+          "r7": -7.76,
+          "r30": 63.35,
+          "rebound30": 180.44,
+          "relative7": 8.03,
+          "next3d": -25.33,
+          "next7d": -9.07,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-08",
+          "ticker": "VVV",
+          "rank": 4,
+          "wakeScore": 37.44,
+          "r3": 2.12,
+          "r7": -11.06,
+          "r30": 19.28,
+          "rebound30": 30.35,
+          "relative7": 4.73,
+          "next3d": -19.93,
+          "next7d": 2.64,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-08",
+          "ticker": "KAITO",
+          "rank": 5,
+          "wakeScore": 32.13,
+          "r3": -2.47,
+          "r7": -1.18,
+          "r30": -11.95,
+          "rebound30": 6.2,
+          "relative7": 14.61,
+          "next3d": -7.2,
+          "next7d": 4.25,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-08",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 97.09,
+          "r3": 13.7,
+          "r7": 28.55,
+          "r30": 191.22,
+          "rebound30": 227.76,
+          "relative7": 44.33,
+          "next3d": 24.83,
+          "next7d": 37.36,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-08",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 96.98,
+          "r3": 13.86,
+          "r7": 67.77,
+          "r30": 120.56,
+          "rebound30": 125.69,
+          "relative7": 83.56,
+          "next3d": 3.97,
+          "next7d": -4.94,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-09",
+      "btc": {
+        "r7": -11.13,
+        "r30": -21.47
+      },
+      "eth": {
+        "r7": -14.99,
+        "r30": -26.92
+      },
+      "top5": [
+        {
+          "date": "2026-06-09",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 28.44,
+          "r7": 48.02,
+          "r30": 104.75,
+          "rebound30": 109.97,
+          "relative7": 61.08,
+          "next3d": 9.93,
+          "next7d": -4.98,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-09",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 95.77,
+          "r3": 21.27,
+          "r7": 25.83,
+          "r30": 210.7,
+          "rebound30": 243.54,
+          "relative7": 38.89,
+          "next3d": 15.79,
+          "next7d": 35.56,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-09",
+          "ticker": "BIO",
+          "rank": 3,
+          "wakeScore": 65.53,
+          "r3": 20.52,
+          "r7": 1.97,
+          "r30": -45.41,
+          "rebound30": 28.19,
+          "relative7": 15.03,
+          "next3d": 0.28,
+          "next7d": -2.41,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-09",
+          "ticker": "NOCK",
+          "rank": 4,
+          "wakeScore": 26.32,
+          "r3": 12.77,
+          "r7": -18.91,
+          "r30": 40.12,
+          "rebound30": 155.02,
+          "relative7": -5.84,
+          "next3d": -6.33,
+          "next7d": -2.73,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-09",
+          "ticker": "MORPHO",
+          "rank": 5,
+          "wakeScore": 23.9,
+          "r3": 7.75,
+          "r7": -12.83,
+          "r30": -14.84,
+          "rebound30": 12.51,
+          "relative7": 0.23,
+          "next3d": 6.87,
+          "next7d": 7.77,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-09",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 28.44,
+          "r7": 48.02,
+          "r30": 104.75,
+          "rebound30": 109.97,
+          "relative7": 61.08,
+          "next3d": 9.93,
+          "next7d": -4.98,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-09",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 95.77,
+          "r3": 21.27,
+          "r7": 25.83,
+          "r30": 210.7,
+          "rebound30": 243.54,
+          "relative7": 38.89,
+          "next3d": 15.79,
+          "next7d": 35.56,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-10",
+      "btc": {
+        "r7": -7.04,
+        "r30": -24.84
+      },
+      "eth": {
+        "r7": -12.17,
+        "r30": -30.95
+      },
+      "top5": [
+        {
+          "date": "2026-06-10",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 94.1,
+          "r3": 14.44,
+          "r7": 37.77,
+          "r30": 221.71,
+          "rebound30": 227.45,
+          "relative7": 47.38,
+          "next3d": 24.57,
+          "next7d": 32.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-10",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 71.52,
+          "r3": -7.95,
+          "r7": 38.51,
+          "r30": 78.6,
+          "rebound30": 88.86,
+          "relative7": 48.12,
+          "next3d": 17.42,
+          "next7d": 13.73,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-10",
+          "ticker": "MORPHO",
+          "rank": 3,
+          "wakeScore": 56.3,
+          "r3": 16.32,
+          "r7": 0.31,
+          "r30": -12.6,
+          "rebound30": 18.74,
+          "relative7": 9.92,
+          "next3d": 2.06,
+          "next7d": 2.13,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-10",
+          "ticker": "BIO",
+          "rank": 4,
+          "wakeScore": 37.09,
+          "r3": 16.05,
+          "r7": -8.17,
+          "r30": -42.05,
+          "rebound30": 22.19,
+          "relative7": 1.44,
+          "next3d": 0.19,
+          "next7d": 1.09,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-10",
+          "ticker": "BRETT",
+          "rank": 5,
+          "wakeScore": 3.63,
+          "r3": 4.94,
+          "r7": -10.07,
+          "r30": -48.02,
+          "rebound30": 10.47,
+          "relative7": -0.46,
+          "next3d": 3.29,
+          "next7d": 16.9,
+          "flags": [
+            "high-beta lane"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-10",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 94.1,
+          "r3": 14.44,
+          "r7": 37.77,
+          "r30": 221.71,
+          "rebound30": 227.45,
+          "relative7": 47.38,
+          "next3d": 24.57,
+          "next7d": 32.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-10",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 71.52,
+          "r3": -7.95,
+          "r7": 38.51,
+          "r30": 78.6,
+          "rebound30": 88.86,
+          "relative7": 48.12,
+          "next3d": 17.42,
+          "next7d": 13.73,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-11",
+      "btc": {
+        "r7": -5.33,
+        "r30": -25.01
+      },
+      "eth": {
+        "r7": -11.44,
+        "r30": -30.96
+      },
+      "top5": [
+        {
+          "date": "2026-06-11",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 24.83,
+          "r7": 57.82,
+          "r30": 256.32,
+          "rebound30": 257.65,
+          "relative7": 66.21,
+          "next3d": 3.25,
+          "next7d": 16.85,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-11",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 88.07,
+          "r3": 3.97,
+          "r7": 46.57,
+          "r30": 115.65,
+          "rebound30": 134.65,
+          "relative7": 54.95,
+          "next3d": -5.67,
+          "next7d": -9.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-11",
+          "ticker": "MORPHO",
+          "rank": 3,
+          "wakeScore": 62.4,
+          "r3": 17.81,
+          "r7": 7.75,
+          "r30": -4.92,
+          "rebound30": 26.05,
+          "relative7": 16.14,
+          "next3d": -3.42,
+          "next7d": -3.55,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-11",
+          "ticker": "BIO",
+          "rank": 4,
+          "wakeScore": 11.73,
+          "r3": 1.69,
+          "r7": -15.3,
+          "r30": -39.38,
+          "rebound30": 16.7,
+          "relative7": -6.92,
+          "next3d": 12.56,
+          "next7d": 21.72,
+          "flags": [
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-11",
+          "ticker": "AERO",
+          "rank": 5,
+          "wakeScore": -0.17,
+          "r3": -2.06,
+          "r7": -11.21,
+          "r30": -37.72,
+          "rebound30": 6.64,
+          "relative7": -2.82,
+          "next3d": 9.88,
+          "next7d": 38.59,
+          "flags": [
+            "high-beta lane"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-11",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 24.83,
+          "r7": 57.82,
+          "r30": 256.32,
+          "rebound30": 257.65,
+          "relative7": 66.21,
+          "next3d": 3.25,
+          "next7d": 16.85,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-11",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 88.07,
+          "r3": 3.97,
+          "r7": 46.57,
+          "r30": 115.65,
+          "rebound30": 134.65,
+          "relative7": 54.95,
+          "next3d": -5.67,
+          "next7d": -9.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-12",
+      "btc": {
+        "r7": -0.29,
+        "r30": -21.29
+      },
+      "eth": {
+        "r7": -5.14,
+        "r30": -26.56
+      },
+      "top5": [
+        {
+          "date": "2026-06-12",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 98.81,
+          "r3": 15.79,
+          "r7": 37.99,
+          "r30": 243.7,
+          "rebound30": 243.41,
+          "relative7": 40.7,
+          "next3d": 13.18,
+          "next7d": 13.52,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-12",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 72.32,
+          "r3": 9.93,
+          "r7": 16.45,
+          "r30": 123.42,
+          "rebound30": 130.81,
+          "relative7": 19.16,
+          "next3d": -7.05,
+          "next7d": -6.08,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-12",
+          "ticker": "BIO",
+          "rank": 3,
+          "wakeScore": 53.34,
+          "r3": 0.28,
+          "r7": 10,
+          "r30": -32.01,
+          "rebound30": 28.55,
+          "relative7": 12.71,
+          "next3d": 3.72,
+          "next7d": 15.29,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-12",
+          "ticker": "NOCK",
+          "rank": 4,
+          "wakeScore": 46.33,
+          "r3": -6.33,
+          "r7": 9.61,
+          "r30": 66.7,
+          "rebound30": 138.87,
+          "relative7": 12.33,
+          "next3d": 6.76,
+          "next7d": -10.75,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-12",
+          "ticker": "MORPHO",
+          "rank": 5,
+          "wakeScore": 44.13,
+          "r3": 6.87,
+          "r7": 7.05,
+          "r30": -5.8,
+          "rebound30": 20.24,
+          "relative7": 9.76,
+          "next3d": 1.36,
+          "next7d": 0.81,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-12",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 98.81,
+          "r3": 15.79,
+          "r7": 37.99,
+          "r30": 243.7,
+          "rebound30": 243.41,
+          "relative7": 40.7,
+          "next3d": 13.18,
+          "next7d": 13.52,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-12",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 72.32,
+          "r3": 9.93,
+          "r7": 16.45,
+          "r30": 123.42,
+          "rebound30": 130.81,
+          "relative7": 19.16,
+          "next3d": -7.05,
+          "next7d": -6.08,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-13",
+      "btc": {
+        "r7": 2.95,
+        "r30": -20.06
+      },
+      "eth": {
+        "r7": 3.96,
+        "r30": -26.43
+      },
+      "top5": [
+        {
+          "date": "2026-06-13",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 24.57,
+          "r7": 59.24,
+          "r30": 284.95,
+          "rebound30": 281.84,
+          "relative7": 55.78,
+          "next3d": 3.24,
+          "next7d": 11.58,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-13",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 93.41,
+          "r3": 17.42,
+          "r7": 35.66,
+          "r30": 120.86,
+          "rebound30": 121.77,
+          "relative7": 32.21,
+          "next3d": -10.04,
+          "next7d": 3.27,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-13",
+          "ticker": "AIXBT",
+          "rank": 3,
+          "wakeScore": 59.4,
+          "r3": 9.05,
+          "r7": 12.33,
+          "r30": -22.02,
+          "rebound30": 21.44,
+          "relative7": 8.87,
+          "next3d": -0.67,
+          "next7d": -4.69,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-13",
+          "ticker": "AERO",
+          "rank": 4,
+          "wakeScore": 53.65,
+          "r3": 7.65,
+          "r7": 10.06,
+          "r30": -24.07,
+          "rebound30": 15.83,
+          "relative7": 6.61,
+          "next3d": 19.76,
+          "next7d": 33.01,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-13",
+          "ticker": "VIRTUAL",
+          "rank": 5,
+          "wakeScore": 50.47,
+          "r3": 6.82,
+          "r7": 7.6,
+          "r30": -21.68,
+          "rebound30": 15.49,
+          "relative7": 4.14,
+          "next3d": 3.08,
+          "next7d": 0.41,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-13",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 24.57,
+          "r7": 59.24,
+          "r30": 284.95,
+          "rebound30": 281.84,
+          "relative7": 55.78,
+          "next3d": 3.24,
+          "next7d": 11.58,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-13",
+          "ticker": "DEGEN",
+          "rank": 2,
+          "wakeScore": 93.41,
+          "r3": 17.42,
+          "r7": 35.66,
+          "r30": 120.86,
+          "rebound30": 121.77,
+          "relative7": 32.21,
+          "next3d": -10.04,
+          "next7d": 3.27,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-14",
+      "btc": {
+        "r7": 6.36,
+        "r30": -20.86
+      },
+      "eth": {
+        "r7": 7.83,
+        "r30": -26.83
+      },
+      "top5": [
+        {
+          "date": "2026-06-14",
+          "ticker": "BRETT",
+          "rank": 1,
+          "wakeScore": 89.26,
+          "r3": 26.76,
+          "r7": 27.4,
+          "r30": -28.02,
+          "rebound30": 34.11,
+          "relative7": 20.3,
+          "next3d": -3.7,
+          "next7d": -11.25,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-14",
+          "ticker": "NOCK",
+          "rank": 2,
+          "wakeScore": 79.17,
+          "r3": 23.49,
+          "r7": 17.26,
+          "r30": 99.41,
+          "rebound30": 158.59,
+          "relative7": 10.17,
+          "next3d": -12.84,
+          "next7d": -8.8,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-14",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 75.22,
+          "r3": 3.25,
+          "r7": 33.51,
+          "r30": 223.03,
+          "rebound30": 237.48,
+          "relative7": 26.41,
+          "next3d": 13.35,
+          "next7d": 24.96,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-14",
+          "ticker": "VIRTUAL",
+          "rank": 4,
+          "wakeScore": 71.74,
+          "r3": 19.62,
+          "r7": 19.32,
+          "r30": -18.24,
+          "rebound30": 22.24,
+          "relative7": 12.22,
+          "next3d": -2.52,
+          "next7d": -5.31,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-14",
+          "ticker": "AIXBT",
+          "rank": 5,
+          "wakeScore": 69.59,
+          "r3": 19.11,
+          "r7": 17.2,
+          "r30": -26.19,
+          "rebound30": 25.02,
+          "relative7": 10.1,
+          "next3d": -5.68,
+          "next7d": -7.58,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-14",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 75.22,
+          "r3": 3.25,
+          "r7": 33.51,
+          "r30": 223.03,
+          "rebound30": 237.48,
+          "relative7": 26.41,
+          "next3d": 13.35,
+          "next7d": 24.96,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-14",
+          "ticker": "DEGEN",
+          "rank": 16,
+          "wakeScore": 13.04,
+          "r3": -5.67,
+          "r7": 7.88,
+          "r30": 53.09,
+          "rebound30": 105.66,
+          "relative7": 0.78,
+          "next3d": -2.96,
+          "next7d": 11.76,
+          "flags": [
+            "high-beta lane"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-15",
+      "btc": {
+        "r7": 3.89,
+        "r30": -17.35
+      },
+      "eth": {
+        "r7": 2.74,
+        "r30": -22.6
+      },
+      "top5": [
+        {
+          "date": "2026-06-15",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 92.17,
+          "r3": 13.18,
+          "r7": 37.36,
+          "r30": 195.51,
+          "rebound30": 259.66,
+          "relative7": 34.04,
+          "next3d": 6.2,
+          "next7d": 20.63,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-15",
+          "ticker": "BRETT",
+          "rank": 2,
+          "wakeScore": 73.19,
+          "r3": 18.25,
+          "r7": 15.93,
+          "r30": -21.02,
+          "rebound30": 34.83,
+          "relative7": 12.61,
+          "next3d": 1.4,
+          "next7d": -17.02,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-15",
+          "ticker": "VIRTUAL",
+          "rank": 3,
+          "wakeScore": 56.73,
+          "r3": 8.84,
+          "r7": 11.02,
+          "r30": -14.57,
+          "rebound30": 21.35,
+          "relative7": 7.7,
+          "next3d": -5.74,
+          "next7d": -7.7,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-15",
+          "ticker": "BIO",
+          "rank": 4,
+          "wakeScore": 56.3,
+          "r3": 3.72,
+          "r7": 16.19,
+          "r30": -21.55,
+          "rebound30": 33.33,
+          "relative7": 12.87,
+          "next3d": 6.54,
+          "next7d": -4.89,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-15",
+          "ticker": "AERO",
+          "rank": 5,
+          "wakeScore": 55.88,
+          "r3": 7.37,
+          "r7": 11.65,
+          "r30": -16.12,
+          "rebound30": 21.56,
+          "relative7": 8.33,
+          "next3d": 21.57,
+          "next7d": 37.5,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-15",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 92.17,
+          "r3": 13.18,
+          "r7": 37.36,
+          "r30": 195.51,
+          "rebound30": 259.66,
+          "relative7": 34.04,
+          "next3d": 6.2,
+          "next7d": 20.63,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-15",
+          "ticker": "DEGEN",
+          "rank": 16,
+          "wakeScore": -6.15,
+          "r3": -7.05,
+          "r7": -4.94,
+          "r30": 66.07,
+          "rebound30": 99.35,
+          "relative7": -8.25,
+          "next3d": -0.74,
+          "next7d": 16.43,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-16",
+      "btc": {
+        "r7": 4.38,
+        "r30": -15.32
+      },
+      "eth": {
+        "r7": 5.11,
+        "r30": -17.9
+      },
+      "top5": [
+        {
+          "date": "2026-06-16",
+          "ticker": "ZRO",
+          "rank": 1,
+          "wakeScore": 87.27,
+          "r3": 22.97,
+          "r7": 30.7,
+          "r30": -13.39,
+          "rebound30": 37.72,
+          "relative7": 25.95,
+          "next3d": -10,
+          "next7d": -13.8,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-16",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 77.82,
+          "r3": 3.24,
+          "r7": 35.56,
+          "r30": 258.54,
+          "rebound30": 263.8,
+          "relative7": 30.82,
+          "next3d": -3.05,
+          "next7d": 14.59,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-16",
+          "ticker": "AERO",
+          "rank": 3,
+          "wakeScore": 71.15,
+          "r3": 19.76,
+          "r7": 24.58,
+          "r30": 2.37,
+          "rebound30": 38.72,
+          "relative7": 19.84,
+          "next3d": 3.03,
+          "next7d": 26.75,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-16",
+          "ticker": "BRETT",
+          "rank": 4,
+          "wakeScore": 61.15,
+          "r3": 13.59,
+          "r7": 13.45,
+          "r30": -21.69,
+          "rebound30": 29.6,
+          "relative7": 8.7,
+          "next3d": -3.87,
+          "next7d": -15.32,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-16",
+          "ticker": "KAITO",
+          "rank": 5,
+          "wakeScore": 45.95,
+          "r3": 15.98,
+          "r7": 8.66,
+          "r30": 9.31,
+          "rebound30": 20.48,
+          "relative7": 3.92,
+          "next3d": -2.03,
+          "next7d": -3.94,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-16",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 77.82,
+          "r3": 3.24,
+          "r7": 35.56,
+          "r30": 258.54,
+          "rebound30": 263.8,
+          "relative7": 30.82,
+          "next3d": -3.05,
+          "next7d": 14.59,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-16",
+          "ticker": "DEGEN",
+          "rank": 16,
+          "wakeScore": -9.45,
+          "r3": -10.04,
+          "r7": -4.98,
+          "r30": 65.7,
+          "rebound30": 85.38,
+          "relative7": -9.73,
+          "next3d": 8.66,
+          "next7d": 31.38,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-17",
+      "btc": {
+        "r7": 6.6,
+        "r30": -15.67
+      },
+      "eth": {
+        "r7": 9.47,
+        "r30": -17.6
+      },
+      "top5": [
+        {
+          "date": "2026-06-17",
+          "ticker": "AERO",
+          "rank": 1,
+          "wakeScore": 98.6,
+          "r3": 30.81,
+          "r7": 42.44,
+          "r30": 12.99,
+          "rebound30": 53.27,
+          "relative7": 34.41,
+          "next3d": 0.52,
+          "next7d": 6.62,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-17",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 82.23,
+          "r3": 13.35,
+          "r7": 32.24,
+          "r30": 261.38,
+          "rebound30": 274.06,
+          "relative7": 24.2,
+          "next3d": 5.11,
+          "next7d": -5.85,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-17",
+          "ticker": "ZRO",
+          "rank": 3,
+          "wakeScore": 78.31,
+          "r3": 15.51,
+          "r7": 30.1,
+          "r30": -14.99,
+          "rebound30": 35.6,
+          "relative7": 22.06,
+          "next3d": -11.53,
+          "next7d": -14.6,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-17",
+          "ticker": "DEGEN",
+          "rank": 4,
+          "wakeScore": 44.72,
+          "r3": -2.96,
+          "r7": 13.73,
+          "r30": 50.5,
+          "rebound30": 99.57,
+          "relative7": 5.69,
+          "next3d": 6.63,
+          "next7d": 22.59,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-17",
+          "ticker": "KAITO",
+          "rank": 5,
+          "wakeScore": 41.67,
+          "r3": 1.17,
+          "r7": 17.32,
+          "r30": 1.34,
+          "rebound30": 21.54,
+          "relative7": 9.28,
+          "next3d": -2.05,
+          "next7d": -9.95,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-17",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 82.23,
+          "r3": 13.35,
+          "r7": 32.24,
+          "r30": 261.38,
+          "rebound30": 274.06,
+          "relative7": 24.2,
+          "next3d": 5.11,
+          "next7d": -5.85,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-17",
+          "ticker": "DEGEN",
+          "rank": 4,
+          "wakeScore": 44.72,
+          "r3": -2.96,
+          "r7": 13.73,
+          "r30": 50.5,
+          "rebound30": 99.57,
+          "relative7": 5.69,
+          "next3d": 6.63,
+          "next7d": 22.59,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-18",
+      "btc": {
+        "r7": 4.77,
+        "r30": -16.51
+      },
+      "eth": {
+        "r7": 7.66,
+        "r30": -18.44
+      },
+      "top5": [
+        {
+          "date": "2026-06-18",
+          "ticker": "AERO",
+          "rank": 1,
+          "wakeScore": 94.02,
+          "r3": 21.57,
+          "r7": 38.59,
+          "r30": 9.98,
+          "rebound30": 47.78,
+          "relative7": 32.38,
+          "next3d": 21.28,
+          "next7d": 11.56,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-18",
+          "ticker": "BRETT",
+          "rank": 2,
+          "wakeScore": 74.2,
+          "r3": 1.4,
+          "r7": 29.23,
+          "r30": -12.01,
+          "rebound30": 36.72,
+          "relative7": 23.02,
+          "next3d": -12.95,
+          "next7d": -24.1,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-18",
+          "ticker": "ZRO",
+          "rank": 3,
+          "wakeScore": 68.47,
+          "r3": 6.28,
+          "r7": 25.59,
+          "r30": -23.51,
+          "rebound30": 26.19,
+          "relative7": 19.38,
+          "next3d": -10.68,
+          "next7d": -14.53,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-18",
+          "ticker": "FUN",
+          "rank": 4,
+          "wakeScore": 63.62,
+          "r3": 6.2,
+          "r7": 16.85,
+          "r30": 212.56,
+          "rebound30": 255.25,
+          "relative7": 10.64,
+          "next3d": 10.41,
+          "next7d": -2.98,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-18",
+          "ticker": "BIO",
+          "rank": 5,
+          "wakeScore": 57.15,
+          "r3": 6.54,
+          "r7": 21.72,
+          "r30": -6.57,
+          "rebound30": 42.05,
+          "relative7": 15.51,
+          "next3d": -5.99,
+          "next7d": -17.69,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-18",
+          "ticker": "FUN",
+          "rank": 4,
+          "wakeScore": 63.62,
+          "r3": 6.2,
+          "r7": 16.85,
+          "r30": 212.56,
+          "rebound30": 255.25,
+          "relative7": 10.64,
+          "next3d": 10.41,
+          "next7d": -2.98,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-18",
+          "ticker": "DEGEN",
+          "rank": 16,
+          "wakeScore": -5.26,
+          "r3": -0.74,
+          "r7": -9.24,
+          "r30": 64.18,
+          "rebound30": 97.88,
+          "relative7": -15.46,
+          "next3d": 16.16,
+          "next7d": 17.1,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-19",
+      "btc": {
+        "r7": -1.03,
+        "r30": -18.05
+      },
+      "eth": {
+        "r7": 1.75,
+        "r30": -18.98
+      },
+      "top5": [
+        {
+          "date": "2026-06-19",
+          "ticker": "AERO",
+          "rank": 1,
+          "wakeScore": 72.53,
+          "r3": 3.03,
+          "r7": 26.23,
+          "r30": 9.7,
+          "rebound30": 42.91,
+          "relative7": 25.87,
+          "next3d": 16.96,
+          "next7d": 8.8,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-19",
+          "ticker": "BIO",
+          "rank": 2,
+          "wakeScore": 70.54,
+          "r3": 18.47,
+          "r7": 15.29,
+          "r30": 10,
+          "rebound30": 48.2,
+          "relative7": 14.93,
+          "next3d": -14.44,
+          "next7d": -18.49,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-19",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 59.99,
+          "r3": -3.05,
+          "r7": 13.52,
+          "r30": 194.34,
+          "rebound30": 226.83,
+          "relative7": 13.16,
+          "next3d": 20.27,
+          "next7d": 15.97,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-19",
+          "ticker": "KAITO",
+          "rank": 4,
+          "wakeScore": 48.27,
+          "r3": -2.03,
+          "r7": 13.46,
+          "r30": 6.24,
+          "rebound30": 18.04,
+          "relative7": 13.1,
+          "next3d": -0.14,
+          "next7d": -3.41,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-19",
+          "ticker": "BRETT",
+          "rank": 5,
+          "wakeScore": 43.4,
+          "r3": -3.87,
+          "r7": 9.27,
+          "r30": -16.1,
+          "rebound30": 24.59,
+          "relative7": 8.92,
+          "next3d": -10.2,
+          "next7d": -18.61,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-19",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 59.99,
+          "r3": -3.05,
+          "r7": 13.52,
+          "r30": 194.34,
+          "rebound30": 226.83,
+          "relative7": 13.16,
+          "next3d": 20.27,
+          "next7d": 15.97,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-19",
+          "ticker": "DEGEN",
+          "rank": 6,
+          "wakeScore": 38.61,
+          "r3": 8.66,
+          "r7": -6.08,
+          "r30": 62.05,
+          "rebound30": 101.42,
+          "relative7": -6.44,
+          "next3d": 15.23,
+          "next7d": 7.56,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-20",
+      "btc": {
+        "r7": -0.33,
+        "r30": -18.27
+      },
+      "eth": {
+        "r7": 2.69,
+        "r30": -19.74
+      },
+      "top5": [
+        {
+          "date": "2026-06-20",
+          "ticker": "AERO",
+          "rank": 1,
+          "wakeScore": 78.99,
+          "r3": 0.52,
+          "r7": 33.01,
+          "r30": 15.32,
+          "rebound30": 54.06,
+          "relative7": 31.83,
+          "next3d": 14.13,
+          "next7d": -0.37,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-20",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 64.02,
+          "r3": 5.11,
+          "r7": 11.58,
+          "r30": 225.9,
+          "rebound30": 264.31,
+          "relative7": 10.4,
+          "next3d": 6.03,
+          "next7d": -1.35,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-20",
+          "ticker": "BIO",
+          "rank": 3,
+          "wakeScore": 60.59,
+          "r3": 12.64,
+          "r7": 13.66,
+          "r30": -5.21,
+          "rebound30": 39.14,
+          "relative7": 12.48,
+          "next3d": -13.75,
+          "next7d": -15.51,
+          "flags": [
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-20",
+          "ticker": "KAITO",
+          "rank": 4,
+          "wakeScore": 48.66,
+          "r3": -2.05,
+          "r7": 14.59,
+          "r30": 0.38,
+          "rebound30": 19.05,
+          "relative7": 13.41,
+          "next3d": -2.77,
+          "next7d": 7.21,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-20",
+          "ticker": "NOCK",
+          "rank": 5,
+          "wakeScore": 47.41,
+          "r3": -0.02,
+          "r7": -0.9,
+          "r30": 17.04,
+          "rebound30": 67.87,
+          "relative7": -2.08,
+          "next3d": 5.04,
+          "next7d": -25.58,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-20",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 64.02,
+          "r3": 5.11,
+          "r7": 11.58,
+          "r30": 225.9,
+          "rebound30": 264.31,
+          "relative7": 10.4,
+          "next3d": 6.03,
+          "next7d": -1.35,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-20",
+          "ticker": "DEGEN",
+          "rank": 6,
+          "wakeScore": 46.63,
+          "r3": 6.63,
+          "r7": 3.27,
+          "r30": 76.57,
+          "rebound30": 112.8,
+          "relative7": 2.09,
+          "next3d": 14.45,
+          "next7d": 1.54,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-21",
+      "btc": {
+        "r7": -0.32,
+        "r30": -17.17
+      },
+      "eth": {
+        "r7": 3.62,
+        "r30": -18.22
+      },
+      "top5": [
+        {
+          "date": "2026-06-21",
+          "ticker": "AERO",
+          "rank": 1,
+          "wakeScore": 100,
+          "r3": 21.28,
+          "r7": 52.97,
+          "r30": 18.56,
+          "rebound30": 79.23,
+          "relative7": 51.32,
+          "next3d": -8.83,
+          "next7d": -15.8,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-21",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 79.75,
+          "r3": 10.41,
+          "r7": 24.96,
+          "r30": 262.86,
+          "rebound30": 268.35,
+          "relative7": 23.31,
+          "next3d": -14.6,
+          "next7d": 3.48,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-21",
+          "ticker": "DEGEN",
+          "rank": 3,
+          "wakeScore": 68.66,
+          "r3": 16.16,
+          "r7": 11.76,
+          "r30": 90.29,
+          "rebound30": 129.85,
+          "relative7": 10.11,
+          "next3d": 6.44,
+          "next7d": -4.48,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-21",
+          "ticker": "BNKR",
+          "rank": 4,
+          "wakeScore": 47.98,
+          "r3": 9.46,
+          "r7": 0.77,
+          "r30": 1.62,
+          "rebound30": 16.32,
+          "relative7": -0.88,
+          "next3d": -16.34,
+          "next7d": -22.77,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-21",
+          "ticker": "PROS",
+          "rank": 5,
+          "wakeScore": 17.83,
+          "r3": -1.12,
+          "r7": -0.62,
+          "r30": -33.85,
+          "rebound30": 11.52,
+          "relative7": -2.27,
+          "next3d": 3.93,
+          "next7d": -2.12,
+          "flags": [
+            "washed out but stabilizing",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-21",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 79.75,
+          "r3": 10.41,
+          "r7": 24.96,
+          "r30": 262.86,
+          "rebound30": 268.35,
+          "relative7": 23.31,
+          "next3d": -14.6,
+          "next7d": 3.48,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-21",
+          "ticker": "DEGEN",
+          "rank": 3,
+          "wakeScore": 68.66,
+          "r3": 16.16,
+          "r7": 11.76,
+          "r30": 90.29,
+          "rebound30": 129.85,
+          "relative7": 10.11,
+          "next3d": 6.44,
+          "next7d": -4.48,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-22",
+      "btc": {
+        "r7": -2.47,
+        "r30": -15.76
+      },
+      "eth": {
+        "r7": -0.28,
+        "r30": -17.14
+      },
+      "top5": [
+        {
+          "date": "2026-06-22",
+          "ticker": "AERO",
+          "rank": 1,
+          "wakeScore": 94.48,
+          "r3": 16.96,
+          "r7": 37.5,
+          "r30": 18.82,
+          "rebound30": 67.15,
+          "relative7": 38.88,
+          "next3d": -1.36,
+          "next7d": -8.76,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-22",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 85.27,
+          "r3": 20.27,
+          "r7": 20.63,
+          "r30": 247.22,
+          "rebound30": 275.5,
+          "relative7": 22,
+          "next3d": -14.58,
+          "next7d": 0.2,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-22",
+          "ticker": "NOCK",
+          "rank": 3,
+          "wakeScore": 76.88,
+          "r3": 26.3,
+          "r7": 5.59,
+          "r30": 85.69,
+          "rebound30": 100.61,
+          "relative7": 6.97,
+          "next3d": -18.59,
+          "next7d": -43.52,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-22",
+          "ticker": "DEGEN",
+          "rank": 4,
+          "wakeScore": 74.48,
+          "r3": 15.23,
+          "r7": 16.43,
+          "r30": 104.14,
+          "rebound30": 132.1,
+          "relative7": 17.8,
+          "next3d": -0.17,
+          "next7d": -10.64,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-22",
+          "ticker": "AIXBT",
+          "rank": 5,
+          "wakeScore": 43.75,
+          "r3": 6.46,
+          "r7": -3.14,
+          "r30": -21.37,
+          "rebound30": 19.29,
+          "relative7": -1.76,
+          "next3d": -11.33,
+          "next7d": -18.7,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-22",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 85.27,
+          "r3": 20.27,
+          "r7": 20.63,
+          "r30": 247.22,
+          "rebound30": 275.5,
+          "relative7": 22,
+          "next3d": -14.58,
+          "next7d": 0.2,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-22",
+          "ticker": "DEGEN",
+          "rank": 4,
+          "wakeScore": 74.48,
+          "r3": 15.23,
+          "r7": 16.43,
+          "r30": 104.14,
+          "rebound30": 132.1,
+          "relative7": 17.8,
+          "next3d": -0.17,
+          "next7d": -10.64,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-23",
+      "btc": {
+        "r7": -3.43,
+        "r30": -16.44
+      },
+      "eth": {
+        "r7": -3.74,
+        "r30": -18.52
+      },
+      "top5": [
+        {
+          "date": "2026-06-23",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 92.78,
+          "r3": 14.45,
+          "r7": 31.38,
+          "r30": 111.49,
+          "rebound30": 143.55,
+          "relative7": 34.97,
+          "next3d": -11.05,
+          "next7d": -14.3,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-23",
+          "ticker": "AERO",
+          "rank": 2,
+          "wakeScore": 86.79,
+          "r3": 14.13,
+          "r7": 26.75,
+          "r30": 21.01,
+          "rebound30": 75.83,
+          "relative7": 30.34,
+          "next3d": -11.57,
+          "next7d": -15.37,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-23",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 67.06,
+          "r3": 6.03,
+          "r7": 14.59,
+          "r30": 256.09,
+          "rebound30": 269,
+          "relative7": 18.18,
+          "next3d": -1.88,
+          "next7d": 5.18,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-23",
+          "ticker": "VVV",
+          "rank": 4,
+          "wakeScore": 51.83,
+          "r3": 7.5,
+          "r7": 2.33,
+          "r30": -16.53,
+          "rebound30": 18.7,
+          "relative7": 5.91,
+          "next3d": -9.87,
+          "next7d": -13.46,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-23",
+          "ticker": "NOCK",
+          "rank": 5,
+          "wakeScore": 34.7,
+          "r3": 5.04,
+          "r7": -4.59,
+          "r30": 41.04,
+          "rebound30": 45.27,
+          "relative7": -1,
+          "next3d": -15.32,
+          "next7d": -37.76,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-23",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 92.78,
+          "r3": 14.45,
+          "r7": 31.38,
+          "r30": 111.49,
+          "rebound30": 143.55,
+          "relative7": 34.97,
+          "next3d": -11.05,
+          "next7d": -14.3,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-23",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 67.06,
+          "r3": 6.03,
+          "r7": 14.59,
+          "r30": 256.09,
+          "rebound30": 269,
+          "relative7": 18.18,
+          "next3d": -1.88,
+          "next7d": 5.18,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-24",
+      "btc": {
+        "r7": -4.87,
+        "r30": -18.51
+      },
+      "eth": {
+        "r7": -7.34,
+        "r30": -20.41
+      },
+      "top5": [
+        {
+          "date": "2026-06-24",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 81.77,
+          "r3": 6.44,
+          "r7": 22.59,
+          "r30": 111.44,
+          "rebound30": 144.65,
+          "relative7": 28.69,
+          "next3d": -11.68,
+          "next7d": -16.35,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-24",
+          "ticker": "PROS",
+          "rank": 2,
+          "wakeScore": 50.67,
+          "r3": 3.93,
+          "r7": 1.95,
+          "r30": -32.78,
+          "rebound30": 15.91,
+          "relative7": 8.06,
+          "next3d": -3.15,
+          "next7d": -2.99,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-24",
+          "ticker": "NOCK",
+          "rank": 3,
+          "wakeScore": 42.91,
+          "r3": -0.75,
+          "r7": 3.85,
+          "r30": 31.05,
+          "rebound30": 32.26,
+          "relative7": 9.96,
+          "next3d": -28.36,
+          "next7d": -44.26,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-24",
+          "ticker": "AERO",
+          "rank": 4,
+          "wakeScore": 38.93,
+          "r3": -8.83,
+          "r7": 6.62,
+          "r30": 16.45,
+          "rebound30": 63.41,
+          "relative7": 12.72,
+          "next3d": -6.07,
+          "next7d": -6.52,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-24",
+          "ticker": "ZRO",
+          "rank": 5,
+          "wakeScore": 12.17,
+          "r3": 2.74,
+          "r7": -14.6,
+          "r30": -27.36,
+          "rebound30": 15.81,
+          "relative7": -8.49,
+          "next3d": -15.25,
+          "next7d": -11.95,
+          "flags": [
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-24",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 81.77,
+          "r3": 6.44,
+          "r7": 22.59,
+          "r30": 111.44,
+          "rebound30": 144.65,
+          "relative7": 28.69,
+          "next3d": -11.68,
+          "next7d": -16.35,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-24",
+          "ticker": "FUN",
+          "rank": 7,
+          "wakeScore": 0.05,
+          "r3": -14.6,
+          "r7": -5.85,
+          "r30": 172.34,
+          "rebound30": 198.1,
+          "relative7": 0.25,
+          "next3d": 10.14,
+          "next7d": 30.22,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-25",
+      "btc": {
+        "r7": -5.44,
+        "r30": -21.16
+      },
+      "eth": {
+        "r7": -7.3,
+        "r30": -23.33
+      },
+      "top5": [
+        {
+          "date": "2026-06-25",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 71.16,
+          "r3": -0.17,
+          "r7": 17.1,
+          "r30": 110.39,
+          "rebound30": 131.71,
+          "relative7": 23.47,
+          "next3d": -5.24,
+          "next7d": -11.68,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-25",
+          "ticker": "AERO",
+          "rank": 2,
+          "wakeScore": 61.16,
+          "r3": -1.36,
+          "r7": 11.56,
+          "r30": 16.98,
+          "rebound30": 64.87,
+          "relative7": 17.93,
+          "next3d": -8.47,
+          "next7d": -7.35,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-25",
+          "ticker": "PROS",
+          "rank": 3,
+          "wakeScore": 37.73,
+          "r3": -0.2,
+          "r7": -0.2,
+          "r30": -34.24,
+          "rebound30": 12.55,
+          "relative7": 6.17,
+          "next3d": -3.02,
+          "next7d": -0.1,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-25",
+          "ticker": "FUN",
+          "rank": 4,
+          "wakeScore": 12.94,
+          "r3": -14.58,
+          "r7": -2.98,
+          "r30": 169.63,
+          "rebound30": 206.73,
+          "relative7": 3.39,
+          "next3d": 17.76,
+          "next7d": 26.56,
+          "flags": [
+            "high-beta lane",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-25",
+          "ticker": "VIRTUAL",
+          "rank": 5,
+          "wakeScore": -0.82,
+          "r3": -6.88,
+          "r7": -8.81,
+          "r30": -29.03,
+          "rebound30": 5.38,
+          "relative7": -2.44,
+          "next3d": -2.74,
+          "next7d": -4.47,
+          "flags": [
+            "high-beta lane"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-25",
+          "ticker": "DEGEN",
+          "rank": 1,
+          "wakeScore": 71.16,
+          "r3": -0.17,
+          "r7": 17.1,
+          "r30": 110.39,
+          "rebound30": 131.71,
+          "relative7": 23.47,
+          "next3d": -5.24,
+          "next7d": -11.68,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-25",
+          "ticker": "FUN",
+          "rank": 4,
+          "wakeScore": 12.94,
+          "r3": -14.58,
+          "r7": -2.98,
+          "r30": 169.63,
+          "rebound30": 206.73,
+          "relative7": 3.39,
+          "next3d": 17.76,
+          "next7d": 26.56,
+          "flags": [
+            "high-beta lane",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-26",
+      "btc": {
+        "r7": -4.83,
+        "r30": -20.95
+      },
+      "eth": {
+        "r7": -8.01,
+        "r30": -24.07
+      },
+      "top5": [
+        {
+          "date": "2026-06-26",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 71.68,
+          "r3": -1.88,
+          "r7": 15.97,
+          "r30": 210.11,
+          "rebound30": 215.82,
+          "relative7": 22.39,
+          "next3d": 3.93,
+          "next7d": 12.12,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-26",
+          "ticker": "AERO",
+          "rank": 2,
+          "wakeScore": 49.09,
+          "r3": -11.57,
+          "r7": 8.8,
+          "r30": 11.62,
+          "rebound30": 55.48,
+          "relative7": 15.22,
+          "next3d": -1.91,
+          "next7d": -1.75,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-26",
+          "ticker": "DEGEN",
+          "rank": 3,
+          "wakeScore": 44.42,
+          "r3": -11.05,
+          "r7": 7.56,
+          "r30": 109.9,
+          "rebound30": 116.65,
+          "relative7": 13.98,
+          "next3d": -4.26,
+          "next7d": -5.54,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-26",
+          "ticker": "PROS",
+          "rank": 4,
+          "wakeScore": 44,
+          "r3": -0.25,
+          "r7": 3.76,
+          "r30": -34.21,
+          "rebound30": 10.86,
+          "relative7": 10.19,
+          "next3d": 2.55,
+          "next7d": 1.42,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-26",
+          "ticker": "KAITO",
+          "rank": 5,
+          "wakeScore": 36.86,
+          "r3": -1.5,
+          "r7": -3.41,
+          "r30": -7.77,
+          "rebound30": 14.01,
+          "relative7": 3.01,
+          "next3d": 25.38,
+          "next7d": 24.2,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-26",
+          "ticker": "FUN",
+          "rank": 1,
+          "wakeScore": 71.68,
+          "r3": -1.88,
+          "r7": 15.97,
+          "r30": 210.11,
+          "rebound30": 215.82,
+          "relative7": 22.39,
+          "next3d": 3.93,
+          "next7d": 12.12,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-26",
+          "ticker": "DEGEN",
+          "rank": 3,
+          "wakeScore": 44.42,
+          "r3": -11.05,
+          "r7": 7.56,
+          "r30": 109.9,
+          "rebound30": 116.65,
+          "relative7": 13.98,
+          "next3d": -4.26,
+          "next7d": -5.54,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-27",
+      "btc": {
+        "r7": -5.19,
+        "r30": -19.32
+      },
+      "eth": {
+        "r7": -7.63,
+        "r30": -22.11
+      },
+      "top5": [
+        {
+          "date": "2026-06-27",
+          "ticker": "KAITO",
+          "rank": 1,
+          "wakeScore": 65.12,
+          "r3": 16.62,
+          "r7": 7.21,
+          "r30": 7.24,
+          "rebound30": 27.63,
+          "relative7": 13.62,
+          "next3d": 14.63,
+          "next7d": 10.95,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-27",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 51.5,
+          "r3": 10.14,
+          "r7": -1.35,
+          "r30": 170.93,
+          "rebound30": 199.48,
+          "relative7": 5.06,
+          "next3d": 13.04,
+          "next7d": 18.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-27",
+          "ticker": "AERO",
+          "rank": 3,
+          "wakeScore": 32.43,
+          "r3": -6.07,
+          "r7": -0.37,
+          "r30": 13.48,
+          "rebound30": 53.5,
+          "relative7": 6.05,
+          "next3d": -3.06,
+          "next7d": -0.48,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-27",
+          "ticker": "PROS",
+          "rank": 4,
+          "wakeScore": 31.03,
+          "r3": -3.15,
+          "r7": 5.63,
+          "r30": -33.11,
+          "rebound30": 12.26,
+          "relative7": 12.04,
+          "next3d": 4.91,
+          "next7d": 0.16,
+          "flags": [
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-27",
+          "ticker": "DEGEN",
+          "rank": 5,
+          "wakeScore": 26.17,
+          "r3": -11.68,
+          "r7": 1.54,
+          "r30": 111.66,
+          "rebound30": 116.07,
+          "relative7": 7.95,
+          "next3d": -3.4,
+          "next7d": -5.29,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "old move losing freshness"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-27",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 51.5,
+          "r3": 10.14,
+          "r7": -1.35,
+          "r30": 170.93,
+          "rebound30": 199.48,
+          "relative7": 5.06,
+          "next3d": 13.04,
+          "next7d": 18.24,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-27",
+          "ticker": "DEGEN",
+          "rank": 5,
+          "wakeScore": 26.17,
+          "r3": -11.68,
+          "r7": 1.54,
+          "r30": 111.66,
+          "rebound30": 116.07,
+          "relative7": 7.95,
+          "next3d": -3.4,
+          "next7d": -5.29,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-28",
+      "btc": {
+        "r7": -6.36,
+        "r30": -18.03
+      },
+      "eth": {
+        "r7": -9.47,
+        "r30": -21.3
+      },
+      "top5": [
+        {
+          "date": "2026-06-28",
+          "ticker": "KAITO",
+          "rank": 1,
+          "wakeScore": 84.14,
+          "r3": 30.49,
+          "r7": 18.67,
+          "r30": 24.3,
+          "rebound30": 39.92,
+          "relative7": 26.58,
+          "next3d": 1.21,
+          "next7d": 1.21,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-28",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 62.81,
+          "r3": 17.76,
+          "r7": 3.48,
+          "r30": 180.78,
+          "rebound30": 184.15,
+          "relative7": 11.4,
+          "next3d": 7.47,
+          "next7d": 7.47,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-28",
+          "ticker": "VVV",
+          "rank": 3,
+          "wakeScore": 34.33,
+          "r3": 5.26,
+          "r7": -6.48,
+          "r30": -16.39,
+          "rebound30": 13.23,
+          "relative7": 1.44,
+          "next3d": -9.87,
+          "next7d": -9.87,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-28",
+          "ticker": "MORPHO",
+          "rank": 4,
+          "wakeScore": 32.99,
+          "r3": 2.36,
+          "r7": -3.83,
+          "r30": -14.73,
+          "rebound30": 9.13,
+          "relative7": 4.09,
+          "next3d": 8.55,
+          "next7d": 8.55,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-28",
+          "ticker": "PROS",
+          "rank": 5,
+          "wakeScore": 19.87,
+          "r3": -3.02,
+          "r7": -2.12,
+          "r30": -32.59,
+          "rebound30": 9.16,
+          "relative7": 5.8,
+          "next3d": 3.01,
+          "next7d": 3.01,
+          "flags": [
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-28",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 62.81,
+          "r3": 17.76,
+          "r7": 3.48,
+          "r30": 180.78,
+          "rebound30": 184.15,
+          "relative7": 11.4,
+          "next3d": 7.47,
+          "next7d": 7.47,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-28",
+          "ticker": "DEGEN",
+          "rank": 7,
+          "wakeScore": 8.45,
+          "r3": -5.24,
+          "r7": -4.48,
+          "r30": 85.99,
+          "rebound30": 101.59,
+          "relative7": 3.44,
+          "next3d": -6.79,
+          "next7d": -6.79,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-29",
+      "btc": {
+        "r7": -7.47,
+        "r30": -19.65
+      },
+      "eth": {
+        "r7": -9.43,
+        "r30": -22.74
+      },
+      "top5": [
+        {
+          "date": "2026-06-29",
+          "ticker": "KAITO",
+          "rank": 1,
+          "wakeScore": 88.06,
+          "r3": 25.38,
+          "r7": 21.27,
+          "r30": 26.44,
+          "rebound30": 42.95,
+          "relative7": 29.72,
+          "next3d": -0.94,
+          "next7d": -0.94,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-29",
+          "ticker": "PROS",
+          "rank": 2,
+          "wakeScore": 47.13,
+          "r3": 2.55,
+          "r7": 0.81,
+          "r30": -31.14,
+          "rebound30": 13.69,
+          "relative7": 9.26,
+          "next3d": -1.1,
+          "next7d": -1.1,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-29",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 38.65,
+          "r3": 3.93,
+          "r7": 0.2,
+          "r30": 153.94,
+          "rebound30": 159.46,
+          "relative7": 8.65,
+          "next3d": 7.88,
+          "next7d": 7.88,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-29",
+          "ticker": "BRETT",
+          "rank": 4,
+          "wakeScore": 36.34,
+          "r3": 4.31,
+          "r7": -5.47,
+          "r30": -20.87,
+          "rebound30": 7.48,
+          "relative7": 2.98,
+          "next3d": -4.65,
+          "next7d": -4.65,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        },
+        {
+          "date": "2026-06-29",
+          "ticker": "MORPHO",
+          "rank": 5,
+          "wakeScore": 32.17,
+          "r3": 1.95,
+          "r7": -4.02,
+          "r30": -14.96,
+          "rebound30": 8.14,
+          "relative7": 4.43,
+          "next3d": 9.54,
+          "next7d": 9.54,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-29",
+          "ticker": "FUN",
+          "rank": 3,
+          "wakeScore": 38.65,
+          "r3": 3.93,
+          "r7": 0.2,
+          "r30": 153.94,
+          "rebound30": 159.46,
+          "relative7": 8.65,
+          "next3d": 7.88,
+          "next7d": 7.88,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "old move losing freshness"
+          ]
+        },
+        {
+          "date": "2026-06-29",
+          "ticker": "DEGEN",
+          "rank": 9,
+          "wakeScore": 2.07,
+          "r3": -4.26,
+          "r7": -10.64,
+          "r30": 77.21,
+          "rebound30": 90.44,
+          "relative7": -2.19,
+          "next3d": -1.33,
+          "next7d": -1.33,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-06-30",
+      "btc": {
+        "r7": -5.69,
+        "r30": -18.29
+      },
+      "eth": {
+        "r7": -6.47,
+        "r30": -20.26
+      },
+      "top5": [
+        {
+          "date": "2026-06-30",
+          "ticker": "KAITO",
+          "rank": 1,
+          "wakeScore": 83.07,
+          "r3": 14.63,
+          "r7": 26.41,
+          "r30": 28.33,
+          "rebound30": 46.31,
+          "relative7": 32.48,
+          "next3d": -3.21,
+          "next7d": -3.21,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-30",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 64.62,
+          "r3": 13.04,
+          "r7": 5.18,
+          "r30": 144.39,
+          "rebound30": 142.63,
+          "relative7": 11.25,
+          "next3d": 4.6,
+          "next7d": 4.6,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-30",
+          "ticker": "MORPHO",
+          "rank": 3,
+          "wakeScore": 52.69,
+          "r3": 6.92,
+          "r7": 4.99,
+          "r30": -14,
+          "rebound30": 16.79,
+          "relative7": 11.07,
+          "next3d": 1.43,
+          "next7d": 1.43,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-30",
+          "ticker": "PROS",
+          "rank": 4,
+          "wakeScore": 51.83,
+          "r3": 4.91,
+          "r7": 5.96,
+          "r30": -31,
+          "rebound30": 17.77,
+          "relative7": 12.04,
+          "next3d": -4.52,
+          "next7d": -4.52,
+          "flags": [
+            "washed out but stabilizing",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-30",
+          "ticker": "TOSHI",
+          "rank": 5,
+          "wakeScore": 18.3,
+          "r3": 3.04,
+          "r7": -3.34,
+          "r30": -23.73,
+          "rebound30": 8.62,
+          "relative7": 2.73,
+          "next3d": -1.85,
+          "next7d": -1.85,
+          "flags": [
+            "high-beta lane",
+            "washed out but stabilizing"
+          ]
+        }
+      ],
+      "targets": [
+        {
+          "date": "2026-06-30",
+          "ticker": "FUN",
+          "rank": 2,
+          "wakeScore": 64.62,
+          "r3": 13.04,
+          "r7": 5.18,
+          "r30": 144.39,
+          "rebound30": 142.63,
+          "relative7": 11.25,
+          "next3d": 4.6,
+          "next7d": 4.6,
+          "flags": [
+            "high-beta lane",
+            "relative strength flip",
+            "green against weak market",
+            "rebound wake-up"
+          ]
+        },
+        {
+          "date": "2026-06-30",
+          "ticker": "DEGEN",
+          "rank": 12,
+          "wakeScore": -5.45,
+          "r3": -3.4,
+          "r7": -14.3,
+          "r30": 84.78,
+          "rebound30": 91.18,
+          "relative7": -8.22,
+          "next3d": -1.95,
+          "next7d": -1.95,
+          "flags": [
+            "high-beta lane",
+            "old move losing freshness"
+          ]
+        }
+      ]
+    }
+  ]
+}

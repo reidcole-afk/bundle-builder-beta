@@ -1,6 +1,6 @@
 {
   "name": "bundle-builder-api",
-  "version": "0.1.115",
+  "version": "0.1.123",
   "private": true,
   "description": "REST API prototype for ViciSwap Bundle Builder recommendations.",
   "type": "commonjs",
@@ -8,7 +8,10 @@
     "start": "node src/server.js",
     "check": "node --check src/recommendation-engine.js && node --check src/news-intelligence.js && node --check src/server.js && node --check test/news-intelligence-test.js && node --check test/smoke-test.js && node --check test/server-fallback-test.js && node --check test/verify-handoff.js",
     "test": "node test/news-intelligence-test.js && node test/smoke-test.js && node test/server-fallback-test.js",
-    "verify": "npm run check && npm test && node test/verify-handoff.js"
+    "verify": "npm run check && npm test && node test/verify-handoff.js",
+    "backtest:walk-forward": "node tools/walk-forward-backtest.js",
+    "backtest:wakeup": "node tools/rolling-wakeup-backtest.js",
+    "backtest:catchers": "node tools/best-performer-catcher-backtest.js"
   },
   "engines": {
     "node": ">=18"
