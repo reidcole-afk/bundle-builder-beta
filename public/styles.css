@@ -413,7 +413,9 @@ svg {
 
 :root[data-theme="dark"] .pulse-card,
 :root[data-theme="dark"] .pulse-card-front,
-:root[data-theme="dark"] .market-health-card {
+:root[data-theme="dark"] .market-health-card,
+:root[data-theme="dark"] .coin-lookup-search,
+:root[data-theme="dark"] .coin-lookup-card::after {
   background: linear-gradient(180deg, rgba(26, 39, 58, 0.98), rgba(17, 27, 42, 0.98));
   border-color: var(--button-border);
 }
@@ -425,6 +427,7 @@ svg {
 :root[data-theme="dark"] .token-row,
 :root[data-theme="dark"] .pulse-chart,
 :root[data-theme="dark"] .pulse-insight,
+:root[data-theme="dark"] .coin-lookup-row input,
 :root[data-theme="dark"] .bundle-card,
 :root[data-theme="dark"] .network-group,
 :root[data-theme="dark"] .coin-chip,
@@ -455,6 +458,7 @@ svg {
 }
 
 :root[data-theme="dark"] .pulse-source-actions span,
+:root[data-theme="dark"] .lookup-card-actions > span,
 :root[data-theme="dark"] .pulse-stats span,
 :root[data-theme="dark"] .pulse-change-control,
 :root[data-theme="dark"] .pulse-window-select,
@@ -476,17 +480,24 @@ svg {
 }
 
 :root[data-theme="dark"] .pulse-refresh,
-:root[data-theme="dark"] .pulse-nav {
+:root[data-theme="dark"] .pulse-nav,
+:root[data-theme="dark"] .lookup-close,
+:root[data-theme="dark"] .coin-lookup-clear {
   background: #172438;
   color: var(--teal);
   border-color: var(--line);
 }
 
 :root[data-theme="dark"] .pulse-copy p,
+:root[data-theme="dark"] .coin-lookup-mood[data-market-tone="medium"],
 :root[data-theme="dark"] .builder-copy > p:not(.eyebrow),
 :root[data-theme="dark"] .form-row label,
 :root[data-theme="dark"] legend {
   color: var(--ink-soft);
+}
+
+:root[data-theme="dark"] .coin-lookup-mood[data-market-tone="bad"] {
+  color: #f0c46a;
 }
 
 :root[data-theme="dark"] .notice {
@@ -963,6 +974,250 @@ svg {
 
 .market-health-benchmark strong.negative {
   color: #d24f45;
+}
+
+.coin-lookup {
+  width: 100%;
+  max-width: 760px;
+  margin: 16px auto 0;
+}
+
+.coin-lookup-search {
+  padding: 14px;
+  border: 1px solid var(--button-border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 252, 0.98));
+  box-shadow: var(--sharp-panel-shadow);
+}
+
+.coin-lookup-mood {
+  display: block;
+  margin: 0 0 8px;
+  color: var(--teal);
+  font-size: 0.9rem;
+  font-weight: 950;
+  line-height: 1.25;
+  letter-spacing: 0;
+  opacity: 1;
+  transition: opacity 220ms ease, transform 220ms ease, color 220ms ease;
+}
+
+.coin-lookup-mood.is-fading {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+.coin-lookup-mood[data-market-tone="good"] {
+  color: var(--teal);
+}
+
+.coin-lookup-mood[data-market-tone="medium"] {
+  color: #51627a;
+}
+
+.coin-lookup-mood[data-market-tone="bad"] {
+  color: #8a5b08;
+}
+
+.coin-lookup-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.coin-lookup-search-icon {
+  position: absolute;
+  left: 16px;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: #7c8ba0;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.coin-lookup-row input {
+  width: 100%;
+  min-height: 54px;
+  padding: 0 54px 0 48px;
+  border: 1px solid #cbd6e5;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 750;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 10px 22px rgba(23, 32, 51, 0.07);
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.coin-lookup-row input::placeholder {
+  color: #9aa7bb;
+  font-weight: 650;
+}
+
+.coin-lookup-row input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14), 0 12px 26px rgba(23, 32, 51, 0.1);
+}
+
+.coin-lookup-clear {
+  position: absolute;
+  right: 9px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--button-fill);
+  color: var(--button-ink);
+  cursor: pointer;
+}
+
+.coin-lookup-clear svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+}
+
+.coin-lookup-search > p:not(.coin-lookup-mood) {
+  margin: 9px 2px 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.coin-lookup-card {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(10, 18, 32, 0.42);
+  backdrop-filter: blur(5px);
+  overflow: auto;
+}
+
+.coin-lookup-card[hidden] {
+  display: none;
+}
+
+.coin-lookup-card::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+}
+
+.coin-lookup-card > * {
+  position: relative;
+}
+
+.coin-lookup-card {
+  grid-template-columns: minmax(0, 760px);
+}
+
+.coin-lookup-card::after {
+  content: "";
+  grid-area: 1 / 1;
+  display: block;
+  width: min(760px, 100%);
+  height: 100%;
+  max-height: min(760px, calc(100dvh - 36px));
+  border: 1px solid var(--button-border);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 252, 0.98));
+  box-shadow: 0 24px 70px rgba(7, 17, 31, 0.34);
+}
+
+.coin-lookup-card > .lookup-card-head,
+.coin-lookup-card > .lookup-body {
+  z-index: 1;
+  grid-area: 1 / 1;
+  width: min(760px, 100%);
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+.coin-lookup-card > .lookup-card-head {
+  align-self: start;
+  padding-top: 18px;
+}
+
+.coin-lookup-card > .lookup-body {
+  align-self: start;
+  margin-top: 86px;
+  padding-bottom: 18px;
+}
+
+.lookup-card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.lookup-card-head h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  line-height: 1.16;
+}
+
+.lookup-card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.lookup-card-actions > span {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid #b8c5d3;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #ffffff, #edf2f7);
+  color: var(--button-ink);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.lookup-close {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--button-fill);
+  color: var(--button-ink);
+  cursor: pointer;
+  box-shadow: var(--button-shadow);
+}
+
+.lookup-close svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+
+.lookup-chart {
+  min-height: 152px;
+}
+
+body.coin-lookup-modal-open {
+  overflow: hidden;
 }
 
 .market-pulse {
@@ -4783,6 +5038,71 @@ input[type="range"] {
 }
 
 @media (max-width: 720px) {
+  .coin-lookup {
+    margin-top: 14px;
+  }
+
+  .coin-lookup-search {
+    padding: 12px;
+  }
+
+  .coin-lookup-row input {
+    min-height: 52px;
+    padding-left: 44px;
+    font-size: 0.94rem;
+  }
+
+  .coin-lookup-search-icon {
+    left: 14px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .coin-lookup-card {
+    align-items: start;
+    padding: 12px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .coin-lookup-card::after {
+    max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+
+  .coin-lookup-card > .lookup-card-head,
+  .coin-lookup-card > .lookup-body {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .coin-lookup-card > .lookup-card-head {
+    padding-top: 12px;
+  }
+
+  .coin-lookup-card > .lookup-body {
+    margin-top: 76px;
+    padding-bottom: 12px;
+  }
+
+  .lookup-card-head {
+    gap: 8px;
+  }
+
+  .lookup-card-head h3 {
+    font-size: 1.02rem;
+  }
+
+  .lookup-card-actions > span {
+    max-width: 118px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lookup-body {
+    grid-template-columns: 1fr;
+  }
+
   .extension-callout,
   .section-heading {
     align-items: stretch;

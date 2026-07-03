@@ -934,6 +934,22 @@ const useFavoriteCoin = document.getElementById("useFavoriteCoin");
 const favoriteMarketCoin = document.getElementById("favoriteMarketCoin");
 const pulsePrev = document.getElementById("pulsePrev");
 const pulseNext = document.getElementById("pulseNext");
+const coinLookupInput = document.getElementById("coinLookupInput");
+const coinLookupOptions = document.getElementById("coinLookupOptions");
+const coinLookupClear = document.getElementById("coinLookupClear");
+const coinLookupMood = document.getElementById("coinLookupMood");
+const coinLookupStatus = document.getElementById("coinLookupStatus");
+const coinLookupCard = document.getElementById("coinLookupCard");
+const lookupCoinClose = document.getElementById("lookupCoinClose");
+const lookupCoinName = document.getElementById("lookupCoinName");
+const lookupCoinSource = document.getElementById("lookupCoinSource");
+const lookupCoinChart = document.getElementById("lookupCoinChart");
+const lookupCoinTicker = document.getElementById("lookupCoinTicker");
+const lookupCoinWindow = document.getElementById("lookupCoinWindow");
+const lookupCoinChange = document.getElementById("lookupCoinChange");
+const lookupCoinMeter = document.getElementById("lookupCoinMeter");
+const lookupCoinReason = document.getElementById("lookupCoinReason");
+const lookupCoinInsights = document.getElementById("lookupCoinInsights");
 const marketHealthRing = document.getElementById("marketHealthRing");
 const marketHealthRingArc = document.getElementById("marketHealthRingArc");
 const marketHealthScore = document.getElementById("marketHealthScore");
@@ -1001,6 +1017,13 @@ let pulseLoadingActive = false;
 let marketPulseReady = false;
 let selectedPulseWindow = "24h";
 let selectedPulseReadWindow = "7d";
+let selectedLookupWindow = "24h";
+let lookupSelectedCoin = null;
+let coinLookupTimer = 0;
+let coinLookupSeq = 0;
+let coinLookupMoodTimer = null;
+let coinLookupMoodTier = "";
+let coinLookupMoodIndex = -1;
 let machineAccuracySummary = null;
 let machineAccuracyStorage = null;
 let binanceTickerCache = null;
@@ -1026,6 +1049,44 @@ const pulseReadWindows = [
   { key: "7d", label: "7d" },
   { key: "1mo", label: "1M" },
 ];
+const coinLookupMoodPhrases = {
+  good: [
+    "Markets feeling good today",
+    "Risk appetite is showing up",
+    "The board has some green lights",
+    "Buyers are awake across the deck",
+    "Momentum has room to breathe",
+    "The market has coffee today",
+    "Green candles are doing their little dance",
+    "The board is feeling generous",
+    "The machine sees some sparkle out there",
+    "The market woke up on the right side of the chart",
+  ],
+  medium: [
+    "Mixed market, selective entries",
+    "Some coins are working, some need proof",
+    "The tape is undecided but usable",
+    "Good setups matter more than hype",
+    "Momentum is there, confirmation matters",
+    "Search the coin, then check the depth",
+    "Market is balanced, be picky",
+    "The machine is sorting signal from noise",
+    "Not risk-off, not free money either",
+    "Look for coins earning their move",
+  ],
+  bad: [
+    "Today is not your day pal",
+    "The chart said try again later",
+    "The market woke up and chose violence",
+    "Buyers are hiding under the desk",
+    "This tape needs a snack and a nap",
+    "The vibes are in timeout",
+    "The market is giving side-eye",
+    "Not the day to be a hero",
+    "The candles are being dramatic",
+    "The machine says maybe breathe first",
+  ],
+};
 let selectedCoinPreferences = new Set();
 let manualAllocationOverride = null;
 let manualAllocationKey = "";
@@ -1504,6 +1565,7 @@ function applyTokenUniverse(tokenUniverse, { announce = false } = {}) {
   storeTokenUniverse(normalized);
   renderNetworkGroups();
   renderCoinPreferenceChips();
+  renderCoinLookupOptions();
   renderCoinRows();
   updateFavoriteToggle();
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
@@ -1550,6 +1612,7 @@ async function refreshViciCoinsFromApi({ announce = false, force = false } = {})
     storeApiTokenUniverse(normalized);
     renderNetworkGroups();
     renderCoinPreferenceChips();
+    renderCoinLookupOptions();
     renderCoinRows();
     updateFavoriteToggle();
     if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
@@ -5502,6 +5565,7 @@ form.addEventListener("change", (event) => {
   updateFavoriteToggle();
   if (event.target === targetNetwork) return;
   renderNetworkGroups();
+  renderCoinLookupOptions();
   renderCoinRows();
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
 });
@@ -5510,6 +5574,7 @@ form.addEventListener("input", (event) => {
   clearManualAllocationOverride();
   saveBuilderPreferences();
   renderNetworkGroups();
+  renderCoinLookupOptions();
   renderCoinRows();
   if (currentBundle && !recommendation.hidden && bundleAmount.checkValidity()) buildBundle({ scroll: false });
 });
@@ -5518,6 +5583,8 @@ targetNetwork.addEventListener("change", () => {
   clearManualAllocationOverride();
   saveBuilderPreferences();
   renderNetworkGroups();
+  renderCoinLookupOptions();
+  clearCoinLookup();
   renderCoinPreferenceChips();
   updateCoinPreferenceAvailability();
   renderCoinRows();
@@ -5599,6 +5666,24 @@ useFavoriteCoin.addEventListener("click", () => {
 });
 
 favoriteMarketCoin?.addEventListener("click", () => toggleFavoriteMarketCoin(currentFavorite));
+
+coinLookupInput?.addEventListener("input", handleCoinLookupInput);
+coinLookupInput?.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  runCoinLookupFromInput({ force: true });
+});
+coinLookupInput?.addEventListener("change", () => runCoinLookupFromInput({ force: true }));
+coinLookupClear?.addEventListener("click", clearCoinLookup);
+lookupCoinClose?.addEventListener("click", closeCoinLookupPopup);
+coinLookupCard?.addEventListener("click", (event) => {
+  if (event.target === coinLookupCard) closeCoinLookupPopup();
+});
+lookupCoinWindow?.addEventListener("change", (event) => {
+  selectedLookupWindow = event.target.value;
+  renderCoinLookupCard(lookupSelectedCoin);
+  ensureLookupWindowChart(lookupSelectedCoin, selectedLookupWindow);
+});
 
 coinPreferenceSearch?.addEventListener("input", renderCoinPreferenceChips);
 coinPreferenceCategory?.addEventListener("change", renderCoinPreferenceChips);
@@ -5906,6 +5991,7 @@ document.addEventListener("keydown", (event) => {
 
 document.body.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeEntryCautionPopovers();
+  if (event.key === "Escape") closeCoinLookupPopup();
 });
 
 document.body.addEventListener("mouseover", (event) => {
@@ -5938,6 +6024,7 @@ window.addEventListener("message", (event) => {
 applyThemePreference(readThemePreference());
 restoreBuilderPreferences();
 renderNetworkGroups();
+renderCoinLookupOptions();
 syncCoinPreferenceFilterToFocus(safePreferences().theme, { clearSearch: false });
 updateCoinPreferenceAvailability();
 renderCoinRows();
@@ -5946,6 +6033,7 @@ renderProfile();
 if (isProfileSignedIn()) loadProfileSnapshot({ silent: true });
 showDueReviewAlerts();
 if (hasAcceptedTerms() && !hasSeenTour()) window.setTimeout(() => openTour(), 350);
+startCoinLookupMoodTicker();
 renderMarketHealth();
 window.setInterval(() => renderMarketHealth({ force: true }), MARKET_HEALTH_CACHE_MS);
 refreshMarketPulse({ preserveSelection: false });
@@ -6069,6 +6157,299 @@ async function refreshMarketPulse({ preserveSelection = false, silent = false, r
   } finally {
     if (!silent) stopPulseLoading();
   }
+}
+
+function renderCoinLookupOptions() {
+  if (!coinLookupOptions) return;
+  const { network } = safePreferences();
+  const options = getViciMarketCandidates(network)
+    .map((coin) => {
+      const token = tokenInfoForNetwork(coin.ticker, network);
+      const address = normalizeContractAddress(token?.address || token?.addresses?.[normalizeNetwork(network)]);
+      return {
+        ticker: coin.ticker,
+        name: coin.name || coin.ticker,
+        address,
+        label: `${coin.ticker} - ${coin.name || coin.ticker}`,
+      };
+    })
+    .sort((a, b) => a.ticker.localeCompare(b.ticker));
+  coinLookupOptions.innerHTML = options.map((coin) => `
+    <option value="${escapeAttribute(coin.label)}" label="${escapeAttribute([coin.name, coin.address].filter(Boolean).join(" · "))}"></option>
+  `).join("");
+}
+
+function handleCoinLookupInput() {
+  if (!coinLookupInput) return;
+  window.clearTimeout(coinLookupTimer);
+  const value = String(coinLookupInput.value || "").trim();
+  if (coinLookupClear) coinLookupClear.hidden = !value && !lookupSelectedCoin;
+  if (!value) {
+    clearCoinLookup({ keepInput: true });
+    return;
+  }
+  coinLookupTimer = window.setTimeout(() => runCoinLookupFromInput({ force: false }), 650);
+}
+
+function clearCoinLookup({ keepInput = false } = {}) {
+  lookupSelectedCoin = null;
+  coinLookupSeq += 1;
+  window.clearTimeout(coinLookupTimer);
+  if (!keepInput && coinLookupInput) coinLookupInput.value = "";
+  closeCoinLookupPopup();
+  if (coinLookupStatus) coinLookupStatus.textContent = "Pull up a ViciSwap-supported coin without changing the live favorite deck.";
+  if (coinLookupClear) coinLookupClear.hidden = !String(coinLookupInput?.value || "").trim();
+}
+
+function openCoinLookupPopup() {
+  if (!coinLookupCard) return;
+  coinLookupCard.hidden = false;
+  coinLookupCard.classList.add("is-open");
+  document.body.classList.add("coin-lookup-modal-open");
+}
+
+function closeCoinLookupPopup() {
+  if (!coinLookupCard) return;
+  coinLookupCard.classList.remove("is-open");
+  coinLookupCard.hidden = true;
+  document.body.classList.remove("coin-lookup-modal-open");
+}
+
+function resolveCoinLookupCandidate(value = coinLookupInput?.value) {
+  const query = String(value || "").trim();
+  const normalizedQuery = normalizeTicker(query.split(/\s+[-–—]\s+|\s+/)[0]);
+  const compactQuery = query.toLowerCase();
+  if (!query) return null;
+  const { network } = safePreferences();
+  const candidates = getViciMarketCandidates(network)
+    .map((coin) => {
+      const token = tokenInfoForNetwork(coin.ticker, network);
+      const address = normalizeContractAddress(token?.address || token?.addresses?.[normalizeNetwork(network)]);
+      return { ...coin, address, lookupLabel: `${coin.ticker} - ${coin.name || coin.ticker}` };
+    });
+  return candidates.find((coin) => coin.ticker === normalizedQuery)
+    || candidates.find((coin) => normalizeContractAddress(query) && coin.address === normalizeContractAddress(query))
+    || candidates.find((coin) => coin.lookupLabel.toLowerCase() === compactQuery)
+    || candidates.find((coin) => String(coin.name || "").toLowerCase() === compactQuery)
+    || candidates.find((coin) => coin.ticker.toLowerCase().startsWith(compactQuery))
+    || candidates.find((coin) => String(coin.name || "").toLowerCase().includes(compactQuery))
+    || null;
+}
+
+async function runCoinLookupFromInput({ force = false } = {}) {
+  const value = String(coinLookupInput?.value || "").trim();
+  if (!value) return;
+  const meta = resolveCoinLookupCandidate(value);
+  if (!meta) {
+    if (force && coinLookupStatus) coinLookupStatus.textContent = "No supported ViciSwap coin matched that search.";
+    return;
+  }
+  const exact = meta.ticker === normalizeTicker(value.split(/\s+[-–—]\s+|\s+/)[0])
+    || meta.lookupLabel?.toLowerCase() === value.toLowerCase()
+    || String(meta.name || "").toLowerCase() === value.toLowerCase()
+    || normalizeContractAddress(value) === meta.address;
+  if (!force && !exact) return;
+  if (coinLookupInput) coinLookupInput.value = `${meta.ticker} - ${meta.name || meta.ticker}`;
+  await loadCoinLookup(meta);
+}
+
+async function loadCoinLookup(meta) {
+  const lookupId = ++coinLookupSeq;
+  const { network } = safePreferences();
+  if (coinLookupClear) coinLookupClear.hidden = false;
+  openCoinLookupPopup();
+  if (coinLookupStatus) coinLookupStatus.textContent = `Loading ${meta.ticker} market read...`;
+  lookupSelectedCoin = preparePulseCandidateForDisplay({
+    ...meta,
+    rank: 1,
+    network,
+    prices: [],
+    reason: `${meta.ticker} is in the ViciSwap ${network} coin list. The machine is checking live market structure before giving it a read.`,
+    source: "ViciSwap lookup",
+    chartSource: "Loading live market data",
+    updatedAt: new Date().toISOString(),
+  }, 1);
+  renderCoinLookupCard(lookupSelectedCoin);
+  try {
+    const loaded = await getLookupPulseCandidate(meta, network);
+    if (lookupId !== coinLookupSeq) return;
+    lookupSelectedCoin = preparePulseCandidateForDisplay({
+      ...loaded,
+      rank: 1,
+      reason: lookupReasonForCandidate(loaded, network),
+    }, 1);
+    renderCoinLookupCard(lookupSelectedCoin);
+    ensureLookupWindowChart(lookupSelectedCoin, selectedLookupWindow);
+    if (coinLookupStatus) coinLookupStatus.textContent = `${lookupSelectedCoin.ticker} lookup updated from ${lookupSelectedCoin.source || "market data"}.`;
+  } catch (error) {
+    if (lookupId !== coinLookupSeq) return;
+    const fallback = buildLookupFallbackCandidate(meta, network);
+    lookupSelectedCoin = preparePulseCandidateForDisplay(fallback, 1);
+    renderCoinLookupCard(lookupSelectedCoin);
+    if (coinLookupStatus) coinLookupStatus.textContent = `Live data was limited for ${meta.ticker}; showing ViciSwap support context.`;
+  }
+}
+
+async function getLookupPulseCandidate(meta, network) {
+  const attempts = [
+    async () => {
+      const row = await withTimeout(
+        fetchDexScreenerMarketRow(meta, network, dexScreenerChainIds[normalizeNetwork(network)]),
+        DEXSCREENER_ROW_TIMEOUT_MS,
+        `${meta.ticker} DEX lookup timed out`,
+      );
+      return buildDexScreenerPulseCandidate(meta, row, network, 1);
+    },
+    async () => {
+      if (!meta.id) throw new Error("No CoinGecko id");
+      const rows = await fetchCoinGeckoMarketRows([meta]);
+      const market = rows.find((row) => row.id === meta.id) || rows[0];
+      if (!market) throw new Error("No CoinGecko lookup row");
+      return buildPulseCandidate(meta, market, "CoinGecko lookup", 1, network);
+    },
+  ];
+  let lastError = null;
+  for (const attempt of attempts) {
+    try {
+      const result = await attempt();
+      if (result?.ticker) return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("No lookup data");
+}
+
+function buildLookupFallbackCandidate(meta, network) {
+  const token = tokenInfoForNetwork(meta.ticker, network) || {};
+  const scanned = getScannedTokensForNetwork(network).find((coin) => normalizeTicker(coin.ticker) === meta.ticker);
+  const change = extractViciSwapPercent(scanned?.text || token.text);
+  const hasChange = Number.isFinite(change);
+  return buildViciSwapPulseCandidate(meta, scanned || token || { ticker: meta.ticker }, hasChange ? change : 0, hasChange, network, 1);
+}
+
+function lookupReasonForCandidate(candidate = {}, network = safePreferences().network) {
+  const ticker = normalizeTicker(candidate.ticker) || "This coin";
+  const change = pulseChangeForWindow(candidate, "24h");
+  const volume = finiteOrNull(candidate.volume24h ?? candidate.total_volume);
+  const liquidity = finiteOrNull(candidate.liquidityUsd);
+  const setup = candidate.marketSetup || marketSetupSignal(candidate, candidate, candidate.prices);
+  const read = forwardScenarioCoinRead(candidate, "7d");
+  const pieces = [
+    `${ticker} is supported on ViciSwap ${normalizeNetwork(network)}.`,
+    Number.isFinite(change) ? `24h move: ${formatPercent(change)}.` : "",
+    Number.isFinite(volume) ? `${formatCompactUsd(volume)} 24h volume.` : "",
+    Number.isFinite(liquidity) ? `${formatCompactUsd(liquidity)} liquidity.` : "",
+    `Machine read: ${read.label || "mixed"} with ${setup.label || "mixed setup"}.`,
+  ].filter(Boolean);
+  return pieces.join(" ");
+}
+
+function renderCoinLookupCard(candidate = lookupSelectedCoin) {
+  if (!coinLookupCard || !candidate) return;
+  openCoinLookupPopup();
+  if (lookupCoinWindow) lookupCoinWindow.value = selectedLookupWindow;
+  if (lookupCoinName) lookupCoinName.textContent = `${candidate.name || candidate.ticker} lookup`;
+  if (lookupCoinSource) lookupCoinSource.textContent = candidate.source || "ViciSwap";
+  if (lookupCoinTicker) lookupCoinTicker.textContent = candidate.ticker || "--";
+  renderLookupChange(candidate);
+  renderLookupChart(candidate);
+  renderLookupMeter(candidate);
+  if (lookupCoinReason) lookupCoinReason.textContent = rewritePulseRankLabel(candidate.reason || lookupReasonForCandidate(candidate), 1);
+  if (lookupCoinInsights) {
+    const insights = buildPulseInsights(candidate).slice(0, 4);
+    lookupCoinInsights.innerHTML = insights.map((insight) => `
+      <div class="pulse-insight">
+        <span>${escapeHtml(insight.label)}</span>
+        <p>${escapeHtml(insight.text)}</p>
+      </div>
+    `).join("");
+  }
+}
+
+function renderLookupChange(candidate = lookupSelectedCoin) {
+  if (!lookupCoinChange) return;
+  const change = lookupPulseChangeForWindow(candidate, selectedLookupWindow);
+  lookupCoinChange.classList.remove("positive", "negative", "neutral");
+  lookupCoinChange.classList.add(changeClass(change));
+  lookupCoinChange.textContent = Number.isFinite(change) ? formatAbsPercent(change) : "--";
+}
+
+function renderLookupMeter(candidate = lookupSelectedCoin) {
+  if (!lookupCoinMeter) return;
+  if (!candidate?.ticker) {
+    lookupCoinMeter.innerHTML = "";
+    return;
+  }
+  lookupCoinMeter.innerHTML = renderSevenDayMeter(forwardScenarioCoinRead(candidate, "7d"));
+}
+
+function renderLookupChart(candidate = lookupSelectedCoin) {
+  if (!lookupCoinChart || !candidate) return;
+  if (isProjectedPulseWindow(selectedLookupWindow)) {
+    const sourceKey = sourceWindowForProjection(selectedLookupWindow);
+    const prices = lookupPricesForWindow(candidate, sourceKey);
+    if (prices.length < 2) {
+      lookupCoinChart.innerHTML = `<div class="pulse-window-message">Loading ${escapeHtml(candidate.ticker || "coin")} ${pulseWindowLabel(sourceKey)} chart for scenario...</div>`;
+      ensureLookupWindowChart(candidate, sourceKey);
+    } else {
+      lookupCoinChart.innerHTML = makeProjectedPulseChart(projectedPulseScenario(candidate, selectedLookupWindow));
+    }
+    return;
+  }
+  const prices = lookupPricesForWindow(candidate, selectedLookupWindow);
+  if (prices.length < 2) {
+    lookupCoinChart.innerHTML = `<div class="pulse-window-message">Loading ${escapeHtml(candidate.ticker || "coin")} ${pulseWindowLabel(selectedLookupWindow)} chart...</div>`;
+    ensureLookupWindowChart(candidate, selectedLookupWindow);
+  } else {
+    lookupCoinChart.innerHTML = makeSparkline(prices, lookupPulseChangeForWindow(candidate, selectedLookupWindow), pulseWindowLabel(selectedLookupWindow));
+  }
+}
+
+function lookupPricesForWindow(candidate = {}, key = selectedLookupWindow) {
+  if (key === "24h") return normalizePriceSeries(candidate.windowPrices?.["24h"] || candidate.prices);
+  if (isProjectedPulseWindow(key)) return lookupPricesForWindow(candidate, sourceWindowForProjection(key));
+  return normalizePriceSeries(candidate.windowPrices?.[key]);
+}
+
+function lookupPulseChangeForWindow(candidate = {}, key = selectedLookupWindow) {
+  if (isProjectedPulseWindow(key)) return projectedPulseScenario(candidate, key).projectedChange;
+  if (key === "24h") return priceSeriesChange(lookupPricesForWindow(candidate, "24h")) ?? finiteOrNull(candidate.change24h);
+  const direct = finiteOrNull(candidate.changeWindows?.[key]);
+  if (Number.isFinite(direct)) return direct;
+  const window = pulseWindowOptions.find((option) => option.key === key);
+  return window ? percentChangeFromPriceWindow(candidate.prices, window.minutes) : null;
+}
+
+function ensureLookupWindowChart(candidate = lookupSelectedCoin, key = selectedLookupWindow) {
+  if (!candidate?.ticker) return;
+  if (isProjectedPulseWindow(key)) {
+    ensureLookupWindowChart(candidate, sourceWindowForProjection(key));
+    return;
+  }
+  if (lookupPricesForWindow(candidate, key).length >= 2) return;
+  const requestKey = `lookup:${pulseWindowLoadKey(candidate, key)}`;
+  if (pendingPulseWindowLoads.has(requestKey) || isPulseWindowTemporarilyUnavailable(requestKey)) return;
+  const request = getPulseWindowChartData(candidate, key)
+    .then(({ prices, updatedAt, source }) => {
+      const normalizedPrices = normalizePriceSeries(prices);
+      if (normalizedPrices.length < 2) throw new Error("Lookup chart window is empty");
+      if (normalizeTicker(lookupSelectedCoin?.ticker) !== normalizeTicker(candidate.ticker)) return;
+      lookupSelectedCoin = {
+        ...lookupSelectedCoin,
+        windowPrices: { ...(lookupSelectedCoin.windowPrices || {}), [key]: normalizedPrices },
+        changeWindows: { ...(lookupSelectedCoin.changeWindows || {}), [key]: priceSeriesChange(normalizedPrices) },
+        windowSources: { ...(lookupSelectedCoin.windowSources || {}), [key]: source || `${pulseWindowLabel(key)} chart` },
+        windowUpdatedAt: { ...(lookupSelectedCoin.windowUpdatedAt || {}), [key]: updatedAt },
+      };
+      renderCoinLookupCard(lookupSelectedCoin);
+    })
+    .catch(() => {
+      markPulseWindowTemporarilyUnavailable(requestKey);
+      if (normalizeTicker(lookupSelectedCoin?.ticker) === normalizeTicker(candidate.ticker)) renderLookupChart(lookupSelectedCoin);
+    })
+    .finally(() => pendingPulseWindowLoads.delete(requestKey));
+  pendingPulseWindowLoads.set(requestKey, request);
 }
 
 function mergePulseDeckByTicker(currentDeck = [], nextDeck = []) {
@@ -7183,7 +7564,50 @@ function updateMarketHealthUi(read = {}) {
   }
   updateBenchmarkChange(marketHealthBtc, read.btc?.change24h);
   updateBenchmarkChange(marketHealthEth, read.eth?.change24h);
+  updateCoinLookupMood(safeScore, { resetTier: !loading });
   if (marketHealthDetails && !marketHealthDetails.hidden) renderMarketHealthDetails();
+}
+
+function startCoinLookupMoodTicker() {
+  if (!coinLookupMood || coinLookupMoodTimer) return;
+  updateCoinLookupMood(marketHealthRenderedScore || 50, { force: true });
+  coinLookupMoodTimer = window.setInterval(() => {
+    const score = Number.isFinite(finiteOrNull(marketHealthRing?.dataset.actualScore))
+      ? finiteOrNull(marketHealthRing.dataset.actualScore)
+      : marketHealthRenderedScore;
+    updateCoinLookupMood(score || 50);
+  }, 10000);
+}
+
+function updateCoinLookupMood(score = 50, { force = false, resetTier = false } = {}) {
+  if (!coinLookupMood) return;
+  const tier = coinLookupMoodTierForScore(score);
+  const phrases = coinLookupMoodPhrases[tier] || coinLookupMoodPhrases.medium;
+  if (resetTier && tier !== coinLookupMoodTier) {
+    coinLookupMoodTier = tier;
+    coinLookupMoodIndex = -1;
+  } else if (!coinLookupMoodTier) {
+    coinLookupMoodTier = tier;
+  }
+  const nextIndex = (coinLookupMoodIndex + 1) % phrases.length;
+  const nextPhrase = phrases[nextIndex];
+  if (!force && coinLookupMood.textContent === nextPhrase) return;
+  coinLookupMoodIndex = nextIndex;
+  coinLookupMood.classList.add("is-fading");
+  window.setTimeout(() => {
+    if (!coinLookupMood) return;
+    coinLookupMood.textContent = nextPhrase;
+    coinLookupMood.dataset.marketTone = tier;
+    coinLookupMood.classList.remove("is-fading");
+  }, 220);
+}
+
+function coinLookupMoodTierForScore(score = 50) {
+  const numeric = finiteOrNull(score);
+  if (!Number.isFinite(numeric)) return "medium";
+  if (numeric >= 70) return "good";
+  if (numeric < 45) return "bad";
+  return "medium";
 }
 
 function toggleMarketHealthDetails() {

@@ -838,11 +838,13 @@ async function sendLoginCodeEmail(login) {
 function buildLoginCodeEmailText(login) {
   const expiresAt = formatLoginCodeExpiration(login.expiresAt);
   return [
-    `Your Bundle Builder sign-in code is ${login.code}.`,
+    "You asked to sign in to Bundle Builder.",
+    "",
+    `Your one-time sign-in code is ${login.code}.`,
     "",
     `It expires ${expiresAt}.`,
     "",
-    "If you did not request this code, you can safely ignore this email.",
+    "This code only works for Bundle Builder. If you did not request it, you can safely ignore this email.",
     "",
     "Bundle Builder beta",
     "https://bundlebuilder.vicicoin.io/",
@@ -852,10 +854,15 @@ function buildLoginCodeEmailText(login) {
 function buildLoginCodeEmailHtml(login) {
   const code = escapeHtml(login.code);
   const expiresAt = escapeHtml(formatLoginCodeExpiration(login.expiresAt));
-  const logoUrl = escapeHtml(publicAssetUrl("/assets/vici-logo.svg"));
+  const logoUrl = escapeHtml(publicAssetUrl("/assets/vici-logo-email.png"));
   return `<!doctype html>
 <html>
+  <head>
+    <meta name="color-scheme" content="light">
+    <meta name="supported-color-schemes" content="light">
+  </head>
   <body style="margin:0;padding:0;background:#f4f7fb;color:#182238;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">Your one-time Bundle Builder sign-in code expires soon.</div>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;margin:0;padding:28px 12px;">
       <tr>
         <td align="center">
@@ -877,15 +884,15 @@ function buildLoginCodeEmailHtml(login) {
             </tr>
             <tr>
               <td style="padding:28px 26px 10px;">
-                <h1 style="font-size:22px;line-height:1.25;margin:0 0 12px;color:#182238;">Your sign-in code</h1>
-                <p style="font-size:15px;line-height:1.6;margin:0 0 18px;color:#40506a;">Use this one-time code to finish signing in to your Bundle Builder profile.</p>
+                <h1 style="font-size:22px;line-height:1.25;margin:0 0 12px;color:#182238;">Sign in to Bundle Builder</h1>
+                <p style="font-size:15px;line-height:1.6;margin:0 0 18px;color:#40506a;">You asked to sign in to your Bundle Builder profile. Enter this one-time code in the app to continue.</p>
                 <div style="font-size:34px;font-weight:800;letter-spacing:8px;text-align:center;color:#0f766e;background:#eefbf8;border:1px solid #bdebe3;border-radius:12px;padding:18px 10px;margin:0 0 18px;">${code}</div>
                 <p style="font-size:14px;line-height:1.6;margin:0;color:#5c6a81;">This code expires ${expiresAt}.</p>
               </td>
             </tr>
             <tr>
               <td style="padding:14px 26px 26px;">
-                <div style="font-size:13px;line-height:1.55;color:#6b7688;background:#f8fafc;border:1px solid #e4ebf5;border-radius:10px;padding:14px 16px;">If you did not request this code, you can safely ignore this email. No changes will be made to your profile.</div>
+                <div style="font-size:13px;line-height:1.55;color:#6b7688;background:#f8fafc;border:1px solid #e4ebf5;border-radius:10px;padding:14px 16px;">This code only works for Bundle Builder. If you did not request it, you can safely ignore this email. No changes will be made to your profile.</div>
                 <p style="font-size:12px;line-height:1.5;margin:18px 0 0;color:#8792a3;">Bundle Builder beta<br><a href="https://bundlebuilder.vicicoin.io/" style="color:#0f766e;text-decoration:none;">bundlebuilder.vicicoin.io</a></p>
               </td>
             </tr>
