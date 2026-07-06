@@ -9,6 +9,7 @@ const PULSE_SNAPSHOT_STORE_PATH = path.resolve(
 );
 const MAX_SNAPSHOTS = 6000;
 const MAX_COINS_PER_SNAPSHOT = 20;
+const MAX_WATCHLIST_PER_SNAPSHOT = 20;
 const PULSE_SNAPSHOT_TABLE = process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_TABLE || "pulse_snapshots";
 
 function createPulseSnapshotRepository({ filePath = PULSE_SNAPSHOT_STORE_PATH } = {}) {
@@ -278,7 +279,11 @@ function richerSnapshot(existing = {}, incoming = {}) {
 }
 
 function snapshotPathScore(snapshot = {}) {
-  return (snapshot.coins || []).reduce((sum, coin) => {
+  const scoreCoins = [
+    ...(Array.isArray(snapshot.coins) ? snapshot.coins : []),
+    ...(Array.isArray(snapshot.watchlist) ? snapshot.watchlist : []),
+  ];
+  return scoreCoins.reduce((sum, coin) => {
     const paths = coin.forecastPaths || {};
     return sum
       + (Array.isArray(paths.next24h) ? paths.next24h.length : 0)
@@ -423,6 +428,9 @@ function sanitizeSnapshot(input = {}) {
   const coins = Array.isArray(input.coins)
     ? input.coins.slice(0, MAX_COINS_PER_SNAPSHOT).map(sanitizeCoin).filter((coin) => coin.ticker)
     : [];
+  const watchlist = Array.isArray(input.watchlist)
+    ? input.watchlist.slice(0, MAX_WATCHLIST_PER_SNAPSHOT).map(sanitizeWatchCoin).filter((coin) => coin.ticker)
+    : [];
   const network = safeText(input.network, 40);
   const selectedWindow = safeText(input.selectedWindow, 24) || "24h";
   const selectedReadWindow = safeText(input.selectedReadWindow, 24) || "7d";
@@ -435,6 +443,17 @@ function sanitizeSnapshot(input = {}) {
     selectedReadWindow,
     fingerprint: fingerprintSnapshot(createdAt, network, selectedWindow, coins),
     coins,
+    watchlist,
+  };
+}
+
+function sanitizeWatchCoin(input = {}) {
+  const coin = sanitizeCoin(input);
+  return {
+    ...coin,
+    status: safeText(input.status, 60),
+    reason: safeText(input.reason, 80),
+    watchScore: finiteOrNull(input.watchScore),
   };
 }
 

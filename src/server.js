@@ -100,6 +100,7 @@ const pulseCollectorState = {
   lastAttempted: 0,
   lastEligible: 0,
   lastSkipped: [],
+  lastWakeList: [],
 };
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
@@ -1698,6 +1699,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
   try {
     const candidates = [];
     const skipped = [];
+    const wakeList = [];
     const rankingContext = await buildPulseRankingContext();
     for (const meta of pulseCollectorWatchlist) {
       try {
@@ -1706,25 +1708,35 @@ async function runPulseSnapshotCollector(trigger = "manual") {
           skipped.push({ ticker: meta.ticker, reason: "no Base DEX Screener market" });
           continue;
         }
-        if ((market.volume24h || 0) < 50_000 || (market.liquidityUsd || 0) < 75_000) {
+        const scored = scorePulseCollectorCandidate(meta, market, rankingContext);
+        const belowQualityFloor = (market.volume24h || 0) < 50_000 || (market.liquidityUsd || 0) < 75_000;
+        if (belowQualityFloor) {
+          const watch = pulseCollectorWatchCandidate(scored, "below collector quality floor");
+          if (watch) wakeList.push(watch);
           skipped.push({
             ticker: meta.ticker,
             reason: "below collector quality floor",
             volume24h: Math.round(market.volume24h || 0),
             liquidityUsd: Math.round(market.liquidityUsd || 0),
+            wakeUpScore: watch?.wakeUpScore ?? null,
+            watchScore: watch?.watchScore ?? null,
           });
           continue;
         }
-        candidates.push(scorePulseCollectorCandidate(meta, market, rankingContext));
+        candidates.push(scored);
       } catch (error) {
         pulseCollectorState.lastError = `${meta.ticker}: ${error.message || "market lookup failed"}`;
         skipped.push({ ticker: meta.ticker, reason: error.message || "market lookup failed" });
       }
       await wait(175);
     }
+    const rankedWakeList = wakeList
+      .sort((a, b) => b.watchScore - a.watchScore)
+      .slice(0, 12);
     pulseCollectorState.lastAttempted = pulseCollectorWatchlist.length;
     pulseCollectorState.lastEligible = candidates.length;
     pulseCollectorState.lastSkipped = skipped.slice(0, 12);
+    pulseCollectorState.lastWakeList = rankedWakeList.slice(0, 8);
 
     const ranked = candidates
       .sort((a, b) => b.pulseScore - a.pulseScore)
@@ -1739,6 +1751,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
       selectedWindow: "24h",
       selectedReadWindow: "7d",
       coins: ranked,
+      watchlist: rankedWakeList,
     });
 
     pulseCollectorState.lastSnapshotAt = snapshot.createdAt;
@@ -1810,7 +1823,11 @@ function buildTickerRankHistory(snapshots = []) {
   const history = new Map();
   for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
     const createdAt = snapshot.createdAt || "";
-    for (const coin of Array.isArray(snapshot.coins) ? snapshot.coins : []) {
+    const trackedCoins = [
+      ...(Array.isArray(snapshot.coins) ? snapshot.coins : []),
+      ...(Array.isArray(snapshot.watchlist) ? snapshot.watchlist : []),
+    ];
+    for (const coin of trackedCoins) {
       const ticker = safeText(coin.ticker, 20).toUpperCase();
       if (!ticker) continue;
       if (!history.has(ticker)) history.set(ticker, []);
@@ -1824,6 +1841,8 @@ function buildTickerRankHistory(snapshots = []) {
         liquidityUsd: finiteNumber(coin.liquidityUsd),
         wakeUpScore: finiteNumber(coin.wakeUpScore),
         confirmedWakeUpScore: finiteNumber(coin.confirmedWakeUpScore),
+        watchScore: finiteNumber(coin.watchScore),
+        status: safeText(coin.status, 40),
       });
     }
   }
@@ -2309,6 +2328,60 @@ function pulseCollectorSnapshotCoin(candidate, index) {
   };
 }
 
+function pulseCollectorWatchCandidate(candidate, reason = "watching") {
+  const wakeUpScore = finiteNumber(candidate.wakeUpScore) || 0;
+  const confirmedWakeUpScore = finiteNumber(candidate.confirmedWakeUpScore) || 0;
+  const confidenceScore = finiteNumber(candidate.confidenceScore) || 0;
+  const fragilityScore = finiteNumber(candidate.fragilityScore) || 0;
+  const rankMomentum = finiteNumber(candidate.rankMomentum) || 0;
+  const change = finiteNumber(candidate.priceChange24h) || 0;
+  const volume = finiteNumber(candidate.volume24h) || 0;
+  const liquidity = finiteNumber(candidate.liquidityUsd) || 0;
+  const txnTotal = (finiteNumber(candidate.buys24h) || 0) + (finiteNumber(candidate.sells24h) || 0);
+  const buyRatio = txnTotal ? (finiteNumber(candidate.buys24h) || 0) / txnTotal : 0.5;
+  const flowLift = clamp((buyRatio - 0.5) * 60, -4, 8);
+  const depthLift = clamp(Math.log10(Math.max(1, volume + liquidity * 0.35)) - 5, -4, 8);
+  const earlyMoveLift = change >= -4 && change <= 9 ? 5 : change > 16 ? -5 : 0;
+  const watchScore = Math.round(clamp(
+    wakeUpScore * 0.42
+      + confirmedWakeUpScore * 0.22
+      + confidenceScore * 0.16
+      + rankMomentum * 2.2
+      + flowLift
+      + depthLift
+      + earlyMoveLift
+      - Math.max(0, fragilityScore - 55) * 0.16,
+    0,
+    100,
+  ));
+  if (watchScore < 35 && wakeUpScore < 48 && confirmedWakeUpScore < 42) return null;
+  return {
+    ticker: candidate.ticker,
+    name: candidate.name,
+    source: "Server DEX Screener watchlist",
+    network: "Base",
+    status: reason,
+    watchScore,
+    priceUsd: candidate.priceUsd,
+    volume24h: candidate.volume24h,
+    liquidityUsd: candidate.liquidityUsd,
+    change24h: candidate.priceChange24h,
+    pulseScore: candidate.pulseScore,
+    confidenceScore,
+    confidenceLabel: candidate.confidenceLabel,
+    fragilityScore,
+    rankMomentum: candidate.rankMomentum,
+    wakeUpScore,
+    wakeUpLabel: candidate.wakeUpLabel,
+    wakeUpFlags: candidate.wakeUpFlags,
+    confirmedWakeUpScore,
+    confirmedWakeUpLabel: candidate.confirmedWakeUpLabel,
+    confirmedWakeUpFlags: candidate.confirmedWakeUpFlags,
+    reason,
+    pairAddress: candidate.pairAddress,
+  };
+}
+
 function projectedCollectorChange(candidate, key) {
   const horizon = key === "30d" ? 4.2 : key === "7d" ? 2.2 : 0.75;
   const reliability = Math.min(1.35, Math.max(0.5, (Math.log10(Math.max(1, candidate.volume24h)) + Math.log10(Math.max(1, candidate.liquidityUsd))) / 11.5));
@@ -2547,18 +2620,22 @@ function buildMarketHealthContext(snapshots = []) {
   const extensionPercentile = percentileRank(baseline.map((item) => item.extensionPressure), latest.extensionPressure);
   const reversalPercentile = percentileRank(baseline.map((item) => item.reversalPressure), latest.reversalPressure);
   const topRankPercentile = percentileRank(baseline.map((item) => item.topRankPressure), latest.topRankPressure);
+  const wakeListPercentile = percentileRank(baseline.map((item) => item.wakeListPressure), latest.wakeListPressure);
+  const watchlistCountPercentile = percentileRank(baseline.map((item) => item.watchlistCount), latest.watchlistCount);
 
   let scoreDelta = 0;
   scoreDelta += percentileDelta(breadthPercentile) * 15;
   scoreDelta += percentileDelta(avgChangePercentile) * 13;
   scoreDelta += percentileDelta(participationPercentile) * 9;
   scoreDelta += percentileDelta(reversalPercentile) * 6;
+  scoreDelta += percentileDelta(wakeListPercentile) * 5;
   scoreDelta -= percentileDelta(extensionPercentile) * 14;
   scoreDelta -= percentileDelta(topRankPercentile) * 7;
 
   const flags = [];
   if (breadthPercentile >= 0.65 && avgChangePercentile >= 0.6) flags.push("broad participation");
   if (reversalPercentile >= 0.7 && latest.avgChange >= -2) flags.push("reversal wake-up");
+  if (wakeListPercentile >= 0.7 && latest.wakeListPressure >= 55) flags.push("watchlist wake-up");
   if (extensionPercentile >= 0.75) flags.push("late-runner pressure");
   if (topRankPercentile >= 0.75) flags.push("top-heavy deck");
   if (breadthPercentile <= 0.35 && avgChangePercentile <= 0.35) flags.push("weak breadth");
@@ -2581,6 +2658,8 @@ function buildMarketHealthContext(snapshots = []) {
       extension: roundTo(extensionPercentile, 3),
       reversal: roundTo(reversalPercentile, 3),
       topRank: roundTo(topRankPercentile, 3),
+      wakeList: roundTo(wakeListPercentile, 3),
+      watchlistCount: roundTo(watchlistCountPercentile, 3),
     },
     flags,
     message: flags.length
@@ -2610,6 +2689,19 @@ function snapshotMarketRead(snapshot = {}) {
   const topRankPressure = topRanks.length
     ? averageValue(topRanks.map((coin) => Math.max(0, clamp(coin.change24h, -12, 18)))) || 0
     : 0;
+  const watchlist = (Array.isArray(snapshot.watchlist) ? snapshot.watchlist : [])
+    .map((coin) => ({
+      ticker: safeText(coin.ticker, 20).toUpperCase(),
+      watchScore: finiteNumber(coin.watchScore),
+      wakeUpScore: finiteNumber(coin.wakeUpScore),
+      confirmedWakeUpScore: finiteNumber(coin.confirmedWakeUpScore),
+      change24h: finiteNumber(coin.change24h),
+      volume24h: finiteNumber(coin.volume24h),
+      liquidityUsd: finiteNumber(coin.liquidityUsd),
+      status: safeText(coin.status || coin.reason, 60),
+    }))
+    .filter((coin) => Number.isFinite(coin.watchScore) || Number.isFinite(coin.wakeUpScore));
+  const wakeListPressure = averageValue(watchlist.map((coin) => finiteNumber(coin.watchScore) || finiteNumber(coin.wakeUpScore)).filter(Number.isFinite)) || 0;
   return {
     createdAt: snapshot.createdAt || "",
     count: coins.length,
@@ -2621,6 +2713,12 @@ function snapshotMarketRead(snapshot = {}) {
     extensionPressure: extensionCount / coins.length,
     reversalPressure: reversalCount / coins.length,
     topRankPressure,
+    watchlistCount: watchlist.length,
+    wakeListPressure,
+    wakeListLeaders: watchlist
+      .slice()
+      .sort((a, b) => (finiteNumber(b.watchScore) || 0) - (finiteNumber(a.watchScore) || 0))
+      .slice(0, 5),
   };
 }
 
@@ -2635,6 +2733,9 @@ function publicMarketRead(read = {}) {
     extensionPressure: roundTo(read.extensionPressure, 3),
     reversalPressure: roundTo(read.reversalPressure, 3),
     topRankPressure: roundTo(read.topRankPressure, 2),
+    watchlistCount: read.watchlistCount,
+    wakeListPressure: roundTo(read.wakeListPressure, 2),
+    wakeListLeaders: Array.isArray(read.wakeListLeaders) ? read.wakeListLeaders : [],
   };
 }
 
