@@ -994,17 +994,18 @@ svg {
   display: block;
   margin: 0 0 8px;
   color: var(--teal);
-  font-size: 0.9rem;
-  font-weight: 950;
+  font-family: "Bradley Hand", "Segoe Print", "Noteworthy", "Comic Sans MS", cursive;
+  font-size: 1rem;
+  font-weight: 400;
   line-height: 1.25;
   letter-spacing: 0;
   opacity: 1;
-  transition: opacity 220ms ease, transform 220ms ease, color 220ms ease;
+  transition: opacity 620ms ease, transform 620ms ease, color 420ms ease;
 }
 
 .coin-lookup-mood.is-fading {
   opacity: 0;
-  transform: translateY(-3px);
+  transform: translateY(-4px);
 }
 
 .coin-lookup-mood[data-market-tone="good"] {
@@ -1016,7 +1017,7 @@ svg {
 }
 
 .coin-lookup-mood[data-market-tone="bad"] {
-  color: #8a5b08;
+  color: #87601b;
 }
 
 .coin-lookup-row {

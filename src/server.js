@@ -522,6 +522,18 @@ async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/v1/wake-up-review") {
+      if (!requireAdmin(request, response)) return;
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 6000, 1200);
+      const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
+      sendJson(response, 200, {
+        ok: true,
+        storage: pulseSnapshotRepository.descriptor(),
+        review: buildWakeUpReview(snapshots),
+      });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/v1/market-health") {
       const limit = clampInteger(url.searchParams.get("limit"), 24, 5000, 288);
       const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
@@ -651,7 +663,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-      routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/market-health", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
+        routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/wake-up-review", "GET /api/v1/market-health", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -1710,7 +1722,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
         }
         const scored = scorePulseCollectorCandidate(meta, market, rankingContext);
         const belowQualityFloor = (market.volume24h || 0) < 50_000 || (market.liquidityUsd || 0) < 75_000;
-        if (belowQualityFloor) {
+        if (belowQualityFloor && !scored.graduatesFromWatchlist) {
           const watch = pulseCollectorWatchCandidate(scored, "below collector quality floor");
           if (watch) wakeList.push(watch);
           skipped.push({
@@ -1864,6 +1876,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
   const speculativeTrapPenalty = pulseSpeculativeTrapPenalty(meta, market, buyRatio, opportunityScore);
   const rankMomentum = pulseRankMomentum(ticker, rankingContext);
+  const graduationSignal = pulseGraduationSignal(ticker, rankingContext);
   const wakeUpSignal = pulseWakeUpSignal(meta, market, buyRatio, rankingContext, {
     opportunityScore,
     reversalWakeupBoost,
@@ -1902,7 +1915,19 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const fragilityPenalty = Math.max(0, fragilityScore - 48) * 0.075;
   const wakeUpBoost = clamp((wakeUpSignal.score - 42) / 6, -3.5, 9.5);
   const confirmedWakeBoost = clamp((confirmedWakeUpSignal.score - 50) / 6, -4, 10);
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
+  const graduationBoost = graduationSignal.boost;
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
+  const signalLane = pulseSignalLane({
+    pulseScore,
+    wakeUpScore: wakeUpSignal.score,
+    confirmedWakeUpScore: confirmedWakeUpSignal.score,
+    confidenceScore,
+    fragilityScore,
+    graduationSignal,
+    volume24h: market.volume24h,
+    liquidityUsd: market.liquidityUsd,
+    priceChange24h: market.priceChange24h,
+  });
   return {
     ...meta,
     ...market,
@@ -1920,12 +1945,82 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     regimeFit: Number(regimeFit.toFixed(2)),
     confidenceScore,
     fragilityScore,
+    signalLane,
+    graduationBoost: Number(graduationBoost.toFixed(2)),
+    graduationLabel: graduationSignal.label,
+    graduationFlags: graduationSignal.flags,
+    graduatesFromWatchlist: graduationSignal.graduates,
     confidenceLabel: confidenceScore >= 72 ? "higher-confidence" : confidenceScore >= 54 ? "medium-confidence" : "low-confidence",
     regime: rankingContext?.regime || "mixed",
     reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
     speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
   };
+}
+
+function pulseGraduationSignal(ticker, rankingContext = {}) {
+  const rows = rankingContext?.tickerHistory instanceof Map ? rankingContext.tickerHistory.get(ticker) : [];
+  const clean = (Array.isArray(rows) ? rows : []).filter((row) => Number.isFinite(row.watchScore) || Number.isFinite(row.wakeUpScore) || Number.isFinite(row.pulseScore));
+  const recent = clean.slice(-6);
+  const prior = clean.slice(Math.max(0, clean.length - 24), Math.max(0, clean.length - 6));
+  const recentWatch = averageValue(recent.map((row) => row.watchScore).filter(Number.isFinite));
+  const priorWatch = averageValue(prior.map((row) => row.watchScore).filter(Number.isFinite));
+  const recentWake = averageValue(recent.map((row) => row.wakeUpScore).filter(Number.isFinite));
+  const recentPulse = averageValue(recent.map((row) => row.pulseScore).filter(Number.isFinite));
+  const watchPersistence = recent.filter((row) => (finiteNumber(row.watchScore) || 0) >= 58).length;
+  const wakePersistence = recent.filter((row) => (finiteNumber(row.wakeUpScore) || 0) >= 58).length;
+  const watchTrend = Number.isFinite(recentWatch) && Number.isFinite(priorWatch) ? recentWatch - priorWatch : 0;
+  const flags = [];
+  let boost = 0;
+
+  if (watchPersistence >= 2) {
+    boost += 4.5;
+    flags.push("watchlist persistence");
+  }
+  if (wakePersistence >= 2) {
+    boost += 3.5;
+    flags.push("wake-up persistence");
+  }
+  if (watchTrend >= 5) {
+    boost += 3;
+    flags.push("watch score improving");
+  }
+  if (Number.isFinite(recentWake) && recentWake >= 64) {
+    boost += 2.5;
+    flags.push("strong wake read");
+  }
+  if (Number.isFinite(recentPulse) && recentPulse >= 68) {
+    boost += 2;
+    flags.push("rank score near deck");
+  }
+
+  const finalBoost = clamp(boost, 0, 10);
+  const graduates = finalBoost >= 7 || (watchPersistence >= 3 && (Number.isFinite(recentWake) ? recentWake >= 58 : true));
+  return {
+    boost: finalBoost,
+    graduates,
+    label: graduates ? "watchlist-graduation" : finalBoost >= 4 ? "building-graduation" : "not-graduating",
+    flags: flags.slice(0, 5),
+  };
+}
+
+function pulseSignalLane(input = {}) {
+  const pulseScore = finiteNumber(input.pulseScore) || 0;
+  const wakeUpScore = finiteNumber(input.wakeUpScore) || 0;
+  const confirmedWakeUpScore = finiteNumber(input.confirmedWakeUpScore) || 0;
+  const confidenceScore = finiteNumber(input.confidenceScore) || 0;
+  const fragilityScore = finiteNumber(input.fragilityScore) || 0;
+  const change = finiteNumber(input.priceChange24h) || 0;
+  const volume = finiteNumber(input.volume24h) || 0;
+  const liquidity = finiteNumber(input.liquidityUsd) || 0;
+  const graduation = input.graduationSignal || {};
+  const fragile = fragilityScore >= 66 || (change >= 18 && liquidity < 250_000) || (volume < 60_000 && liquidity < 120_000);
+
+  if (fragile && wakeUpScore < 72 && confirmedWakeUpScore < 66) return "trap-lane";
+  if (graduation.graduates || (wakeUpScore >= 66 && confirmedWakeUpScore >= 58 && confidenceScore >= 48)) return "early-risky";
+  if (pulseScore >= 76 && confidenceScore >= 55 && fragilityScore <= 62) return "main-recommendation";
+  if (wakeUpScore >= 52 || confirmedWakeUpScore >= 48) return "watching";
+  return "neutral";
 }
 
 function pulseConfirmedWakeUpSignal(meta, market, buyRatio = 0.5, rankingContext = {}, context = {}) {
@@ -2307,6 +2402,11 @@ function pulseCollectorSnapshotCoin(candidate, index) {
     confidenceScore: candidate.confidenceScore,
     confidenceLabel: candidate.confidenceLabel,
     fragilityScore: candidate.fragilityScore,
+    signalLane: candidate.signalLane,
+    graduationBoost: candidate.graduationBoost,
+    graduationLabel: candidate.graduationLabel,
+    graduationFlags: candidate.graduationFlags,
+    graduatesFromWatchlist: candidate.graduatesFromWatchlist,
     rankMomentum: candidate.rankMomentum,
     wakeUpScore: candidate.wakeUpScore,
     wakeUpLabel: candidate.wakeUpLabel,
@@ -2370,6 +2470,11 @@ function pulseCollectorWatchCandidate(candidate, reason = "watching") {
     confidenceScore,
     confidenceLabel: candidate.confidenceLabel,
     fragilityScore,
+    signalLane: candidate.signalLane === "trap-lane" ? "trap-lane" : candidate.signalLane === "early-risky" ? "early-risky" : "wake-up-lane",
+    graduationBoost: candidate.graduationBoost,
+    graduationLabel: candidate.graduationLabel,
+    graduationFlags: candidate.graduationFlags,
+    graduatesFromWatchlist: candidate.graduatesFromWatchlist,
     rankMomentum: candidate.rankMomentum,
     wakeUpScore,
     wakeUpLabel: candidate.wakeUpLabel,
@@ -2737,6 +2842,167 @@ function publicMarketRead(read = {}) {
     wakeListPressure: roundTo(read.wakeListPressure, 2),
     wakeListLeaders: Array.isArray(read.wakeListLeaders) ? read.wakeListLeaders : [],
   };
+}
+
+function buildWakeUpReview(snapshots = []) {
+  const ordered = (Array.isArray(snapshots) ? snapshots : [])
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const groups = new Map();
+  let watchEvents = 0;
+  let deckEvents = 0;
+
+  for (const snapshot of ordered) {
+    const createdAt = snapshot.createdAt || "";
+    const time = new Date(createdAt).getTime();
+    if (!Number.isFinite(time)) continue;
+    for (const coin of Array.isArray(snapshot.watchlist) ? snapshot.watchlist : []) {
+      const ticker = safeText(coin.ticker, 20).toUpperCase();
+      if (!ticker) continue;
+      if (!groups.has(ticker)) groups.set(ticker, emptyWakeReviewTicker(ticker, coin.name));
+      const row = groups.get(ticker);
+      const watchScore = finiteNumber(coin.watchScore);
+      const wakeUpScore = finiteNumber(coin.wakeUpScore);
+      const priceUsd = finiteNumber(coin.priceUsd);
+      watchEvents += 1;
+      row.watchEvents += 1;
+      row.firstWatchAt ||= createdAt;
+      row.latestWatchAt = createdAt;
+      row.latestWatchScore = Number.isFinite(watchScore) ? watchScore : row.latestWatchScore;
+      row.maxWatchScore = Math.max(row.maxWatchScore || 0, Number.isFinite(watchScore) ? watchScore : 0);
+      row.avgWatchScores.push(watchScore);
+      row.avgWakeScores.push(wakeUpScore);
+      row.watchPrices.push({ time, price: priceUsd });
+      row.lanes.add(safeText(coin.signalLane || coin.status || "wake-up-lane", 40));
+      for (const flag of Array.isArray(coin.wakeUpFlags) ? coin.wakeUpFlags : []) row.flags.set(flag, (row.flags.get(flag) || 0) + 1);
+    }
+    for (const coin of Array.isArray(snapshot.coins) ? snapshot.coins : []) {
+      const ticker = safeText(coin.ticker, 20).toUpperCase();
+      if (!ticker) continue;
+      if (!groups.has(ticker)) groups.set(ticker, emptyWakeReviewTicker(ticker, coin.name));
+      const row = groups.get(ticker);
+      deckEvents += 1;
+      row.deckEvents += 1;
+      row.latestDeckRank = finiteNumber(coin.rank);
+      row.latestDeckAt = createdAt;
+      row.deckPrices.push({ time, price: finiteNumber(coin.priceUsd), rank: finiteNumber(coin.rank) });
+      if (!row.firstDeckAt) row.firstDeckAt = createdAt;
+    }
+  }
+
+  const tickers = [...groups.values()].map((row) => finalizeWakeReviewTicker(row, ordered)).sort((a, b) => {
+    if (a.graduated !== b.graduated) return a.graduated ? -1 : 1;
+    return b.priorityScore - a.priorityScore || b.maxWatchScore - a.maxWatchScore || b.watchEvents - a.watchEvents;
+  });
+  const graduated = tickers.filter((row) => row.graduated);
+  const activeWatchlist = tickers.filter((row) => !row.graduated && row.watchEvents > 0 && row.priorityScore >= 50);
+  const trapLane = tickers.filter((row) => row.lanes.includes("trap-lane"));
+  return {
+    generatedAt: new Date().toISOString(),
+    snapshotCount: ordered.length,
+    watchEvents,
+    deckEvents,
+    graduatedCount: graduated.length,
+    activeWatchCount: activeWatchlist.length,
+    trapLaneCount: trapLane.length,
+    topGraduations: graduated.slice(0, 8),
+    activeWatchlist: activeWatchlist.slice(0, 10),
+    trapLane: trapLane.slice(0, 10),
+    all: tickers.slice(0, 30),
+    lesson: wakeReviewLesson({ graduated, activeWatchlist, trapLane, watchEvents }),
+  };
+}
+
+function emptyWakeReviewTicker(ticker, name = "") {
+  return {
+    ticker,
+    name: safeText(name, 80),
+    watchEvents: 0,
+    deckEvents: 0,
+    firstWatchAt: "",
+    latestWatchAt: "",
+    firstDeckAt: "",
+    latestDeckAt: "",
+    latestDeckRank: null,
+    latestWatchScore: null,
+    maxWatchScore: 0,
+    avgWatchScores: [],
+    avgWakeScores: [],
+    watchPrices: [],
+    deckPrices: [],
+    lanes: new Set(),
+    flags: new Map(),
+  };
+}
+
+function finalizeWakeReviewTicker(row, snapshots = []) {
+  const firstWatchTime = new Date(row.firstWatchAt).getTime();
+  const firstDeckTime = new Date(row.firstDeckAt).getTime();
+  const firstWatchPrice = row.watchPrices.find((item) => Number.isFinite(item.price))?.price || null;
+  const firstDeckPrice = row.deckPrices.find((item) => Number.isFinite(item.price) && (!Number.isFinite(firstWatchTime) || item.time >= firstWatchTime))?.price || null;
+  const future24h = Number.isFinite(firstWatchTime) ? findTickerPriceAtOrAfter(snapshots, row.ticker, firstWatchTime + 24 * 60 * 60 * 1000) : null;
+  const avgWatchScore = averageValue(row.avgWatchScores.filter(Number.isFinite));
+  const avgWakeScore = averageValue(row.avgWakeScores.filter(Number.isFinite));
+  const graduated = Boolean(row.firstWatchAt && row.firstDeckAt && Number.isFinite(firstDeckTime) && Number.isFinite(firstWatchTime) && firstDeckTime >= firstWatchTime);
+  const timeToDeckHours = graduated ? roundTo((firstDeckTime - firstWatchTime) / (60 * 60 * 1000), 1) : null;
+  const moveBeforeDeck = firstWatchPrice && firstDeckPrice ? roundTo(((firstDeckPrice - firstWatchPrice) / firstWatchPrice) * 100, 2) : null;
+  const moveAfter24h = firstWatchPrice && future24h?.price ? roundTo(((future24h.price - firstWatchPrice) / firstWatchPrice) * 100, 2) : null;
+  const topFlags = [...row.flags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([flag]) => flag);
+  const lanes = [...row.lanes].filter(Boolean);
+  const priorityScore = Math.round(clamp(
+    (avgWatchScore || 0) * 0.42
+      + (avgWakeScore || 0) * 0.28
+      + Math.min(18, row.watchEvents * 2)
+      + (graduated ? 14 : 0)
+      + (Number.isFinite(moveAfter24h) ? clamp(moveAfter24h, -8, 18) * 0.7 : 0),
+    0,
+    100,
+  ));
+  return {
+    ticker: row.ticker,
+    name: row.name,
+    watchEvents: row.watchEvents,
+    deckEvents: row.deckEvents,
+    graduated,
+    firstWatchAt: row.firstWatchAt,
+    latestWatchAt: row.latestWatchAt,
+    firstDeckAt: row.firstDeckAt,
+    latestDeckAt: row.latestDeckAt,
+    latestDeckRank: row.latestDeckRank,
+    timeToDeckHours,
+    moveBeforeDeck,
+    moveAfter24h,
+    latestWatchScore: row.latestWatchScore,
+    maxWatchScore: row.maxWatchScore,
+    averageWatchScore: roundTo(avgWatchScore || 0, 1),
+    averageWakeUpScore: roundTo(avgWakeScore || 0, 1),
+    priorityScore,
+    lanes,
+    topFlags,
+  };
+}
+
+function findTickerPriceAtOrAfter(snapshots = [], ticker = "", targetTime = 0) {
+  const cleanTicker = safeText(ticker, 20).toUpperCase();
+  for (const snapshot of snapshots) {
+    const time = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(time) || time < targetTime) continue;
+    const rows = [
+      ...(Array.isArray(snapshot.coins) ? snapshot.coins : []),
+      ...(Array.isArray(snapshot.watchlist) ? snapshot.watchlist : []),
+    ];
+    const match = rows.find((coin) => safeText(coin.ticker, 20).toUpperCase() === cleanTicker && Number.isFinite(finiteNumber(coin.priceUsd)));
+    if (match) return { at: snapshot.createdAt, price: finiteNumber(match.priceUsd) };
+  }
+  return null;
+}
+
+function wakeReviewLesson({ graduated = [], activeWatchlist = [], trapLane = [], watchEvents = 0 } = {}) {
+  if (!watchEvents) return "No wake-up watchlist events have been collected yet. Deploy this version and let a few collector cycles run.";
+  if (graduated.length) return "Some watchlist names graduated into the main deck. Compare time-to-deck and move-before-deck to see whether the machine caught them early enough.";
+  if (activeWatchlist.length) return "The wake-up lane has active candidates, but they have not graduated yet. Watch for persistence across multiple 5-minute cycles.";
+  if (trapLane.length) return "The machine is mostly seeing fragile movement, so the trap lane matters more than promotion right now.";
+  return "Wake-up data is collecting, but no strong graduation pattern is visible yet.";
 }
 
 function percentileRank(values = [], value) {

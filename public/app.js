@@ -7576,7 +7576,7 @@ function startCoinLookupMoodTicker() {
       ? finiteOrNull(marketHealthRing.dataset.actualScore)
       : marketHealthRenderedScore;
     updateCoinLookupMood(score || 50);
-  }, 10000);
+  }, 8000);
 }
 
 function updateCoinLookupMood(score = 50, { force = false, resetTier = false } = {}) {
@@ -7590,7 +7590,7 @@ function updateCoinLookupMood(score = 50, { force = false, resetTier = false } =
     coinLookupMoodTier = tier;
   }
   const nextIndex = (coinLookupMoodIndex + 1) % phrases.length;
-  const nextPhrase = phrases[nextIndex];
+  const nextPhrase = `${String(phrases[nextIndex] || "").replace(/[.。…]+$/u, "")}...`;
   if (!force && coinLookupMood.textContent === nextPhrase) return;
   coinLookupMoodIndex = nextIndex;
   coinLookupMood.classList.add("is-fading");
@@ -7599,7 +7599,7 @@ function updateCoinLookupMood(score = 50, { force = false, resetTier = false } =
     coinLookupMood.textContent = nextPhrase;
     coinLookupMood.dataset.marketTone = tier;
     coinLookupMood.classList.remove("is-fading");
-  }, 220);
+  }, 620);
 }
 
 function coinLookupMoodTierForScore(score = 50) {
