@@ -1016,8 +1016,9 @@ let pulseChartWarmSeq = 0;
 let pulseLoadingActive = false;
 let marketPulseReady = false;
 let selectedPulseWindow = "24h";
-let selectedPulseReadWindow = "7d";
+let selectedPulseReadWindow = "1d";
 let selectedLookupWindow = "24h";
+let selectedLookupReadWindow = "1d";
 let lookupSelectedCoin = null;
 let coinLookupTimer = 0;
 let coinLookupSeq = 0;
@@ -1044,6 +1045,12 @@ const tourSeenStorageKey = "viciBundleBuilderTourSeenV1";
 const pulseSnapshotHistoryLimit = 6000;
 const marketPulseBackgroundRefreshMs = 1000 * 60 * 5;
 const pulseReadWindows = [
+  { key: "5m", label: "5m" },
+  { key: "15m", label: "15m" },
+  { key: "30m", label: "30m" },
+  { key: "1h", label: "1h" },
+  { key: "3h", label: "3h" },
+  { key: "6h", label: "6h" },
   { key: "1d", label: "1d" },
   { key: "3d", label: "3d" },
   { key: "7d", label: "7d" },
@@ -1150,6 +1157,25 @@ const pulseWindowChartConfig = {
   "15m": { timeframe: "minute", aggregate: 1, limit: 15 },
   "5m": { timeframe: "minute", aggregate: 1, limit: 5 },
 };
+
+function chartWindowForReadWindow(key = "7d") {
+  return ({
+    "1d": "24h",
+    "1mo": "1mo",
+  }[key]) || key;
+}
+
+function projectedWindowForReadWindow(key = "7d") {
+  return ({
+    "1d": "next24h",
+    "7d": "next7d",
+    "1mo": "next1mo",
+  }[key]) || chartWindowForReadWindow(key);
+}
+
+function isPulseReadWindow(key) {
+  return pulseReadWindows.some((item) => item.key === key);
+}
 let latestPrices = new Map(
   Object.entries(fallbackPrices).map(([ticker, price]) => [ticker, { price, source: "Cached estimate" }]),
 );
@@ -4253,6 +4279,10 @@ function estimateDirectionalChange(favorite = {}, window = "7d") {
   const change24h = finiteOrNull(favorite.change24h);
   const change7d = finiteOrNull(favorite.change7d);
   const change30d = finiteOrNull(favorite.change30d);
+  const chartChange = pulseChangeForWindow(favorite, chartWindowForReadWindow(window));
+  if (["5m", "15m", "30m", "1h", "3h", "6h"].includes(window)) {
+    return Number.isFinite(chartChange) ? chartChange : change24h;
+  }
   if (window === "1d") return change24h;
   if (window === "3d") {
     if (Number.isFinite(change7d) && Number.isFinite(change24h)) return change24h * 0.55 + (change7d / 7 * 3) * 0.45;
@@ -4264,7 +4294,18 @@ function estimateDirectionalChange(favorite = {}, window = "7d") {
 }
 
 function directionalWindowLabel(window = "7d") {
-  return ({ "1d": "1d", "3d": "3d", "7d": "7d", "1mo": "1M" }[window]) || "7d";
+  return ({
+    "5m": "5m",
+    "15m": "15m",
+    "30m": "30m",
+    "1h": "1h",
+    "3h": "3h",
+    "6h": "6h",
+    "1d": "1d",
+    "3d": "3d",
+    "7d": "7d",
+    "1mo": "1M",
+  }[window]) || "7d";
 }
 
 function directionalCoinRead(favorite = {}, window = "7d") {
@@ -4282,7 +4323,11 @@ function directionalCoinRead(favorite = {}, window = "7d") {
   const highBeta = theme.includes("meme") || theme.includes("ai") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "VIRTUAL"].includes(ticker);
   let score = 50;
 
-  if (window === "1d") {
+  if (["5m", "15m", "30m", "1h", "3h", "6h"].includes(window)) {
+    if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -6, 6) * 4.2;
+    if (Number.isFinite(change24h)) score += clamp(change24h, -14, 14) * 0.55;
+    if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.12;
+  } else if (window === "1d") {
     if (Number.isFinite(primaryChange)) score += clamp(primaryChange, -14, 14) * 2.1;
     if (Number.isFinite(change7d)) score += clamp(change7d, -30, 35) * 0.22;
   } else if (window === "3d") {
@@ -5818,12 +5863,26 @@ document.body.addEventListener("click", (event) => {
     rebuildFromRecentBundle(rebuildBundle.dataset.rebuildBundle);
     return;
   }
+  const readScrollNext = event.target.closest("[data-read-scroll-next]");
+  if (readScrollNext) {
+    scrollReadCarousel(readScrollNext.closest(".pulse-read-track"), 1);
+    return;
+  }
+  const readScrollPrev = event.target.closest("[data-read-scroll-prev]");
+  if (readScrollPrev) {
+    scrollReadCarousel(readScrollPrev.closest(".pulse-read-track"), -1);
+    return;
+  }
   const pulseReadWindow = event.target.closest("[data-pulse-read-window]");
   if (pulseReadWindow) {
-    selectedPulseReadWindow = pulseReadWindows.some((item) => item.key === pulseReadWindow.dataset.pulseReadWindow)
-      ? pulseReadWindow.dataset.pulseReadWindow
-      : "7d";
-    renderPulseSevenDayMeter(currentFavorite);
+    const key = pulseReadWindow.dataset.pulseReadWindow || "7d";
+    setPulseReadWindow(key, { projected: key === selectedPulseReadWindow && !isProjectedPulseWindow(selectedPulseWindow) });
+    return;
+  }
+  const lookupReadWindow = event.target.closest("[data-lookup-read-window]");
+  if (lookupReadWindow) {
+    const key = lookupReadWindow.dataset.lookupReadWindow || "1d";
+    setLookupReadWindow(key, { projected: key === selectedLookupReadWindow && !isProjectedPulseWindow(selectedLookupWindow) });
     return;
   }
   const favoriteToken = event.target.closest("[data-favorite-token]");
@@ -5961,6 +6020,12 @@ document.body.addEventListener("click", (event) => {
     targetNetwork.dispatchEvent(new Event("change", { bubbles: true }));
   }
 });
+
+document.body.addEventListener("scroll", (event) => {
+  if (event.target?.classList?.contains("pulse-read-carousel")) {
+    updateReadScrollCues(event.target.closest(".pulse-read-track"));
+  }
+}, true);
 
 document.body.addEventListener("change", (event) => {
   if (event.target.id === "resultReviewDelay") {
@@ -6345,7 +6410,7 @@ function lookupReasonForCandidate(candidate = {}, network = safePreferences().ne
   return pieces.join(" ");
 }
 
-function renderCoinLookupCard(candidate = lookupSelectedCoin) {
+function renderCoinLookupCard(candidate = lookupSelectedCoin, { lookupScrollLeft = null } = {}) {
   if (!coinLookupCard || !candidate) return;
   openCoinLookupPopup();
   if (lookupCoinWindow) lookupCoinWindow.value = selectedLookupWindow;
@@ -6354,7 +6419,7 @@ function renderCoinLookupCard(candidate = lookupSelectedCoin) {
   if (lookupCoinTicker) lookupCoinTicker.textContent = candidate.ticker || "--";
   renderLookupChange(candidate);
   renderLookupChart(candidate);
-  renderLookupMeter(candidate);
+  renderLookupMeter(candidate, { scrollLeft: lookupScrollLeft });
   if (lookupCoinReason) lookupCoinReason.textContent = rewritePulseRankLabel(candidate.reason || lookupReasonForCandidate(candidate), 1);
   if (lookupCoinInsights) {
     const insights = buildPulseInsights(candidate).slice(0, 4);
@@ -6375,13 +6440,77 @@ function renderLookupChange(candidate = lookupSelectedCoin) {
   lookupCoinChange.textContent = Number.isFinite(change) ? formatAbsPercent(change) : "--";
 }
 
-function renderLookupMeter(candidate = lookupSelectedCoin) {
+function syncReadCarouselScroll(scope, selector, previousScrollLeft = null) {
+  const root = typeof scope === "string" ? document.querySelector(scope) : scope;
+  window.requestAnimationFrame(() => {
+    const carousel = root?.querySelector(".pulse-read-carousel");
+    if (!carousel) return;
+    if (Number.isFinite(previousScrollLeft)) {
+      carousel.scrollLeft = previousScrollLeft;
+      updateReadScrollCues(root);
+      return;
+    }
+    const active = carousel.querySelector(selector);
+    if (!active) return;
+    const maxScroll = Math.max(0, carousel.scrollWidth - carousel.clientWidth);
+    const target = active.offsetLeft - ((carousel.clientWidth - active.clientWidth) / 2);
+    carousel.scrollLeft = Math.max(0, Math.min(maxScroll, target));
+    updateReadScrollCues(root);
+  });
+}
+
+function scrollReadCarousel(track, direction = 1) {
+  const carousel = track?.querySelector(".pulse-read-carousel");
+  if (!carousel) return;
+  const maxScroll = Math.max(0, carousel.scrollWidth - carousel.clientWidth);
+  const distance = Math.max(80, carousel.clientWidth * 0.75);
+  const target = Math.max(0, Math.min(maxScroll, carousel.scrollLeft + (distance * direction)));
+  carousel.scrollTo({ left: target, behavior: "smooth" });
+  window.setTimeout(() => updateReadScrollCues(track), 180);
+}
+
+function updateReadScrollCues(scope) {
+  const root = typeof scope === "string" ? document.querySelector(scope) : scope;
+  const carousel = root?.querySelector(".pulse-read-carousel");
+  const track = carousel?.closest(".pulse-read-track");
+  if (!carousel || !track) return;
+  const maxScroll = Math.max(0, carousel.scrollWidth - carousel.clientWidth);
+  track.classList.toggle("can-scroll-left", carousel.scrollLeft > 4);
+  track.classList.toggle("can-scroll-right", carousel.scrollLeft < maxScroll - 4);
+}
+
+function renderLookupMeter(candidate = lookupSelectedCoin, { scrollLeft = null } = {}) {
   if (!lookupCoinMeter) return;
   if (!candidate?.ticker) {
     lookupCoinMeter.innerHTML = "";
     return;
   }
-  lookupCoinMeter.innerHTML = renderSevenDayMeter(forwardScenarioCoinRead(candidate, "7d"));
+  lookupCoinMeter.innerHTML = `
+    <div class="pulse-seven-day-head">
+      <div class="pulse-read-track">
+        <div class="pulse-read-carousel" role="tablist" aria-label="Lookup directional read window">
+          ${pulseReadWindows.map((item) => `
+            <button type="button" class="${item.key === selectedLookupReadWindow ? "active" : ""}" data-lookup-read-window="${escapeAttribute(item.key)}" role="tab" aria-selected="${String(item.key === selectedLookupReadWindow)}">
+              ${escapeHtml(item.label)}
+            </button>
+          `).join("")}
+        </div>
+        <button type="button" class="pulse-read-prev" data-read-scroll-prev aria-label="Show earlier time ranges">‹</button>
+        <button type="button" class="pulse-read-next" data-read-scroll-next aria-label="Show more time ranges">›</button>
+      </div>
+    </div>
+    <div class="pulse-read-motion" key="${escapeAttribute(selectedLookupReadWindow)}">${renderSevenDayMeter(forwardScenarioCoinRead(candidate, selectedLookupReadWindow))}</div>
+  `;
+  syncReadCarouselScroll(lookupCoinMeter, `[data-lookup-read-window="${escapeAttribute(selectedLookupReadWindow)}"]`, scrollLeft);
+}
+
+function setLookupReadWindow(key = "1d", { projected = false } = {}) {
+  if (!isPulseReadWindow(key)) return;
+  const scrollLeft = lookupCoinMeter?.querySelector(".pulse-read-carousel")?.scrollLeft ?? null;
+  selectedLookupReadWindow = key;
+  selectedLookupWindow = projected ? projectedWindowForReadWindow(key) : chartWindowForReadWindow(key);
+  renderCoinLookupCard(lookupSelectedCoin, { lookupScrollLeft: scrollLeft });
+  ensureLookupWindowChart(lookupSelectedCoin, selectedLookupWindow);
 }
 
 function renderLookupChart(candidate = lookupSelectedCoin) {
@@ -9862,7 +9991,7 @@ function renderMarketPulse(favorite, favorites = currentFavorites) {
   renderMarketHealth();
 }
 
-function renderPulseSevenDayMeter(favorite = currentFavorite) {
+function renderPulseSevenDayMeter(favorite = currentFavorite, { scrollLeft = null } = {}) {
   if (!pulseSevenDayMeter) return;
   if (!favorite || favorite.source === "Market data unavailable" || favorite.ticker === "--") {
     pulseSevenDayMeter.innerHTML = "";
@@ -9871,16 +10000,21 @@ function renderPulseSevenDayMeter(favorite = currentFavorite) {
   const read = forwardScenarioCoinRead(favorite, selectedPulseReadWindow);
   pulseSevenDayMeter.innerHTML = `
     <div class="pulse-seven-day-head">
-      <div class="pulse-read-carousel" role="tablist" aria-label="Directional read window">
-        ${pulseReadWindows.map((item) => `
-          <button type="button" class="${item.key === selectedPulseReadWindow ? "active" : ""}" data-pulse-read-window="${escapeAttribute(item.key)}" role="tab" aria-selected="${String(item.key === selectedPulseReadWindow)}">
-            ${escapeHtml(item.label)}
-          </button>
-        `).join("")}
+      <div class="pulse-read-track">
+        <div class="pulse-read-carousel" role="tablist" aria-label="Directional read window">
+          ${pulseReadWindows.map((item) => `
+            <button type="button" class="${item.key === selectedPulseReadWindow ? "active" : ""}" data-pulse-read-window="${escapeAttribute(item.key)}" role="tab" aria-selected="${String(item.key === selectedPulseReadWindow)}">
+              ${escapeHtml(item.label)}
+            </button>
+          `).join("")}
+        </div>
+        <button type="button" class="pulse-read-prev" data-read-scroll-prev aria-label="Show earlier time ranges">‹</button>
+        <button type="button" class="pulse-read-next" data-read-scroll-next aria-label="Show more time ranges">›</button>
       </div>
     </div>
     <div class="pulse-read-motion" key="${escapeAttribute(selectedPulseReadWindow)}">${renderSevenDayMeter(read)}</div>
   `;
+  syncReadCarouselScroll(pulseSevenDayMeter, `[data-pulse-read-window="${escapeAttribute(selectedPulseReadWindow)}"]`, scrollLeft);
 }
 
 function renderPulseChange(favorite = currentFavorite) {
@@ -9901,6 +10035,14 @@ function setPulseWindow(key = "24h") {
   renderPulseChange(currentFavorite);
   renderPulseWindowChart(currentFavorite);
   ensurePulseWindowChart(currentFavorite, selectedPulseWindow);
+}
+
+function setPulseReadWindow(key = "1d", { projected = false } = {}) {
+  if (!isPulseReadWindow(key)) return;
+  const scrollLeft = pulseSevenDayMeter?.querySelector(".pulse-read-carousel")?.scrollLeft ?? null;
+  selectedPulseReadWindow = key;
+  setPulseWindow(projected ? projectedWindowForReadWindow(key) : chartWindowForReadWindow(key));
+  renderPulseSevenDayMeter(currentFavorite, { scrollLeft });
 }
 
 function stepPulseWindow(direction) {
