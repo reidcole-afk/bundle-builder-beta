@@ -39,6 +39,10 @@ const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABL
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 5);
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 75);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 10);
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
+const PULSE_ANALYST_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_MODEL || "gpt-4.1-mini";
+const PULSE_ANALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS || 1000 * 60 * 10);
+const PULSE_ANALYST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_TIMEOUT_MS || 8000);
 const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
 const ADMIN_SECRET = process.env.BUNDLE_BUILDER_ADMIN_SECRET || "";
 const AUTH_SECRET_CONFIGURED = Boolean(process.env.BUNDLE_BUILDER_AUTH_SECRET);
@@ -105,6 +109,7 @@ const pulseCollectorState = {
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
 const catalystCache = new Map();
+const pulseAnalystCache = new Map();
 const catalystProfiles = {
   AERO: {
     driver: "Base DEX expansion",
@@ -204,6 +209,9 @@ async function handleRequest(request, response) {
         normalizedMarketChartEndpoint: true,
         coingeckoApiKeyConfigured: Boolean(process.env.COINGECKO_API_KEY || process.env.CG_API_KEY),
         catalystIntelligenceEndpoint: true,
+        pulseAnalystEndpoint: true,
+        pulseAnalystModel: PULSE_ANALYST_MODEL,
+        pulseAnalystOpenAiConfigured: Boolean(OPENAI_API_KEY),
         profileAuthEndpoint: true,
         productionSafety: productionSafetyDescriptor(),
         profileStorage: profileRepository.descriptor(),
@@ -351,6 +359,20 @@ async function handleRequest(request, response) {
         contractAddress,
       }, { force });
       sendJson(response, 200, payload);
+      return;
+    }
+
+    if (url.pathname === "/api/v1/pulse-analyst") {
+      if (request.method !== "POST") {
+        sendJson(response, 405, { ok: false, error: "Method not allowed" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const analysis = await getPulseAnalystRead(body);
+      sendJson(response, 200, {
+        ok: true,
+        ...analysis,
+      });
       return;
     }
 
@@ -522,6 +544,22 @@ async function handleRequest(request, response) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/v1/internal-dashboard") {
+      if (!requireAdmin(request, response)) return;
+      const limit = clampInteger(url.searchParams.get("limit"), 24, 6000, 1600);
+      const [snapshots, accuracy] = await Promise.all([
+        pulseSnapshotRepository.listSnapshots({ limit }),
+        pulseSnapshotRepository.accuracySummary({ limit }),
+      ]);
+      sendJson(response, 200, {
+        ok: true,
+        storage: pulseSnapshotRepository.descriptor(),
+        collector: pulseCollectorState,
+        dashboard: buildInternalAccuracyDashboard(snapshots, accuracy),
+      });
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/v1/wake-up-review") {
       if (!requireAdmin(request, response)) return;
       const limit = clampInteger(url.searchParams.get("limit"), 24, 6000, 1200);
@@ -663,7 +701,7 @@ async function handleRequest(request, response) {
     sendJson(response, 404, {
       ok: false,
       error: "Not found",
-        routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "GET /api/v1/machine-accuracy", "GET /api/v1/wake-up-review", "GET /api/v1/market-health", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
+        routes: ["GET /health", "GET /api/v1/tokens", "GET /api/v1/market-chart", "GET /api/v1/coingecko-chart", "GET /api/v1/catalyst", "POST /api/v1/pulse-analyst", "GET /api/v1/machine-accuracy", "GET /api/v1/internal-dashboard", "GET /api/v1/wake-up-review", "GET /api/v1/market-health", "GET /api/v1/pulse-collector/status", "GET /api/v1/pulse-snapshots/export", "POST /api/v1/auth/request-code", "POST /api/v1/auth/verify-code", "GET|PUT /api/v1/profile", "GET|POST /api/v1/bundle", "GET|POST /api/v1/submitted-bundles", "GET|POST /api/v1/pulse-snapshots"],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -799,6 +837,7 @@ function checkRouteRateLimit(request, response, url) {
 function rateLimitRuleFor(request, url) {
   if (request.method === "POST" && url.pathname === "/api/v1/auth/request-code") return { name: "auth-request", limit: 5, windowMs: 15 * 60 * 1000 };
   if (request.method === "POST" && url.pathname === "/api/v1/auth/verify-code") return { name: "auth-verify", limit: 10, windowMs: 15 * 60 * 1000 };
+  if (request.method === "POST" && url.pathname === "/api/v1/pulse-analyst") return { name: "pulse-analyst", limit: 40, windowMs: 10 * 60 * 1000 };
   if (request.method === "POST" && url.pathname === "/api/v1/submitted-bundles") return { name: "bundle-submit", limit: 20, windowMs: 10 * 60 * 1000 };
   if (request.method === "POST" && url.pathname === "/api/v1/pulse-snapshots") return { name: "pulse-snapshot-write", limit: 60, windowMs: 10 * 60 * 1000 };
   if (request.method === "PUT" && url.pathname === "/api/v1/profile") return { name: "profile-write", limit: 60, windowMs: 10 * 60 * 1000 };
@@ -993,6 +1032,325 @@ function clampInteger(value, min, max, fallback) {
   const number = Number.parseInt(value, 10);
   if (!Number.isFinite(number)) return fallback;
   return Math.max(min, Math.min(max, number));
+}
+
+async function getPulseAnalystRead(body = {}) {
+  const packet = normalizePulseAnalystPacket(body);
+  const cacheKey = pulseAnalystCacheKey(packet);
+  const cached = pulseAnalystCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < PULSE_ANALYST_CACHE_MS) {
+    return {
+      ...cached.value,
+      cacheStatus: "hit",
+      cachedAt: new Date(cached.cachedAt).toISOString(),
+    };
+  }
+
+  let value = buildDeterministicPulseAnalystRead(packet);
+  if (OPENAI_API_KEY) {
+    try {
+      value = await fetchOpenAiPulseAnalystRead(packet, value);
+    } catch (error) {
+      value = {
+        ...value,
+        source: "deterministic-fallback",
+        warning: `LLM analyst unavailable: ${safeText(error.message, 180)}`,
+      };
+    }
+  }
+
+  pulseAnalystCache.set(cacheKey, { value, cachedAt: Date.now() });
+  prunePulseAnalystCache();
+  return {
+    ...value,
+    cacheStatus: "miss",
+    cachedAt: new Date().toISOString(),
+  };
+}
+
+function normalizePulseAnalystPacket(body = {}) {
+  const coin = body.coin && typeof body.coin === "object" ? body.coin : body;
+  const market = body.marketHealth && typeof body.marketHealth === "object" ? body.marketHealth : {};
+  const insights = Array.isArray(body.insights) ? body.insights.slice(0, 8) : [];
+  return {
+    ticker: safeTicker(coin.ticker || coin.symbol) || "COIN",
+    name: safeText(coin.name || coin.ticker || "Selected coin", 80),
+    rank: clampInteger(coin.rank, 1, 50, 0),
+    source: safeText(coin.source, 80),
+    theme: safeText(coin.theme, 40),
+    change24h: finiteNumber(coin.change24h ?? coin.price_change_percentage_24h),
+    change7d: finiteNumber(coin.change7d ?? coin.price_change_percentage_7d),
+    volume24h: finiteNumber(coin.volume24h ?? coin.total_volume),
+    liquidityUsd: finiteNumber(coin.liquidityUsd),
+    pulseScore: finiteNumber(coin.pulseScore),
+    projected24hChange: finiteNumber(coin.projected24hChange),
+    reason: safeText(coin.reason, 500),
+    setup: sanitizeObject(coin.marketSetup, 12),
+    edge: sanitizeObject(coin.marketEdge, 12),
+    catalyst: sanitizeObject(coin.newsCatalyst, 12),
+    insights: insights.map((item) => ({
+      label: safeText(item?.label, 60),
+      text: safeText(item?.text, 280),
+    })).filter((item) => item.label || item.text),
+    marketHealth: {
+      score: finiteNumber(market.score),
+      label: safeText(market.label, 80),
+      summary: safeText(market.summary, 260),
+      regime: safeText(market.context?.regime || market.regime, 80),
+      flags: Array.isArray(market.context?.flags || market.flags)
+        ? (market.context?.flags || market.flags).slice(0, 6).map((flag) => safeText(flag, 60)).filter(Boolean)
+        : [],
+    },
+  };
+}
+
+function buildDeterministicPulseAnalystRead(packet = {}) {
+  const ticker = packet.ticker || "COIN";
+  const setupLabel = packet.setup?.label || packet.edge?.label || "mixed setup";
+  const marketLabel = packet.marketHealth?.label || "market context";
+  const change = Number.isFinite(packet.change24h) ? packet.change24h : null;
+  const projected = Number.isFinite(packet.projected24hChange) ? packet.projected24hChange : null;
+  const volumeText = Number.isFinite(packet.volume24h) ? formatCompactUsd(packet.volume24h) : "unconfirmed";
+  const liquidityText = Number.isFinite(packet.liquidityUsd) ? formatCompactUsd(packet.liquidityUsd) : "unconfirmed";
+  const isDeep = Number.isFinite(packet.liquidityUsd) && packet.liquidityUsd >= 1_000_000;
+  const isActive = Number.isFinite(packet.volume24h) && packet.volume24h >= 1_000_000;
+  const isRiskOff = /risk.?off|weak|bad|defensive/i.test(`${marketLabel} ${packet.marketHealth?.regime || ""}`);
+  const isCooling = Number.isFinite(change) && change < 0;
+  const isHot = Number.isFinite(change) && change >= 8;
+  const projectedText = Number.isFinite(projected) ? ` The short-term projection is ${formatPercent(projected)}, so the machine is ${projected >= 0 ? "still leaning toward follow-through" : "not giving it much benefit of the doubt yet"}.` : "";
+  let headline;
+  if (isCooling && isDeep && isActive) {
+    headline = `${ticker} is not ranking because the chart is perfect right now. It is ranking because the market is still giving it real depth and real activity while the move cools off. That makes it a constructive watch, not a blind chase.${projectedText}`;
+  } else if (isHot && isActive && isDeep) {
+    headline = `${ticker} has the kind of upside action the machine is built to notice, but the important question is freshness. Volume and liquidity make the move more believable; the risk is that late buyers are already paying for the easy part.${projectedText}`;
+  } else if (isRiskOff && (isActive || isDeep)) {
+    headline = `${ticker} is getting credit mostly for quality of market structure. In a weaker tape, the machine is willing to keep liquid names on the board, but it wants confirmation before treating the setup as aggressive upside.${projectedText}`;
+  } else {
+    headline = `${ticker} is on the board because the current setup has enough activity, depth, and ViciSwap eligibility to deserve attention. The read is ${String(setupLabel).toLowerCase()} inside a ${String(marketLabel).toLowerCase()}, so the next few checks matter more than one headline number.${projectedText}`;
+  }
+  return {
+    source: "deterministic",
+    model: null,
+    headline,
+    points: [
+      {
+        label: "Why it is on the board",
+        text: packet.reason
+          ? rewriteReasonAsAnalystRead(ticker, packet.reason)
+          : `${ticker} has enough market activity and route depth to stay in the conversation. The machine is not saying the coin is risk-free; it is saying the setup is still worth monitoring against the rest of the eligible list.`,
+      },
+      {
+        label: "What supports the read",
+        text: confirmationReadText(ticker, packet, { isActive, isDeep, volumeText, liquidityText }),
+      },
+      {
+        label: "What could be wrong",
+        text: riskReadText(ticker, packet, { isCooling, isHot, isRiskOff }),
+      },
+      {
+        label: "What would change my mind",
+        text: watchReadText(ticker, packet),
+      },
+    ],
+  };
+}
+
+function firstInsightText(packet = {}, pattern) {
+  return (packet.insights || []).find((item) => pattern.test(`${item.label} ${item.text}`))?.text || "";
+}
+
+function rewriteReasonAsAnalystRead(ticker, reason) {
+  const clean = safeText(reason, 300);
+  if (!clean) return `${ticker} is on the board because its ranking inputs are holding up better than most eligible alternatives.`;
+  return clean
+    .replace(new RegExp(`^${ticker}\\s+is\\s+`, "i"), `${ticker} is `)
+    .replace(/\bIt is filtered to Base and the ViciSwap Receive list\.\s*/i, "")
+    .replace(/\bData edge:\s*/i, "The useful part is ")
+    .replace(/\bSetup read:\s*/i, "The setup read is ")
+    .trim();
+}
+
+function confirmationReadText(ticker, packet, context = {}) {
+  const timing = firstInsightText(packet, /timing|market read|conviction/i);
+  if (context.isActive && context.isDeep) {
+    return `${ticker} has enough volume and liquidity for the signal to mean something: ${context.volumeText} of 24h volume against ${context.liquidityText} of liquidity. ${timing || "That does not make it automatically bullish, but it reduces the chance that the rank is coming from a thin, easy-to-distort move."}`;
+  }
+  if (context.isActive) {
+    return `${ticker} has trading activity, which is the first thing the machine wants to see. The weaker part is depth, so the signal still needs route quality and exit liquidity to confirm.`;
+  }
+  if (context.isDeep) {
+    return `${ticker} has usable liquidity, which helps execution. The missing confirmation is fresh activity; without stronger volume, the coin can look stable without actually being ready to move.`;
+  }
+  return timing || `${ticker} needs stronger volume and cleaner depth before the machine should treat this as more than an early watchlist read.`;
+}
+
+function riskReadText(ticker, packet, context = {}) {
+  const execution = firstInsightText(packet, /execution|entry|risk/i);
+  if (context.isHot) {
+    return `${ticker} may already be late in the move. The machine can respect momentum, but if the next checks show fading volume or lower rank, this starts looking like chase risk instead of early strength.`;
+  }
+  if (context.isCooling) {
+    return `${ticker} is cooling off, so the ranking depends on whether buyers defend the pullback. If volume dries up while price keeps sliding, this should lose credit quickly.`;
+  }
+  if (context.isRiskOff) {
+    return `${ticker} is being judged in a weaker market. That means the bar is higher: good liquidity is helpful, but the machine should not overpay for a name just because it is the least bad option.`;
+  }
+  return execution || `The main risk is false confirmation: the coin can look good for one snapshot, then fail if volume, liquidity, or rank improvement does not persist.`;
+}
+
+function watchReadText(ticker, packet) {
+  const watch = firstInsightText(packet, /watch|hold|entry/i);
+  if (watch) return watch;
+  const projected = Number.isFinite(packet.projected24hChange) ? packet.projected24hChange : null;
+  if (Number.isFinite(projected) && projected > 0) {
+    return `I would watch whether ${ticker} keeps improving over the next few collector cycles. If price firms while volume and rank hold, the current bullish read gets more believable.`;
+  }
+  if (Number.isFinite(projected) && projected < 0) {
+    return `I would watch for stabilization first. A better read would need ${ticker} to stop sliding, hold liquidity, and show volume returning before the machine leans harder into it.`;
+  }
+  return `Watch the next few snapshots, not just this one. The signal gets stronger if rank, volume, liquidity, and chart structure improve together.`;
+}
+
+async function fetchOpenAiPulseAnalystRead(packet, fallback) {
+  if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PULSE_ANALYST_TIMEOUT_MS);
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        authorization: `Bearer ${OPENAI_API_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: PULSE_ANALYST_MODEL,
+        input: [
+          {
+            role: "system",
+            content: [
+              "You are the Bundle Builder analyst voice.",
+              "Explain a deterministic crypto ranking engine in plain English, like a thoughtful human analyst talking through the read.",
+              "Do not give financial advice, do not tell the user to buy or sell, and do not invent data.",
+              "Do not merely list the metrics. Explain why the metrics matter, what the machine may be seeing, what could be wrong, and what would change the read.",
+              "Write with clear judgment and a little natural texture. Avoid hype, marketing language, generic disclaimers, and robotic phrases.",
+              "Return only concise JSON with keys headline and points. points must be exactly four objects with label and text.",
+            ].join(" "),
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              instruction: [
+                "Write the coin explanation as a reasoning note, not a data recap.",
+                "Use the supplied fallback only as raw material; improve it if it sounds stiff.",
+                "The headline should be 2-3 natural sentences.",
+                "The four points should cover: why it is on the board, what supports the read, what could be wrong, and what would change your mind.",
+                "If the coin is down but still ranking, explicitly explain the distinction between momentum and market structure.",
+              ].join(" "),
+              packet,
+              fallback,
+            }),
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "pulse_analyst_read",
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["headline", "points"],
+              properties: {
+                headline: { type: "string", maxLength: 520 },
+                points: {
+                  type: "array",
+                  minItems: 4,
+                  maxItems: 4,
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["label", "text"],
+                    properties: {
+                      label: { type: "string", maxLength: 56 },
+                      text: { type: "string", maxLength: 420 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`OpenAI HTTP ${response.status}${text ? ` ${text.slice(0, 160)}` : ""}`);
+    }
+    const payload = await response.json();
+    const parsed = parseOpenAiJsonOutput(payload);
+    if (!parsed?.headline || !Array.isArray(parsed.points) || parsed.points.length < 4) {
+      throw new Error("OpenAI analyst response was incomplete");
+    }
+    return {
+      source: "openai",
+      model: PULSE_ANALYST_MODEL,
+      headline: safeText(parsed.headline, 560),
+      points: parsed.points.slice(0, 4).map((item, index) => ({
+        label: safeText(item.label, 60) || fallback.points[index]?.label || `Point ${index + 1}`,
+        text: safeText(item.text, 440) || fallback.points[index]?.text || "",
+      })),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseOpenAiJsonOutput(payload = {}) {
+  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
+    return JSON.parse(payload.output_text);
+  }
+  const text = (payload.output || [])
+    .flatMap((item) => item.content || [])
+    .map((part) => part.text || "")
+    .join("")
+    .trim();
+  return text ? JSON.parse(text) : null;
+}
+
+function pulseAnalystCacheKey(packet = {}) {
+  return [
+    packet.ticker,
+    packet.rank,
+    Math.round((packet.change24h || 0) * 10) / 10,
+    Math.round((packet.projected24hChange || 0) * 10) / 10,
+    packet.marketHealth?.score ?? "",
+    packet.marketHealth?.regime || "",
+    packet.reason?.slice(0, 120) || "",
+  ].join("|");
+}
+
+function prunePulseAnalystCache() {
+  if (pulseAnalystCache.size <= 80) return;
+  const cutoff = Date.now() - PULSE_ANALYST_CACHE_MS * 2;
+  for (const [key, entry] of pulseAnalystCache.entries()) {
+    if (!entry?.cachedAt || entry.cachedAt < cutoff) pulseAnalystCache.delete(key);
+  }
+}
+
+function formatCompactUsd(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "$0";
+  if (Math.abs(number) >= 1_000_000_000) return `$${(number / 1_000_000_000).toFixed(1)}B`;
+  if (Math.abs(number) >= 1_000_000) return `$${(number / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(number) >= 1_000) return `$${Math.round(number / 1_000)}K`;
+  return `$${Math.round(number)}`;
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  const sign = number > 0 ? "+" : "";
+  return `${sign}${number.toFixed(2)}%`;
 }
 
 function serveStaticAsset(rawPathname, method, response) {
@@ -2506,10 +2864,72 @@ function projectedCollectorChange(candidate, key) {
   const regimeLift = (finiteNumber(candidate.regimeFit) || 0) * (key === "30d" ? 0.24 : key === "7d" ? 0.32 : 0.16);
   const confidence = finiteNumber(candidate.confidenceScore) || 50;
   const fragility = finiteNumber(candidate.fragilityScore) || 45;
+  const freshnessPenalty = collectorFreshnessPenalty(candidate);
+  const confirmationPenalty = collectorHighBetaConfirmationPenalty(candidate);
+  const quietReversalLift = collectorQuietReversalLift(candidate);
+  const marketRegime = String(candidate.regime || "").toLowerCase();
+  const regimeDampener = marketRegime.includes("risk-off") || marketRegime.includes("weak")
+    ? key === "30d" ? 0.82 : key === "7d" ? 0.88 : 0.92
+    : 1;
   const confidenceMultiplier = clamp(0.82 + (confidence - 50) / 140, 0.72, 1.18);
   const fragilityBrake = Math.max(0, fragility - 52) * (key === "30d" ? 0.06 : key === "7d" ? 0.045 : 0.025);
-  const rawChange = ((trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift + wakeLift + confirmedWakeLift + rankLift + regimeLift - extensionBrake) * horizon * reliability * confidenceMultiplier) - fragilityBrake;
+  const confirmationBrake = (freshnessPenalty + confirmationPenalty) * (key === "30d" ? 0.22 : key === "7d" ? 0.16 : 0.08);
+  const rawSignal = trend * 0.29 + setupBias + scoreBias + opportunityBias + betaBias + reversalLift + wakeLift + confirmedWakeLift + rankLift + regimeLift + quietReversalLift - extensionBrake;
+  const rawChange = (rawSignal * horizon * reliability * confidenceMultiplier * regimeDampener) - fragilityBrake - confirmationBrake;
   return Number((clamp(rawChange, key === "30d" ? -44 : key === "7d" ? -28 : -12, key === "30d" ? 58 : key === "7d" ? 34 : 15)).toFixed(2));
+}
+
+function collectorFreshnessPenalty(candidate = {}) {
+  const change = finiteNumber(candidate.priceChange24h) || 0;
+  const rankMomentum = finiteNumber(candidate.rankMomentum) || 0;
+  const extension = finiteNumber(candidate.extensionPenalty) || 0;
+  const opportunity = finiteNumber(candidate.opportunityScore) || 0;
+  let penalty = 0;
+  if (change >= 12 && opportunity < 7) penalty += 5;
+  if (change >= 18 && opportunity < 9) penalty += 5;
+  if (change >= 8 && rankMomentum < 0) penalty += 4;
+  if (extension >= 5) penalty += extension * 0.8;
+  return clamp(penalty, 0, 18);
+}
+
+function collectorHighBetaConfirmationPenalty(candidate = {}) {
+  if (!collectorIsHighBeta(candidate)) return 0;
+  const volume = finiteNumber(candidate.volume24h) || 0;
+  const liquidity = finiteNumber(candidate.liquidityUsd) || 0;
+  const confirmed = finiteNumber(candidate.confirmedWakeUpScore) || 0;
+  const confidence = finiteNumber(candidate.confidenceScore) || 0;
+  let penalty = 0;
+  if (volume < 150_000) penalty += 7;
+  else if (volume < 350_000) penalty += 3;
+  if (liquidity < 120_000) penalty += 7;
+  else if (liquidity < 300_000) penalty += 3;
+  if (confirmed < 45) penalty += 4;
+  if (confidence < 45) penalty += 3;
+  return clamp(penalty, 0, 20);
+}
+
+function collectorQuietReversalLift(candidate = {}) {
+  const change = finiteNumber(candidate.priceChange24h) || 0;
+  const opportunity = finiteNumber(candidate.opportunityScore) || 0;
+  const wake = finiteNumber(candidate.wakeUpScore) || 0;
+  const confirmed = finiteNumber(candidate.confirmedWakeUpScore) || 0;
+  const rankMomentum = finiteNumber(candidate.rankMomentum) || 0;
+  const volume = finiteNumber(candidate.volume24h) || 0;
+  const liquidity = finiteNumber(candidate.liquidityUsd) || 0;
+  const hasDepth = volume >= 120_000 && liquidity >= 100_000;
+  let lift = 0;
+  if (hasDepth && change >= -5 && change <= 3 && opportunity >= 5) lift += 2.5;
+  if (hasDepth && change >= -4 && change <= 2 && wake >= 55) lift += 2.5;
+  if (hasDepth && confirmed >= 50 && rankMomentum > 0) lift += 2;
+  if (collectorIsHighBeta(candidate) && hasDepth && change <= 4 && wake >= 60 && confirmed >= 45) lift += 2;
+  return clamp(lift, 0, 9);
+}
+
+function collectorIsHighBeta(candidate = {}) {
+  const ticker = safeText(candidate.ticker, 20).toUpperCase();
+  const theme = String(candidate.theme || "").toLowerCase();
+  return ["ai", "base", "consumer", "creator", "gaming"].includes(theme)
+    || ["AIXBT", "BIO", "BNKR", "BRETT", "CHECK", "CHIP", "CLANKER", "DEGEN", "DINO", "FUN", "KAITO", "MOG", "NOCK", "TOSHI", "VIRTUAL", "VVV", "ZORA"].includes(ticker);
 }
 
 function buildCollectorProjection(startPrice, projectedChange, candidate, key) {
@@ -2842,6 +3262,140 @@ function publicMarketRead(read = {}) {
     wakeListPressure: roundTo(read.wakeListPressure, 2),
     wakeListLeaders: Array.isArray(read.wakeListLeaders) ? read.wakeListLeaders : [],
   };
+}
+
+function buildInternalAccuracyDashboard(snapshots = [], accuracy = null) {
+  const ordered = (Array.isArray(snapshots) ? snapshots : [])
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const outcomes = [];
+  for (const snapshot of ordered) {
+    const startTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(startTime)) continue;
+    for (const coin of Array.isArray(snapshot.coins) ? snapshot.coins : []) {
+      const startPrice = finiteNumber(coin.priceUsd);
+      const projectedChange = finiteNumber(coin.projected24hChange);
+      if (!startPrice || !Number.isFinite(projectedChange)) continue;
+      const future = findDashboardFutureCoin(ordered, coin, startTime + 24 * 60 * 60 * 1000);
+      const endPrice = finiteNumber(future?.priceUsd);
+      if (!endPrice) continue;
+      const actualChange = ((endPrice - startPrice) / startPrice) * 100;
+      outcomes.push({
+        ticker: safeText(coin.ticker, 20).toUpperCase(),
+        rank: finiteNumber(coin.rank),
+        projectedChange,
+        actualChange,
+        error: actualChange - projectedChange,
+        absoluteError: Math.abs(actualChange - projectedChange),
+        confidenceScore: finiteNumber(coin.confidenceScore),
+        fragilityScore: finiteNumber(coin.fragilityScore),
+        wakeUpScore: finiteNumber(coin.wakeUpScore),
+        confirmedWakeUpScore: finiteNumber(coin.confirmedWakeUpScore),
+        rankMomentum: finiteNumber(coin.rankMomentum),
+        volume24h: finiteNumber(coin.volume24h),
+        liquidityUsd: finiteNumber(coin.liquidityUsd),
+        regime: safeText(coin.regime, 40),
+      });
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    snapshots: ordered.length,
+    checked24h: outcomes.length,
+    headline: {
+      directionAccuracy: percent(outcomes.filter((item) => dashboardDirectionMatches(item.projectedChange, item.actualChange)).length, outcomes.length),
+      averageProjectedChange: roundTo(averageValue(outcomes.map((item) => item.projectedChange)), 2),
+      averageActualChange: roundTo(averageValue(outcomes.map((item) => item.actualChange)), 2),
+      meanAbsoluteError: roundTo(averageValue(outcomes.map((item) => item.absoluteError)), 2),
+    },
+    accuracy,
+    byTicker: summarizeDashboardGroups(outcomes, (item) => item.ticker).slice(0, 14),
+    overRanked: outcomes
+      .filter((item) => (item.rank || 99) <= 5 && item.actualChange < item.projectedChange - 4)
+      .sort((a, b) => b.absoluteError - a.absoluteError)
+      .slice(0, 10)
+      .map(publicDashboardOutcome),
+    missedUpside: outcomes
+      .filter((item) => item.actualChange >= 4 && item.projectedChange < item.actualChange / 2)
+      .sort((a, b) => (b.actualChange - b.projectedChange) - (a.actualChange - a.projectedChange))
+      .slice(0, 10)
+      .map(publicDashboardOutcome),
+    confidenceBands: summarizeDashboardBands(outcomes, (item) => item.confidenceScore, [[0, 45, "low"], [45, 65, "medium"], [65, 101, "high"]]),
+    fragilityBands: summarizeDashboardBands(outcomes, (item) => item.fragilityScore, [[0, 35, "low"], [35, 60, "medium"], [60, 101, "high"]]),
+    wakeBands: summarizeDashboardBands(outcomes, (item) => item.wakeUpScore, [[0, 45, "quiet"], [45, 70, "building"], [70, 101, "hot"]]),
+  };
+}
+
+function findDashboardFutureCoin(snapshots, coin, targetTime) {
+  for (const snapshot of snapshots) {
+    const snapshotTime = new Date(snapshot.createdAt).getTime();
+    if (!Number.isFinite(snapshotTime) || snapshotTime < targetTime) continue;
+    const ticker = safeText(coin.ticker, 20).toUpperCase();
+    const match = (Array.isArray(snapshot.coins) ? snapshot.coins : []).find((futureCoin) => safeText(futureCoin.ticker, 20).toUpperCase() === ticker);
+    if (match) return match;
+  }
+  return null;
+}
+
+function summarizeDashboardGroups(outcomes, keyForItem) {
+  const groups = new Map();
+  outcomes.forEach((item) => {
+    const key = keyForItem(item);
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  });
+  return [...groups.entries()].map(([key, items]) => ({
+    key,
+    count: items.length,
+    directionAccuracy: percent(items.filter((item) => dashboardDirectionMatches(item.projectedChange, item.actualChange)).length, items.length),
+    averageProjectedChange: roundTo(averageValue(items.map((item) => item.projectedChange)), 2),
+    averageActualChange: roundTo(averageValue(items.map((item) => item.actualChange)), 2),
+    meanAbsoluteError: roundTo(averageValue(items.map((item) => item.absoluteError)), 2),
+  })).sort((a, b) => b.count - a.count || b.meanAbsoluteError - a.meanAbsoluteError);
+}
+
+function summarizeDashboardBands(outcomes, valueForItem, bands) {
+  return bands.map(([min, max, label]) => {
+    const items = outcomes.filter((item) => {
+      const value = finiteNumber(valueForItem(item));
+      return Number.isFinite(value) && value >= min && value < max;
+    });
+    return {
+      label,
+      count: items.length,
+      directionAccuracy: percent(items.filter((item) => dashboardDirectionMatches(item.projectedChange, item.actualChange)).length, items.length),
+      averageProjectedChange: roundTo(averageValue(items.map((item) => item.projectedChange)), 2),
+      averageActualChange: roundTo(averageValue(items.map((item) => item.actualChange)), 2),
+      meanAbsoluteError: roundTo(averageValue(items.map((item) => item.absoluteError)), 2),
+    };
+  });
+}
+
+function publicDashboardOutcome(item) {
+  return {
+    ticker: item.ticker,
+    rank: item.rank,
+    projectedChange: roundTo(item.projectedChange, 2),
+    actualChange: roundTo(item.actualChange, 2),
+    error: roundTo(item.error, 2),
+    confidenceScore: item.confidenceScore,
+    fragilityScore: item.fragilityScore,
+    wakeUpScore: item.wakeUpScore,
+    confirmedWakeUpScore: item.confirmedWakeUpScore,
+    volume24h: item.volume24h,
+    liquidityUsd: item.liquidityUsd,
+  };
+}
+
+function dashboardDirectionMatches(projectedChange, actualChange) {
+  if (Math.abs(projectedChange) < 1 && Math.abs(actualChange) < 1.5) return true;
+  return (projectedChange >= 0 && actualChange >= 0) || (projectedChange < 0 && actualChange < 0);
+}
+
+function percent(part, total) {
+  return total ? Math.round((part / total) * 100) : null;
 }
 
 function buildWakeUpReview(snapshots = []) {

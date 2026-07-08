@@ -2,7 +2,7 @@ const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://
 const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.136";
+const API_VERSION = "0.1.146";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -1160,8 +1160,69 @@ function scoreCandidate(candidate, params) {
   const confidence = confidenceSignalForCandidate(candidate, params).score;
   const confidenceBoost = (confidence - 50) * 0.08;
   const speculativePenalty = speculativePenaltyForRisk(candidate, params);
+  const freshnessPenalty = freshnessDecayPenalty(candidate);
+  const confirmationPenalty = highBetaConfirmationPenalty(candidate);
+  const quietReversalBoost = quietReversalBoostForCandidate(candidate);
   const riskWeight = riskMomentumMultiplier(params.risk);
-  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore + confidenceBoost - liquidityPenalty - speculativePenalty;
+  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore + confidenceBoost + quietReversalBoost - liquidityPenalty - speculativePenalty - freshnessPenalty - confirmationPenalty;
+}
+
+function freshnessDecayPenalty(candidate = {}) {
+  const market = candidate.market || {};
+  const change24h = finiteOrNull(market.change24h) || 0;
+  const change6h = finiteOrNull(market.change6h);
+  const change1h = finiteOrNull(market.change1h);
+  const trend = trendContinuationScore(market);
+  const volume = finiteOrNull(market.volume24h) || 0;
+  const liquidity = finiteOrNull(market.liquidityUsd) || 0;
+  let penalty = 0;
+
+  if (change24h >= 12 && trend < 0.5) penalty += 5;
+  if (change24h >= 18 && trend < 1.5) penalty += 6;
+  if (change24h >= 8 && Number.isFinite(change6h) && change6h < 0) penalty += 4;
+  if (change24h >= 5 && Number.isFinite(change1h) && change1h < -1.5) penalty += 3;
+  if (change24h >= 10 && volume < 250_000) penalty += 4;
+  if (change24h >= 10 && liquidity < 200_000) penalty += 4;
+  return clamp(penalty, 0, 16);
+}
+
+function highBetaConfirmationPenalty(candidate = {}) {
+  if (!isHighBetaCandidate(candidate)) return 0;
+  const market = candidate.market || {};
+  const volume = finiteOrNull(market.volume24h) || 0;
+  const liquidity = finiteOrNull(market.liquidityUsd) || 0;
+  const change24h = finiteOrNull(market.change24h) || 0;
+  const trend = trendContinuationScore(market);
+  let penalty = 0;
+
+  if (volume < 150_000) penalty += 7;
+  else if (volume < 350_000) penalty += 3;
+  if (liquidity < 125_000) penalty += 7;
+  else if (liquidity < 300_000) penalty += 3;
+  if (change24h > 4 && trend < 0) penalty += 4;
+  if (change24h > 12 && trend < 2) penalty += 4;
+  return clamp(penalty, 0, 18);
+}
+
+function quietReversalBoostForCandidate(candidate = {}) {
+  const market = candidate.market || {};
+  const category = candidate.categorySignal || {};
+  const change24h = finiteOrNull(market.change24h) || 0;
+  const change6h = finiteOrNull(market.change6h);
+  const change1h = finiteOrNull(market.change1h);
+  const volume = finiteOrNull(market.volume24h) || 0;
+  const liquidity = finiteOrNull(market.liquidityUsd) || 0;
+  const trend = trendContinuationScore(market);
+  const relativeStrength = finiteOrNull(category.relativeStrength24h) || 0;
+  const usableDepth = volume >= 120_000 && liquidity >= 100_000;
+  let boost = 0;
+
+  if (usableDepth && change24h >= -4 && change24h <= 3 && trend > 0.5) boost += 5;
+  if (usableDepth && change24h < 0 && Number.isFinite(change6h) && change6h > 0) boost += 3;
+  if (usableDepth && Number.isFinite(change1h) && change1h > 0 && Number.isFinite(change6h) && change6h >= -1) boost += 2;
+  if (relativeStrength >= 4 && change24h <= 4) boost += 3;
+  if (isHighBetaCandidate(candidate) && usableDepth && change24h >= -5 && change24h <= 2 && trend > 0) boost += 2;
+  return clamp(boost, 0, 12);
 }
 
 function marketEdgeSignal(candidate) {
@@ -1283,6 +1344,16 @@ function confidenceSignalForCandidate(candidate, params = {}) {
     watchouts.push("speculative/community token is not a natural low-risk fit");
   }
 
+  const freshnessPenalty = freshnessDecayPenalty(candidate);
+  const highBetaPenalty = highBetaConfirmationPenalty(candidate);
+  const quietBoost = quietReversalBoostForCandidate(candidate);
+  score += quietBoost * 0.65;
+  score -= freshnessPenalty * 0.85;
+  score -= highBetaPenalty * 0.9;
+  if (freshnessPenalty >= 6) watchouts.push("recent move may be losing freshness");
+  if (highBetaPenalty >= 6) watchouts.push("high-beta setup needs stronger volume or depth confirmation");
+  if (quietBoost >= 5) reasons.push("quiet reversal setup is improving");
+
   const normalized = roundPercent(clamp(score, 0, 100));
   return {
     label: normalized >= 75 ? "High confidence" : normalized >= 55 ? "Medium confidence" : "Low confidence",
@@ -1379,6 +1450,16 @@ function isSpeculativeCandidate(candidate = {}) {
   const ticker = normalizeTicker(candidate.ticker);
   const theme = String(candidate.theme || "").toLowerCase();
   return theme.includes("meme") || ["BRETT", "DEGEN", "TOSHI", "MOG", "ZORA", "DINO", "CHECK", "CLANKER"].includes(ticker);
+}
+
+function isHighBetaCandidate(candidate = {}) {
+  const ticker = normalizeTicker(candidate.ticker);
+  const theme = String(candidate.theme || "").toLowerCase();
+  return theme.includes("ai")
+    || theme.includes("base")
+    || theme.includes("consumer")
+    || theme.includes("creator")
+    || ["AIXBT", "BIO", "BNKR", "BRETT", "CHECK", "CHIP", "CLANKER", "DEGEN", "DINO", "FUN", "KAITO", "MOG", "NOCK", "TOSHI", "VIRTUAL", "VVV", "ZORA"].includes(ticker);
 }
 
 function speculativePenaltyForRisk(candidate, params = {}) {

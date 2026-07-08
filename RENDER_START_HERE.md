@@ -54,6 +54,16 @@ BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
 
 Do not set `PORT` unless Render specifically asks for it. Render usually provides it automatically.
 
+Optional Live Market Pulse analyst notes:
+
+```text
+OPENAI_API_KEY=your-openai-api-key
+BUNDLE_BUILDER_PULSE_ANALYST_MODEL=gpt-4.1-mini
+BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS=600000
+```
+
+The LLM is only used to explain the deterministic machine signals. It does not choose rankings or replace the scoring engine. If `OPENAI_API_KEY` is missing, Bundle Builder falls back to local rule-based explanations.
+
 ## After Render Deploys
 
 Check:
@@ -68,7 +78,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.134",
+  "version": "0.1.146",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true

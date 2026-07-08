@@ -598,6 +598,7 @@ const MARKET_PULSE_LOOKUP_BATCH_SIZE = 15;
 const NEWS_CATALYST_TIMEOUT_MS = 3000;
 const NEWS_CATALYST_LOOKUP_LIMIT = 5;
 const NEWS_CATALYST_CACHE_MS = 1000 * 60 * 10;
+const PULSE_ANALYST_CACHE_MS = 1000 * 60 * 10;
 const BINANCE_TICKER_CACHE_MS = 1000 * 60 * 2;
 const COINBASE_STATS_CACHE_MS = 1000 * 60 * 2;
 const CRYPTOCOMPARE_STATS_CACHE_MS = 1000 * 60 * 2;
@@ -1005,6 +1006,7 @@ let pendingPulseChartLoads = new Map();
 let pendingPulseWindowLoads = new Map();
 let unavailablePulseWindows = new Map();
 let marketHealthCache = null;
+let pulseAnalystCache = new Map();
 let marketHealthLiveTimer = null;
 let marketHealthLiveBase = null;
 let marketHealthLiveCurrent = null;
@@ -8088,6 +8090,24 @@ async function fetchJsonUrl(url) {
   }
 }
 
+async function fetchJsonPostUrl(url, body = {}) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`Request unavailable: ${response.status}`);
+    return await response.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 function fetchMarketJsonViaAssistant(url) {
   return new Promise((resolve, reject) => {
     const requestId = `market-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -8894,7 +8914,21 @@ function entryCautionFlag(favorite = {}) {
 }
 
 function pulseSummaryButton(favorite = {}) {
-  return "";
+  if (!favorite || favorite.source === "Market data unavailable" || favorite.ticker === "--") return "";
+  const ticker = normalizeTicker(favorite.ticker) || "coin";
+  const panelId = `pulse-ai-${ticker.toLowerCase()}`;
+  const summary = buildPulseAiSummary(favorite);
+  return `
+    <div class="pulse-ai-summary" data-pulse-analyst-root="${escapeAttribute(ticker)}">
+      <button class="pulse-ai-trigger" type="button" aria-expanded="false" aria-controls="${escapeAttribute(panelId)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3" /><path d="M12 18v3" /><path d="m4.93 4.93 2.12 2.12" /><path d="m16.95 16.95 2.12 2.12" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m4.93 19.07 2.12-2.12" /><path d="m16.95 7.05 2.12-2.12" /></svg>
+        <span>Machine read</span>
+      </button>
+      <div class="pulse-ai-popover" id="${escapeAttribute(panelId)}" hidden>
+        ${renderPulseAnalystPanel(favorite, summary, { source: "deterministic" })}
+      </div>
+    </div>
+  `;
 }
 
 function pulseSummaryButtonText(favorite = {}) {
@@ -8944,6 +8978,38 @@ function buildPulseAiSummary(favorite = {}) {
       { label: "Near-term outlook", text: outlookText },
     ],
   };
+}
+
+function renderPulseAnalystPanel(favorite = {}, summary = {}, meta = {}) {
+  const ticker = normalizeTicker(favorite.ticker) || "coin";
+  const source = meta.source === "openai" ? "AI analyst" : "Local read";
+  const warning = meta.warning ? `<p class="pulse-ai-warning">${escapeHtml(meta.warning)}</p>` : "";
+  const points = Array.isArray(summary.points) && summary.points.length ? summary.points : buildPulseAiSummary(favorite).points;
+  return `
+    <div class="pulse-ai-modal-head">
+      <strong>${escapeHtml(ticker)} machine read</strong>
+      <span>${escapeHtml(source)}</span>
+      <button class="pulse-ai-close" type="button" aria-label="Close machine read">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+      </button>
+    </div>
+    <div class="pulse-ai-modal-content">
+      <div class="pulse-ai-head">
+        <span>Analyst note</span>
+        <strong>${escapeHtml(summary.headline || `${ticker} is being explained from the machine's current ranking signals.`)}</strong>
+      </div>
+      ${warning}
+      ${summary.news ? renderPulseNewsFound(summary.news) : ""}
+      <ul class="pulse-ai-points">
+        ${points.slice(0, 4).map((point) => `
+          <li>
+            <span>${escapeHtml(point.label || "Signal")}</span>
+            <p>${escapeHtml(point.text || "")}</p>
+          </li>
+        `).join("")}
+      </ul>
+    </div>
+  `;
 }
 
 function renderPulseNewsFound(news = {}) {
@@ -10307,12 +10373,16 @@ function stopPulseLoading() {
 function renderPulseInsights(favorite) {
   if (!favoriteCoinInsights) return;
   const insights = buildPulseInsights(favorite).slice(0, 6);
-  favoriteCoinInsights.innerHTML = insights.map((insight) => `
+  favoriteCoinInsights.innerHTML = `
+    ${pulseSummaryButton(favorite)}
+    ${insights.map((insight) => `
     <div class="pulse-insight">
       <span>${escapeHtml(insight.label)}</span>
       <p>${escapeHtml(insight.text)}</p>
     </div>
-  `).join("");
+  `).join("")}
+  `;
+  warmPulseAnalystRead(favorite, insights);
 }
 
 function buildPulseInsights(favorite = {}) {
@@ -10402,6 +10472,89 @@ function buildPulseInsights(favorite = {}) {
   }
 
   return insights;
+}
+
+function pulseAnalystKey(favorite = {}) {
+  const ticker = normalizeTicker(favorite.ticker) || "coin";
+  const change = finiteOrNull(favorite.change24h);
+  const projected = finiteOrNull(favorite.projected24hChange);
+  const health = finiteOrNull(marketHealthCache?.score);
+  return [
+    ticker,
+    favorite.rank || "",
+    Number.isFinite(change) ? change.toFixed(1) : "",
+    Number.isFinite(projected) ? projected.toFixed(1) : "",
+    Number.isFinite(health) ? health : "",
+  ].join("|");
+}
+
+function pulseAnalystPayload(favorite = {}, insights = []) {
+  return {
+    coin: {
+      ticker: favorite.ticker,
+      name: favorite.name,
+      rank: favorite.rank,
+      source: favorite.source,
+      theme: favorite.theme,
+      change24h: favorite.change24h,
+      change7d: favorite.change7d,
+      volume24h: favorite.volume24h ?? favorite.total_volume,
+      liquidityUsd: favorite.liquidityUsd,
+      pulseScore: favorite.pulseScore,
+      projected24hChange: favorite.projected24hChange,
+      reason: favorite.reason,
+      marketSetup: favorite.marketSetup,
+      marketEdge: favorite.marketEdge,
+      newsCatalyst: favorite.newsCatalyst,
+    },
+    marketHealth: marketHealthCache ? {
+      score: marketHealthCache.score,
+      label: marketHealthCache.label,
+      summary: marketHealthCache.summary,
+      context: marketHealthCache.context,
+    } : null,
+    insights: insights.slice(0, 6),
+  };
+}
+
+async function warmPulseAnalystRead(favorite = {}, insights = []) {
+  if (!favorite || favorite.source === "Market data unavailable" || favorite.ticker === "--") return;
+  const key = pulseAnalystKey(favorite);
+  const cached = pulseAnalystCache.get(key);
+  if (cached && Date.now() - cached.loadedAt < PULSE_ANALYST_CACHE_MS) {
+    updatePulseAnalystPanel(favorite, cached.value);
+    return;
+  }
+  try {
+    const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
+    const value = await fetchJsonPostUrl(`${baseUrl}/api/v1/pulse-analyst`, pulseAnalystPayload(favorite, insights));
+    if (!value?.ok) return;
+    pulseAnalystCache.set(key, { value, loadedAt: Date.now() });
+    updatePulseAnalystPanel(favorite, value);
+  } catch (error) {
+    const fallback = buildPulseAiSummary(favorite);
+    updatePulseAnalystPanel(favorite, {
+      source: "deterministic-fallback",
+      warning: "The cached analyst endpoint is unavailable, so this explanation is using local machine rules.",
+      headline: fallback.headline,
+      points: fallback.points,
+    });
+  }
+}
+
+function updatePulseAnalystPanel(favorite = {}, analysis = {}) {
+  const ticker = normalizeTicker(favorite.ticker) || "coin";
+  if (currentFavorite && normalizeTicker(currentFavorite.ticker) !== ticker) return;
+  const panel = document.getElementById(`pulse-ai-${ticker.toLowerCase()}`);
+  if (!panel) return;
+  const summary = {
+    headline: analysis.headline,
+    points: analysis.points,
+  };
+  panel.innerHTML = renderPulseAnalystPanel(favorite, summary, {
+    source: analysis.source,
+    warning: analysis.warning,
+  });
 }
 
 function plainMarketRead(ticker, change, volume, liquidity, setup = null) {

@@ -1856,6 +1856,17 @@ body.pulse-ai-modal-open {
   background: linear-gradient(135deg, rgba(243, 247, 255, 0.94), rgba(252, 244, 255, 0.94));
 }
 
+.pulse-ai-warning {
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(213, 162, 27, 0.28);
+  border-radius: 10px;
+  color: #76520b;
+  background: rgba(255, 246, 221, 0.9);
+  font-size: 0.76rem;
+  font-weight: 820;
+}
+
 .pulse-ai-head span,
 .pulse-ai-news > span,
 .pulse-ai-points span {
