@@ -84,7 +84,7 @@ After deploy, open Supabase SQL Editor and run:
 SUPABASE_RLS_FIX.sql
 ```
 
-This locks down `pulse_snapshots` and `chart_cache` from Supabase anon/authenticated/public direct access. The Render server should still work through `DATABASE_URL`.
+This locks down `pulse_snapshots`, `chart_cache`, `profiles`, `profiles_login_codes`, and `profiles_sessions` from Supabase anon/authenticated/public direct access. The Render server should still work through `DATABASE_URL`.
 
 ## After Render Deploys
 
@@ -100,12 +100,16 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.148",
+  "version": "0.1.149",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true
 },
 "chartCacheStorage": {
+  "mode": "postgres",
+  "durable": true
+},
+"profileStorage": {
   "mode": "postgres",
   "durable": true
 },

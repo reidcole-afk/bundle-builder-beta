@@ -73,9 +73,9 @@ Bundle Builder now includes a standalone prototype profile store in `src/profile
 - review alerts
 - builder preferences
 
-The current beta stores those profile snapshots in a local fallback file unless `BUNDLE_BUILDER_DATA_DIR` is explicitly configured. Leave `BUNDLE_BUILDER_DATA_DIR` unset on Render Free unless a persistent disk is mounted. Machine pulse snapshots and chart cache use Supabase/Postgres when `DATABASE_URL` is configured. Profile data may still reset on Render Free until profiles are moved to Supabase too.
+On Render, profile snapshots, login codes, and sessions use Supabase/Postgres when `DATABASE_URL` is configured. Local/dev runs without `DATABASE_URL` still use a temporary file fallback.
 
-After `DATABASE_URL` is configured, run `SUPABASE_RLS_FIX.sql` in Supabase SQL Editor. It enables RLS and revokes anon/authenticated access for the server-owned `pulse_snapshots` and `chart_cache` tables.
+After `DATABASE_URL` is configured, run `SUPABASE_RLS_FIX.sql` in Supabase SQL Editor. It enables RLS and revokes anon/authenticated access for the server-owned `pulse_snapshots`, `chart_cache`, `profiles`, `profiles_login_codes`, and `profiles_sessions` tables.
 
 For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast.
 
@@ -92,7 +92,7 @@ Make sure the sender/domain is verified in Resend before switching the live app 
 
 ## Database-Ready Storage Seam
 
-The beta API routes submitted bundle snapshots through `src/bundle-store.js` and profile snapshots through `src/profile-store.js`. They still use JSON files today so the deploy stays simple, but the server routes call repositories instead of reading or writing storage directly.
+The beta API routes submitted bundle snapshots through `src/bundle-store.js` and profile snapshots through `src/profile-store.js`. Profile storage uses Postgres in production and a JSON fallback in local/dev. The server routes call repositories instead of reading or writing storage directly.
 
 Submitted bundle repository methods:
 
@@ -108,7 +108,7 @@ Profile repository methods:
 - `saveProfileSnapshot(token, snapshot)`
 - `descriptor()`
 
-When the DB/Python refactor starts, replace these repositories with database-backed adapters that preserve the method names and record shape. That keeps `/api/v1/submitted-bundles` and `/api/v1/profile` stable while the backing store moves to SQLite, Postgres, or a Python-managed service.
+When the DB/Python refactor starts, keep these repository method names and record shapes stable so `/api/v1/submitted-bundles` and `/api/v1/profile` do not need UI changes.
 
 ## DNS Handoff
 

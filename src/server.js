@@ -606,7 +606,7 @@ async function handleRequest(request, response) {
       }
       const body = await readJsonBody(request);
       try {
-        const login = profileRepository.requestLoginCode(body.email);
+        const login = await profileRepository.requestLoginCode(body.email);
         if (emailDeliveryMode() === "provider") {
           await sendLoginCodeEmail(login);
         }
@@ -635,7 +635,7 @@ async function handleRequest(request, response) {
       }
       const body = await readJsonBody(request);
       try {
-        const session = profileRepository.verifyLoginCode(body.email, body.code);
+        const session = await profileRepository.verifyLoginCode(body.email, body.code);
         sendJson(response, 200, {
           ok: true,
           token: session.token,
@@ -650,7 +650,7 @@ async function handleRequest(request, response) {
 
     if (url.pathname === "/api/v1/profile") {
       const token = bearerToken(request);
-      const profile = profileRepository.profileForToken(token);
+      const profile = await profileRepository.profileForToken(token);
       if (!profile) {
         sendJson(response, 401, { ok: false, error: "Profile login required." });
         return;
@@ -667,7 +667,7 @@ async function handleRequest(request, response) {
 
       if (request.method === "PUT") {
         const body = await readJsonBody(request);
-        const savedProfile = profileRepository.saveProfileSnapshot(token, body);
+        const savedProfile = await profileRepository.saveProfileSnapshot(token, body);
         sendJson(response, 200, {
           ok: true,
           storage: profileRepository.descriptor(),
