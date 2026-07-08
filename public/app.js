@@ -8101,9 +8101,9 @@ async function fetchJsonUrl(url) {
   }
 }
 
-async function fetchJsonPostUrl(url, body = {}) {
+async function fetchJsonPostUrl(url, body = {}, { timeoutMs = 8000 } = {}) {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 8000);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -8993,8 +8993,9 @@ function buildPulseAiSummary(favorite = {}) {
 
 function renderPulseAnalystPanel(favorite = {}, summary = {}, meta = {}) {
   const ticker = normalizeTicker(favorite.ticker) || "coin";
-  const source = meta.source === "openai" ? "AI analyst" : "Local read";
-  const warning = meta.warning ? `<p class="pulse-ai-warning">${escapeHtml(meta.warning)}</p>` : "";
+  const source = meta.source === "openai" ? "AI analyst" : "Machine read";
+  const warningText = analystWarningText(meta.warning);
+  const warning = warningText ? `<p class="pulse-ai-warning">${escapeHtml(warningText)}</p>` : "";
   const points = Array.isArray(summary.points) && summary.points.length ? summary.points : buildPulseAiSummary(favorite).points;
   return `
     <div class="pulse-ai-modal-head">
@@ -10537,7 +10538,11 @@ async function warmPulseAnalystRead(favorite = {}, insights = []) {
   }
   try {
     const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
-    const value = await fetchJsonPostUrl(`${baseUrl}/api/v1/pulse-analyst`, pulseAnalystPayload(favorite, insights));
+    const value = await fetchJsonPostUrl(
+      `${baseUrl}/api/v1/pulse-analyst`,
+      pulseAnalystPayload(favorite, insights),
+      { timeoutMs: 15000 },
+    );
     if (!value?.ok) return;
     pulseAnalystCache.set(key, { value, loadedAt: Date.now() });
     updatePulseAnalystPanel(favorite, value);
@@ -10545,11 +10550,20 @@ async function warmPulseAnalystRead(favorite = {}, insights = []) {
     const fallback = buildPulseAiSummary(favorite);
     updatePulseAnalystPanel(favorite, {
       source: "deterministic-fallback",
-      warning: "The cached analyst endpoint is unavailable, so this explanation is using local machine rules.",
+      warning: "AI analyst note is taking longer than expected, so this is the machine read from the same live inputs.",
       headline: fallback.headline,
       points: fallback.points,
     });
   }
+}
+
+function analystWarningText(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (/unavailable|endpoint|failed|abort|timed out|timeout/i.test(text)) {
+    return "AI analyst note is taking longer than expected, so this is the machine read from the same live inputs.";
+  }
+  return text;
 }
 
 function updatePulseAnalystPanel(favorite = {}, analysis = {}) {

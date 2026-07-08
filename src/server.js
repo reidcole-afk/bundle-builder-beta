@@ -42,7 +42,7 @@ const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const PULSE_ANALYST_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_MODEL || "gpt-4.1-mini";
 const PULSE_ANALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS || 1000 * 60 * 10);
-const PULSE_ANALYST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_TIMEOUT_MS || 8000);
+const PULSE_ANALYST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_TIMEOUT_MS || 12000);
 const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
 const ADMIN_SECRET = process.env.BUNDLE_BUILDER_ADMIN_SECRET || "";
 const AUTH_SECRET_CONFIGURED = Boolean(process.env.BUNDLE_BUILDER_AUTH_SECRET);
@@ -1081,7 +1081,7 @@ async function getPulseAnalystRead(body = {}) {
       value = {
         ...value,
         source: "deterministic-fallback",
-        warning: `LLM analyst unavailable: ${safeText(error.message, 180)}`,
+        warning: "AI analyst note is taking longer than expected, so this is the machine read from the same live inputs.",
       };
     }
   }
