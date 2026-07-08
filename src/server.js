@@ -1134,29 +1134,31 @@ function buildDeterministicPulseAnalystRead(packet = {}) {
     headline,
     points: [
       {
-        label: "Why it is on the board",
-        text: packet.reason
-          ? rewriteReasonAsAnalystRead(ticker, packet.reason)
-          : `${ticker} has enough market activity and route depth to stay in the conversation. The machine is not saying the coin is risk-free; it is saying the setup is still worth monitoring against the rest of the eligible list.`,
+        label: "Summary",
+        text: summaryReadText(ticker, packet, { isActive, isDeep, volumeText, liquidityText, setupLabel, marketLabel }),
       },
       {
-        label: "What supports the read",
-        text: confirmationReadText(ticker, packet, { isActive, isDeep, volumeText, liquidityText }),
+        label: "Entry strategy",
+        text: entryStrategyReadText(ticker, packet, { isCooling, isHot, isRiskOff }),
       },
       {
-        label: "What could be wrong",
-        text: riskReadText(ticker, packet, { isCooling, isHot, isRiskOff }),
-      },
-      {
-        label: "What would change my mind",
-        text: watchReadText(ticker, packet),
+        label: "Predicted outcome",
+        text: `${outcomeReadText(ticker, packet)} ${riskReadText(ticker, packet, { isCooling, isHot, isRiskOff })}`,
       },
     ],
   };
 }
 
 function firstInsightText(packet = {}, pattern) {
-  return (packet.insights || []).find((item) => pattern.test(`${item.label} ${item.text}`))?.text || "";
+  return analystSafeText((packet.insights || []).find((item) => pattern.test(`${item.label} ${item.text}`))?.text || "");
+}
+
+function analystSafeText(value) {
+  return safeText(value, 440)
+    .replace(/Wait for the next push before adding size\./gi, "Wait for the next push before treating it as a cleaner entry.")
+    .replace(/Add only if/gi, "Only trust the signal if")
+    .replace(/Do not add into weakness/gi, "Do not treat weakness as confirmation")
+    .replace(/consider trimming/gi, "recheck whether the signal is breaking down");
 }
 
 function rewriteReasonAsAnalystRead(ticker, reason) {
@@ -1168,6 +1170,24 @@ function rewriteReasonAsAnalystRead(ticker, reason) {
     .replace(/\bData edge:\s*/i, "The useful part is ")
     .replace(/\bSetup read:\s*/i, "The setup read is ")
     .trim();
+}
+
+function summaryReadText(ticker, packet, context = {}) {
+  const scores = compactInsightScores(packet);
+  const changeText = Number.isFinite(packet.change24h) ? `${formatPercent(packet.change24h)} 24h` : "24h move refreshing";
+  const scoreText = scores ? `${scores}. ` : "";
+  const structureText = context.isActive && context.isDeep
+    ? `${context.volumeText} volume and ${context.liquidityText} liquidity make the signal meaningful.`
+    : confirmationReadText(ticker, packet, context);
+  return `${ticker} is a ${String(context.setupLabel || "mixed setup").toLowerCase()} in a ${String(context.marketLabel || "market").toLowerCase()}: ${changeText}. ${scoreText}${structureText}`.trim();
+}
+
+function compactInsightScores(packet = {}) {
+  const labels = (packet.insights || [])
+    .map((item) => safeText(item.label, 80))
+    .filter((label) => /timing|execution|conviction/i.test(label))
+    .slice(0, 3);
+  return labels.length ? labels.join(" / ") : "";
 }
 
 function confirmationReadText(ticker, packet, context = {}) {
@@ -1196,6 +1216,36 @@ function riskReadText(ticker, packet, context = {}) {
     return `${ticker} is being judged in a weaker market. That means the bar is higher: good liquidity is helpful, but the machine should not overpay for a name just because it is the least bad option.`;
   }
   return execution || `The main risk is false confirmation: the coin can look good for one snapshot, then fail if volume, liquidity, or rank improvement does not persist.`;
+}
+
+function entryStrategyReadText(ticker, packet, context = {}) {
+  const entry = firstInsightText(packet, /entry|timing/i);
+  if (entry) return entry;
+  if (context.isHot) {
+    return `${ticker} is not a clean chase setup. If the move keeps working, the cleaner signal would be a controlled pullback or another volume push, not a late vertical candle.`;
+  }
+  if (context.isCooling) {
+    return `${ticker} should be treated as a wait-for-confirmation setup. The cleaner entry case is stabilization first, then renewed volume or rank improvement.`;
+  }
+  if (context.isRiskOff) {
+    return `${ticker} needs a higher bar in this market. A reasonable entry read would require price to stop leaking while liquidity and volume stay intact.`;
+  }
+  return `${ticker} looks more like a measured-entry candidate than an urgent chase. The next useful confirmation is volume holding while price structure improves.`;
+}
+
+function outcomeReadText(ticker, packet) {
+  const projected = Number.isFinite(packet.projected24hChange) ? packet.projected24hChange : null;
+  const hold = firstInsightText(packet, /hold|watch|conviction/i);
+  if (Number.isFinite(projected) && projected > 1) {
+    return `${ticker} has a constructive near-term path if the next checks confirm. The machine is projecting ${formatPercent(projected)} over the next 24h, so the base case is modest follow-through rather than a guaranteed breakout.`;
+  }
+  if (Number.isFinite(projected) && projected < -1) {
+    return `${ticker} has a defensive near-term path unless the next checks improve. The machine is projecting ${formatPercent(projected)} over the next 24h, so stabilization matters more than upside hunting right now.`;
+  }
+  if (Number.isFinite(projected)) {
+    return `${ticker} has a mixed near-term path. The machine is projecting ${formatPercent(projected)} over the next 24h, which means the outcome depends more on confirmation than raw direction.`;
+  }
+  return hold || `${ticker} has an unresolved near-term path. The next few snapshots should decide whether this is early strength or just temporary noise.`;
 }
 
 function watchReadText(ticker, packet) {
@@ -1234,7 +1284,7 @@ async function fetchOpenAiPulseAnalystRead(packet, fallback) {
               "Do not give financial advice, do not tell the user to buy or sell, and do not invent data.",
               "Do not merely list the metrics. Explain why the metrics matter, what the machine may be seeing, what could be wrong, and what would change the read.",
               "Write with clear judgment and a little natural texture. Avoid hype, marketing language, generic disclaimers, and robotic phrases.",
-              "Return only concise JSON with keys headline and points. points must be exactly four objects with label and text.",
+              "Return only concise JSON with keys headline and points. points must be exactly three objects with label and text.",
             ].join(" "),
           },
           {
@@ -1244,7 +1294,10 @@ async function fetchOpenAiPulseAnalystRead(packet, fallback) {
                 "Write the coin explanation as a reasoning note, not a data recap.",
                 "Use the supplied fallback only as raw material; improve it if it sounds stiff.",
                 "The headline should be 2-3 natural sentences.",
-                "The four points should cover: why it is on the board, what supports the read, what could be wrong, and what would change your mind.",
+                "The three points must be labeled exactly: Summary, Entry strategy, Predicted outcome.",
+                "Summary should consolidate timing, execution, conviction, market read, and catalyst context into one concise human explanation.",
+                "Entry strategy should explain whether this looks like a chase, wait, pullback, confirmation, or avoid-for-now setup.",
+                "Predicted outcome should explain the likely path if the current signals persist, plus the main condition that would invalidate it.",
                 "If the coin is down but still ranking, explicitly explain the distinction between momentum and market structure.",
               ].join(" "),
               packet,
@@ -1264,8 +1317,8 @@ async function fetchOpenAiPulseAnalystRead(packet, fallback) {
                 headline: { type: "string", maxLength: 520 },
                 points: {
                   type: "array",
-                  minItems: 4,
-                  maxItems: 4,
+                  minItems: 3,
+                  maxItems: 3,
                   items: {
                     type: "object",
                     additionalProperties: false,
@@ -1288,14 +1341,14 @@ async function fetchOpenAiPulseAnalystRead(packet, fallback) {
     }
     const payload = await response.json();
     const parsed = parseOpenAiJsonOutput(payload);
-    if (!parsed?.headline || !Array.isArray(parsed.points) || parsed.points.length < 4) {
+    if (!parsed?.headline || !Array.isArray(parsed.points) || parsed.points.length < 3) {
       throw new Error("OpenAI analyst response was incomplete");
     }
     return {
       source: "openai",
       model: PULSE_ANALYST_MODEL,
       headline: safeText(parsed.headline, 560),
-      points: parsed.points.slice(0, 4).map((item, index) => ({
+      points: parsed.points.slice(0, 3).map((item, index) => ({
         label: safeText(item.label, 60) || fallback.points[index]?.label || `Point ${index + 1}`,
         text: safeText(item.text, 440) || fallback.points[index]?.text || "",
       })),

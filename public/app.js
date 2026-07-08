@@ -6477,8 +6477,14 @@ function updateReadScrollCues(scope) {
   const track = carousel?.closest(".pulse-read-track");
   if (!carousel || !track) return;
   const maxScroll = Math.max(0, carousel.scrollWidth - carousel.clientWidth);
+  const progress = maxScroll ? carousel.scrollLeft / maxScroll : 0;
+  const thumbWidth = carousel.scrollWidth ? Math.max(0.18, Math.min(1, carousel.clientWidth / carousel.scrollWidth)) : 1;
   track.classList.toggle("can-scroll-left", carousel.scrollLeft > 4);
   track.classList.toggle("can-scroll-right", carousel.scrollLeft < maxScroll - 4);
+  track.classList.toggle("can-scroll", maxScroll > 4);
+  track.style.setProperty("--read-scroll-progress", String(Math.max(0, Math.min(1, progress))));
+  track.style.setProperty("--read-scroll-thumb-width", String(thumbWidth));
+  track.style.setProperty("--read-scroll-left", `${Math.max(0, Math.min(100, progress * (1 - thumbWidth) * 100))}%`);
 }
 
 function renderLookupMeter(candidate = lookupSelectedCoin, { scrollLeft = null } = {}) {
@@ -6497,8 +6503,7 @@ function renderLookupMeter(candidate = lookupSelectedCoin, { scrollLeft = null }
             </button>
           `).join("")}
         </div>
-        <button type="button" class="pulse-read-prev" data-read-scroll-prev aria-label="Show earlier time ranges">‹</button>
-        <button type="button" class="pulse-read-next" data-read-scroll-next aria-label="Show more time ranges">›</button>
+        <div class="pulse-read-scroll-cue" aria-hidden="true"><span></span></div>
       </div>
     </div>
     <div class="pulse-read-motion" key="${escapeAttribute(selectedLookupReadWindow)}">${renderSevenDayMeter(forwardScenarioCoinRead(candidate, selectedLookupReadWindow))}</div>
@@ -8922,7 +8927,7 @@ function pulseSummaryButton(favorite = {}) {
     <div class="pulse-ai-summary" data-pulse-analyst-root="${escapeAttribute(ticker)}">
       <button class="pulse-ai-trigger" type="button" aria-expanded="false" aria-controls="${escapeAttribute(panelId)}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3" /><path d="M12 18v3" /><path d="m4.93 4.93 2.12 2.12" /><path d="m16.95 16.95 2.12 2.12" /><path d="M3 12h3" /><path d="M18 12h3" /><path d="m4.93 19.07 2.12-2.12" /><path d="m16.95 7.05 2.12-2.12" /></svg>
-        <span>Machine read</span>
+        <span>LLM info</span>
       </button>
       <div class="pulse-ai-popover" id="${escapeAttribute(panelId)}" hidden>
         ${renderPulseAnalystPanel(favorite, summary, { source: "deterministic" })}
@@ -8964,18 +8969,18 @@ function buildPulseAiSummary(favorite = {}) {
       : `, with fresh ${catalyst.driver.toLowerCase()} context`
     : "";
   const headline = `${name} is ${direction}${changeText}${volumeText}${liquidityText}${catalystPhrase}. ${setup?.label ? `Setup: ${setup.label.toLowerCase()}.` : ""}`;
-  const primaryText = pulsePrimaryReason({ favorite, ticker, theme, thesis, catalyst, setup, change, volume, liquidity });
-  const secondaryText = pulseSecondarySignal({ ticker, thesis, edge, setup, trajectory, change, volume, liquidity });
-  const catalystText = pulseCatalystWatchText(favorite, catalyst);
   const outlookText = pulseNearTermOutlook({ favorite, ticker, thesis, entry, edge, trajectory, setup, catalyst, volume });
+  const practical = practicalPulseScorecard({ ...favorite, marketSetup: setup, marketEdge: edge });
+  const scoreLine = `Timing ${practical.marketTiming.score}/100, execution ${practical.executionSafety.score}/100, conviction ${practical.convictionQuality.score}/100.`;
+  const compactMarketRead = plainMarketRead(ticker, change, volume, liquidity, setup);
+  const compactSummary = `${name} is ${direction}${changeText}${volumeText}${liquidityText}. ${scoreLine} ${compactMarketRead}`;
   return {
     headline,
     news: pulseNewsFoundSummary(favorite, catalyst, headline),
     points: [
-      { label: "Primary reason", text: primaryText },
-      { label: "Catalyst / social read", text: catalystText },
-      { label: "Market confirmation", text: secondaryText },
-      { label: "Near-term outlook", text: outlookText },
+      { label: "Summary", text: compactSummary },
+      { label: "Entry strategy", text: entry?.text || pulseCatalystWatchText(favorite, catalyst) },
+      { label: "Predicted outcome", text: outlookText },
     ],
   };
 }
@@ -8987,9 +8992,9 @@ function renderPulseAnalystPanel(favorite = {}, summary = {}, meta = {}) {
   const points = Array.isArray(summary.points) && summary.points.length ? summary.points : buildPulseAiSummary(favorite).points;
   return `
     <div class="pulse-ai-modal-head">
-      <strong>${escapeHtml(ticker)} machine read</strong>
+      <strong>${escapeHtml(ticker)} LLM info</strong>
       <span>${escapeHtml(source)}</span>
-      <button class="pulse-ai-close" type="button" aria-label="Close machine read">
+      <button class="pulse-ai-close" type="button" aria-label="Close LLM info">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
       </button>
     </div>
@@ -9001,15 +9006,23 @@ function renderPulseAnalystPanel(favorite = {}, summary = {}, meta = {}) {
       ${warning}
       ${summary.news ? renderPulseNewsFound(summary.news) : ""}
       <ul class="pulse-ai-points">
-        ${points.slice(0, 4).map((point) => `
+        ${points.slice(0, 3).map((point) => `
           <li>
             <span>${escapeHtml(point.label || "Signal")}</span>
-            <p>${escapeHtml(point.text || "")}</p>
+            <p>${escapeHtml(cleanAnalystAdviceText(point.text || ""))}</p>
           </li>
         `).join("")}
       </ul>
     </div>
   `;
+}
+
+function cleanAnalystAdviceText(value) {
+  return String(value || "")
+    .replace(/Wait for the next push before adding size\./gi, "Wait for the next push before treating it as a cleaner entry.")
+    .replace(/Add only if/gi, "Only trust the signal if")
+    .replace(/Do not add into weakness/gi, "Do not treat weakness as confirmation")
+    .replace(/consider trimming/gi, "recheck whether the signal is breaking down");
 }
 
 function renderPulseNewsFound(news = {}) {
@@ -10074,8 +10087,7 @@ function renderPulseSevenDayMeter(favorite = currentFavorite, { scrollLeft = nul
             </button>
           `).join("")}
         </div>
-        <button type="button" class="pulse-read-prev" data-read-scroll-prev aria-label="Show earlier time ranges">‹</button>
-        <button type="button" class="pulse-read-next" data-read-scroll-next aria-label="Show more time ranges">›</button>
+        <div class="pulse-read-scroll-cue" aria-hidden="true"><span></span></div>
       </div>
     </div>
     <div class="pulse-read-motion" key="${escapeAttribute(selectedPulseReadWindow)}">${renderSevenDayMeter(read)}</div>
@@ -10373,15 +10385,7 @@ function stopPulseLoading() {
 function renderPulseInsights(favorite) {
   if (!favoriteCoinInsights) return;
   const insights = buildPulseInsights(favorite).slice(0, 6);
-  favoriteCoinInsights.innerHTML = `
-    ${pulseSummaryButton(favorite)}
-    ${insights.map((insight) => `
-    <div class="pulse-insight">
-      <span>${escapeHtml(insight.label)}</span>
-      <p>${escapeHtml(insight.text)}</p>
-    </div>
-  `).join("")}
-  `;
+  favoriteCoinInsights.innerHTML = pulseSummaryButton(favorite);
   warmPulseAnalystRead(favorite, insights);
 }
 
