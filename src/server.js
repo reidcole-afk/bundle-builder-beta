@@ -24,16 +24,16 @@ const COINGECKO_CHART_STORE_PATH = path.resolve(
   process.env.BUNDLE_BUILDER_CHART_CACHE_FILE
     || path.join(process.env.BUNDLE_BUILDER_DATA_DIR || path.join(os.tmpdir(), "bundle-builder-beta"), "coingecko-charts.json"),
 );
-const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 15);
-const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 6);
+const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 30);
+const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 12);
 const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
 const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 60 * 6);
 const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STARTUP_DELAY_MS || 1000 * 180);
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 3000);
 const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED === "true";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 5);
-const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 30);
+const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 10);
+const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 60 * 2);
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 10);
@@ -1712,7 +1712,6 @@ async function getNormalizedMarketChart(options = {}) {
 
   const cacheKey = marketChartCacheKey({ id, chainId, pairAddress, window, sourcePreference });
   const cached = marketChartCache.get(cacheKey);
-  const durableCached = !options.force && !cached ? sanitizeStoredMarketChart(await chartCacheRepository.get(`market:${cacheKey}`)) : null;
   const now = Date.now();
   if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_CACHE_MS) {
     return { ...cached.value, cacheStatus: "fresh-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString() };
@@ -1721,6 +1720,7 @@ async function getNormalizedMarketChart(options = {}) {
     refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
     return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: "Serving cached chart while a background refresh runs" };
   }
+  const durableCached = !options.force ? sanitizeStoredMarketChart(await chartCacheRepository.get(`market:${cacheKey}`)) : null;
   if (durableCached && now - durableCached.cachedAt < MARKET_CHART_CACHE_MS) {
     marketChartCache.set(cacheKey, { value: durableCached.value, cachedAt: durableCached.cachedAt });
     return { ...durableCached.value, cacheStatus: "fresh-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString() };

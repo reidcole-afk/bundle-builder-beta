@@ -1004,6 +1004,7 @@ let editingBundleNameId = "";
 let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
 let pendingPulseWindowLoads = new Map();
+let pendingBackendChartRequests = new Map();
 let unavailablePulseWindows = new Map();
 let marketHealthCache = null;
 let pulseAnalystCache = new Map();
@@ -7511,7 +7512,12 @@ async function fetchBackendMarketChart({ id = "", chainId = "", pairAddress = ""
   if (source) params.set("source", source);
   if (force) params.set("force", "true");
   const baseUrl = window.location.protocol === "file:" ? LIVE_BACKEND_BASE_URL : "";
-  const payload = await fetchJsonUrl(`${baseUrl}/api/v1/market-chart?${params.toString()}`);
+  const url = `${baseUrl}/api/v1/market-chart?${params.toString()}`;
+  if (pendingBackendChartRequests.has(url)) return pendingBackendChartRequests.get(url);
+  const request = fetchJsonUrl(url)
+    .finally(() => pendingBackendChartRequests.delete(url));
+  pendingBackendChartRequests.set(url, request);
+  const payload = await request;
   const prices = normalizePriceSeries(payload.prices);
   if (prices.length < 2) throw new Error("Backend market chart empty");
   return payload;
@@ -9732,7 +9738,7 @@ async function loadPulseChart(candidate) {
 
 function refreshPulseChartInBackground(candidate) {
   if (!candidate?.id || pendingPulseChartLoads.has(candidate.id)) return;
-  const refresh = fetchBackendCoinGeckoChart(candidate.id, { force: true })
+  const refresh = fetchBackendCoinGeckoChart(candidate.id, { force: false })
     .then((chartData) => {
       const prices = normalizePriceSeries(chartData.prices);
       if (prices.length < 2) return null;
