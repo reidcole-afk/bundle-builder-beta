@@ -64,6 +64,28 @@ BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS=600000
 
 The LLM is only used to explain the deterministic machine signals. It does not choose rankings or replace the scoring engine. If `OPENAI_API_KEY` is missing, Bundle Builder falls back to local rule-based explanations.
 
+Recommended reliability settings for Render Free:
+
+```text
+BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED=false
+BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED=true
+BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS=600000
+BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS=150000
+BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE=8
+```
+
+This keeps snapshot collection on, but avoids the heavier background chart preload that can compete with health checks and live user requests.
+
+## Supabase Security Step
+
+After deploy, open Supabase SQL Editor and run:
+
+```text
+SUPABASE_RLS_FIX.sql
+```
+
+This locks down `pulse_snapshots` and `chart_cache` from Supabase anon/authenticated/public direct access. The Render server should still work through `DATABASE_URL`.
+
 ## After Render Deploys
 
 Check:
@@ -78,10 +100,18 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.147",
+  "version": "0.1.148",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true
+},
+"chartCacheStorage": {
+  "mode": "postgres",
+  "durable": true
+},
+"productionReadiness": {
+  "openAiConfigured": true,
+  "coingeckoPreloadEnabled": false
 },
 "homepage": {
   "enabled": true,

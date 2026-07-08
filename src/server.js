@@ -27,18 +27,18 @@ const COINGECKO_CHART_STORE_PATH = path.resolve(
 const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 15);
 const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 6);
 const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
-const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 60 * 3);
-const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STARTUP_DELAY_MS || 1000 * 90);
-const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 1500);
-const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED !== "false";
+const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 60 * 6);
+const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STARTUP_DELAY_MS || 1000 * 180);
+const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 3000);
+const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED === "true";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
 const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 5);
 const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 30);
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
-const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 5);
-const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 75);
-const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 10);
+const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 10);
+const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 150);
+const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 8);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const PULSE_ANALYST_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_MODEL || "gpt-4.1-mini";
 const PULSE_ANALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS || 1000 * 60 * 10);
@@ -214,6 +214,7 @@ async function handleRequest(request, response) {
         pulseAnalystOpenAiConfigured: Boolean(OPENAI_API_KEY),
         profileAuthEndpoint: true,
         productionSafety: productionSafetyDescriptor(),
+        productionReadiness: productionReadinessDescriptor(),
         profileStorage: profileRepository.descriptor(),
         machineAccuracyEndpoint: true,
         pulseSnapshotStorage: pulseSnapshotRepository.descriptor(),
@@ -776,6 +777,27 @@ function productionSafetyDescriptor() {
   };
 }
 
+function productionReadinessDescriptor() {
+  const snapshotStorage = pulseSnapshotRepository.descriptor();
+  const chartStorage = chartCacheRepository.descriptor();
+  const profileStorage = profileRepository.descriptor();
+  const warnings = [];
+  if (!snapshotStorage.durable) warnings.push("Pulse snapshots are not using durable Postgres storage.");
+  if (!chartStorage.durable) warnings.push("Chart cache is not using durable Postgres storage.");
+  if (!OPENAI_API_KEY) warnings.push("OPENAI_API_KEY is not set; LLM info will use local fallback text.");
+  if (COINGECKO_CHART_PRELOAD_ENABLED) warnings.push("CoinGecko background preload is enabled; monitor Render memory and external API rate limits.");
+  if (!profileStorage.durable && IS_PRODUCTION_RUNTIME) warnings.push("Profile snapshots are still stored on the Render filesystem.");
+  return {
+    ok: warnings.length === 0,
+    databaseUrlConfigured: Boolean(process.env.DATABASE_URL || process.env.BUNDLE_BUILDER_DATABASE_URL),
+    openAiConfigured: Boolean(OPENAI_API_KEY),
+    coingeckoPreloadEnabled: COINGECKO_CHART_PRELOAD_ENABLED,
+    pulseCollectorIntervalMs: PULSE_COLLECTOR_INTERVAL_MS,
+    pulseCollectorDeckSize: PULSE_COLLECTOR_DECK_SIZE,
+    warnings,
+  };
+}
+
 function validateProductionSafety() {
   if (!IS_PRODUCTION_RUNTIME) return;
   const missing = [];
@@ -841,6 +863,11 @@ function rateLimitRuleFor(request, url) {
   if (request.method === "POST" && url.pathname === "/api/v1/submitted-bundles") return { name: "bundle-submit", limit: 20, windowMs: 10 * 60 * 1000 };
   if (request.method === "POST" && url.pathname === "/api/v1/pulse-snapshots") return { name: "pulse-snapshot-write", limit: 60, windowMs: 10 * 60 * 1000 };
   if (request.method === "PUT" && url.pathname === "/api/v1/profile") return { name: "profile-write", limit: 60, windowMs: 10 * 60 * 1000 };
+  if (request.method === "GET" && url.pathname === "/api/v1/market-chart") return { name: "market-chart-read", limit: 120, windowMs: 10 * 60 * 1000 };
+  if (request.method === "GET" && url.pathname === "/api/v1/coingecko-chart") return { name: "coingecko-chart-read", limit: 80, windowMs: 10 * 60 * 1000 };
+  if (request.method === "GET" && url.pathname === "/api/v1/catalyst") return { name: "catalyst-read", limit: 80, windowMs: 10 * 60 * 1000 };
+  if (request.method === "GET" && url.pathname === "/api/v1/market-health") return { name: "market-health-read", limit: 90, windowMs: 10 * 60 * 1000 };
+  if (request.method === "GET" && url.pathname === "/api/v1/pulse-collector/status") return { name: "collector-status-read", limit: 60, windowMs: 10 * 60 * 1000 };
   return null;
 }
 

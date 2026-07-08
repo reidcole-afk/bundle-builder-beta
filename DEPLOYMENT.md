@@ -46,11 +46,18 @@ BUNDLE_BUILDER_HIGH_MAX_DIFF_THOUSAND_USD=60
 BUNDLE_BUILDER_VERY_HIGH_MAX_DIFF_THOUSAND_USD=100
 DATABASE_URL=your-supabase-pooled-postgres-url
 BUNDLE_BUILDER_AUTH_SECRET=replace-with-a-long-random-secret
-BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response
+BUNDLE_BUILDER_ADMIN_SECRET=replace-with-a-different-long-random-secret
+BUNDLE_BUILDER_EMAIL_DELIVERY=provider
+BUNDLE_BUILDER_EMAIL_PROVIDER=resend
+RESEND_API_KEY=your-resend-api-key
+BUNDLE_BUILDER_EMAIL_FROM=Bundle Builder <login@bundlebuilder.vicicoin.io>
 COINGECKO_API_KEY=your-coingecko-demo-key
 COINGECKO_API_KEY_HEADER=x-cg-demo-api-key
-BUNDLE_BUILDER_COINGECKO_PRELOAD_DAYS=1,3,7,30
-BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS=10800000
+BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED=false
+BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED=true
+BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS=600000
+BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS=150000
+BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE=8
 ```
 
 The host usually provides `PORT` automatically. Set `PORT` only if the host asks for it.
@@ -66,7 +73,9 @@ Bundle Builder now includes a standalone prototype profile store in `src/profile
 - review alerts
 - builder preferences
 
-The current beta stores those profile snapshots in a local fallback file unless `BUNDLE_BUILDER_DATA_DIR` is explicitly configured. Leave `BUNDLE_BUILDER_DATA_DIR` unset on Render Free unless a persistent disk is mounted. Machine pulse snapshots use Supabase/Postgres when `DATABASE_URL` is configured. Profile data may still reset on Render Free until profiles are moved to Supabase too.
+The current beta stores those profile snapshots in a local fallback file unless `BUNDLE_BUILDER_DATA_DIR` is explicitly configured. Leave `BUNDLE_BUILDER_DATA_DIR` unset on Render Free unless a persistent disk is mounted. Machine pulse snapshots and chart cache use Supabase/Postgres when `DATABASE_URL` is configured. Profile data may still reset on Render Free until profiles are moved to Supabase too.
+
+After `DATABASE_URL` is configured, run `SUPABASE_RLS_FIX.sql` in Supabase SQL Editor. It enables RLS and revokes anon/authenticated access for the server-owned `pulse_snapshots` and `chart_cache` tables.
 
 For local/dev testing, `BUNDLE_BUILDER_EMAIL_DELIVERY=dev-response` returns the 6-digit login code in the API response and shows it in the app toast.
 

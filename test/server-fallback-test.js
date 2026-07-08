@@ -18,7 +18,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.147");
+  assert.equal(health.body.version, "0.1.148");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -28,11 +28,11 @@ global.fetch = async (url) => {
   assert.equal(health.body.normalizedMarketChartEndpoint, true);
   assert.equal(health.body.catalystIntelligenceEndpoint, true);
   assert.equal(health.body.machineAccuracyEndpoint, true);
-  assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, true);
-  assert.equal(health.body.coingeckoChartBackgroundPreload.startupDelayMs, 90000);
+  assert.equal(health.body.coingeckoChartBackgroundPreload.enabled, false);
+  assert.equal(health.body.coingeckoChartBackgroundPreload.startupDelayMs, 180000);
   assert.equal(typeof health.body.pulseBackgroundCollector.enabled, "boolean");
   assert(Number.isFinite(health.body.pulseBackgroundCollector.intervalMs));
-  assert.equal(health.body.pulseBackgroundCollector.deckSize, 10);
+  assert.equal(health.body.pulseBackgroundCollector.deckSize, 8);
   assert.equal(health.body.homepage.enabled, true);
   assert.equal(health.body.homepage.indexExists, true);
   assert.equal(health.body.betaScope, "invite-only Base beta by default");
@@ -90,7 +90,7 @@ global.fetch = async (url) => {
   const chartStatus = await getJson("/api/v1/coingecko-chart/status");
   assert.equal(chartStatus.statusCode, 200);
   assert.equal(chartStatus.body.ok, true);
-  assert.equal(chartStatus.body.preload.enabled, true);
+  assert.equal(chartStatus.body.preload.enabled, false);
   assert.equal(chartStatus.body.storage.configured, true);
 
   const workflowChart = await getJson("/api/v1/coingecko-chart?id=aerodrome-finance&force=true");
@@ -207,7 +207,7 @@ global.fetch = async (url) => {
   assert.equal(collectorStatus.statusCode, 200);
   assert.equal(collectorStatus.body.ok, true);
   assert.equal(typeof collectorStatus.body.collector.enabled, "boolean");
-  assert.equal(collectorStatus.body.collector.deckSize, 10);
+  assert.equal(collectorStatus.body.collector.deckSize, 8);
 
   const loginRequest = await postJson("/api/v1/auth/request-code", { email: "tester@example.com" });
   assert.equal(loginRequest.statusCode, 200);

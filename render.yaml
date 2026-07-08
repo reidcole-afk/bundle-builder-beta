@@ -21,3 +21,11 @@ services:
         value: https://bundlebuilder.vicicoin.io
       - key: DATABASE_URL
         sync: false
+      - key: BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED
+        value: "false"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS
+        value: "600000"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS
+        value: "150000"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE
+        value: "8"
