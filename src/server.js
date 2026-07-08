@@ -43,9 +43,13 @@ const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLL
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 150);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 8);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
+const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION || process.env.OPENAI_ORG_ID || "";
+const OPENAI_PROJECT = process.env.OPENAI_PROJECT || process.env.OPENAI_PROJECT_ID || "";
 const PULSE_ANALYST_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_MODEL || "gpt-4.1-mini";
+const PULSE_ANALYST_FALLBACK_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_FALLBACK_MODEL || "gpt-4.1-nano";
 const PULSE_ANALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS || 1000 * 60 * 10);
 const PULSE_ANALYST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_TIMEOUT_MS || 12000);
+const PULSE_ANALYST_QUOTA_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_QUOTA_COOLDOWN_MS || 1000 * 60 * 30);
 const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
 const ADMIN_SECRET = process.env.BUNDLE_BUILDER_ADMIN_SECRET || "";
 const AUTH_SECRET_CONFIGURED = Boolean(process.env.BUNDLE_BUILDER_AUTH_SECRET);
@@ -113,6 +117,20 @@ const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
 const catalystCache = new Map();
 const pulseAnalystCache = new Map();
+const openAiPulseAnalystState = {
+  configured: Boolean(OPENAI_API_KEY),
+  primaryModel: PULSE_ANALYST_MODEL,
+  fallbackModel: PULSE_ANALYST_FALLBACK_MODEL,
+  organizationConfigured: Boolean(OPENAI_ORGANIZATION),
+  projectConfigured: Boolean(OPENAI_PROJECT),
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastErrorAt: null,
+  lastErrorType: null,
+  lastError: null,
+  lastModel: null,
+  cooldownUntil: null,
+};
 const catalystProfiles = {
   AERO: {
     driver: "Base DEX expansion",
@@ -214,7 +232,9 @@ async function handleRequest(request, response) {
         catalystIntelligenceEndpoint: true,
         pulseAnalystEndpoint: true,
         pulseAnalystModel: PULSE_ANALYST_MODEL,
+        pulseAnalystFallbackModel: PULSE_ANALYST_FALLBACK_MODEL,
         pulseAnalystOpenAiConfigured: Boolean(OPENAI_API_KEY),
+        pulseAnalystOpenAiStatus: openAiPulseAnalystHealth(),
         profileAuthEndpoint: true,
         productionSafety: productionSafetyDescriptor(),
         productionReadiness: productionReadinessDescriptor(),
@@ -788,12 +808,15 @@ function productionReadinessDescriptor() {
   if (!snapshotStorage.durable) warnings.push("Pulse snapshots are not using durable Postgres storage.");
   if (!chartStorage.durable) warnings.push("Chart cache is not using durable Postgres storage.");
   if (!OPENAI_API_KEY) warnings.push("OPENAI_API_KEY is not set; LLM info will use local fallback text.");
+  if (openAiPulseAnalystState.lastErrorType === "quota") warnings.push("OpenAI quota/billing limit was hit; LLM info is using local fallback text during cooldown.");
+  if (openAiPulseAnalystState.lastErrorType === "rate_limit") warnings.push("OpenAI rate limit was hit; LLM info is using local fallback text during cooldown.");
   if (COINGECKO_CHART_PRELOAD_ENABLED) warnings.push("CoinGecko background preload is enabled; monitor Render memory and external API rate limits.");
   if (!profileStorage.durable && IS_PRODUCTION_RUNTIME) warnings.push("Profile snapshots are still stored on the Render filesystem.");
   return {
     ok: warnings.length === 0,
     databaseUrlConfigured: Boolean(process.env.DATABASE_URL || process.env.BUNDLE_BUILDER_DATABASE_URL),
     openAiConfigured: Boolean(OPENAI_API_KEY),
+    openAiPulseAnalyst: openAiPulseAnalystHealth(),
     coingeckoPreloadEnabled: COINGECKO_CHART_PRELOAD_ENABLED,
     pulseCollectorIntervalMs: PULSE_COLLECTOR_INTERVAL_MS,
     pulseCollectorDeckSize: PULSE_COLLECTOR_DECK_SIZE,
@@ -1078,13 +1101,20 @@ async function getPulseAnalystRead(body = {}) {
 
   let value = buildDeterministicPulseAnalystRead(packet);
   if (OPENAI_API_KEY) {
-    try {
-      value = await fetchOpenAiPulseAnalystRead(packet, value);
-    } catch (error) {
+    if (isOpenAiPulseAnalystCoolingDown()) {
       value = {
         ...value,
         source: "deterministic-fallback",
-        warning: "AI analyst note is taking longer than expected, so this is the machine read from the same live inputs.",
+        warning: "AI analyst note is paused briefly after an OpenAI quota or rate-limit response, so this is the machine read from the same live inputs.",
+      };
+    } else try {
+      value = await fetchOpenAiPulseAnalystRead(packet, value);
+    } catch (error) {
+      updateOpenAiPulseAnalystFailure(error);
+      value = {
+        ...value,
+        source: "deterministic-fallback",
+        warning: pulseAnalystFallbackWarning(error),
       };
     }
   }
@@ -1096,6 +1126,72 @@ async function getPulseAnalystRead(body = {}) {
     cacheStatus: "miss",
     cachedAt: new Date().toISOString(),
   };
+}
+
+function isOpenAiPulseAnalystCoolingDown(now = Date.now()) {
+  const cooldownUntil = Date.parse(openAiPulseAnalystState.cooldownUntil || "");
+  return Number.isFinite(cooldownUntil) && cooldownUntil > now;
+}
+
+function openAiPulseAnalystHealth() {
+  return {
+    configured: Boolean(OPENAI_API_KEY),
+    primaryModel: PULSE_ANALYST_MODEL,
+    fallbackModel: PULSE_ANALYST_FALLBACK_MODEL,
+    organizationConfigured: Boolean(OPENAI_ORGANIZATION),
+    projectConfigured: Boolean(OPENAI_PROJECT),
+    lastAttemptAt: openAiPulseAnalystState.lastAttemptAt,
+    lastSuccessAt: openAiPulseAnalystState.lastSuccessAt,
+    lastErrorAt: openAiPulseAnalystState.lastErrorAt,
+    lastErrorType: openAiPulseAnalystState.lastErrorType,
+    lastError: openAiPulseAnalystState.lastError,
+    lastModel: openAiPulseAnalystState.lastModel,
+    cooldownUntil: openAiPulseAnalystState.cooldownUntil,
+    coolingDown: isOpenAiPulseAnalystCoolingDown(),
+  };
+}
+
+function markOpenAiPulseAnalystAttempt(model) {
+  openAiPulseAnalystState.lastAttemptAt = new Date().toISOString();
+  openAiPulseAnalystState.lastModel = model;
+}
+
+function markOpenAiPulseAnalystSuccess(model) {
+  openAiPulseAnalystState.lastSuccessAt = new Date().toISOString();
+  openAiPulseAnalystState.lastModel = model;
+  openAiPulseAnalystState.lastErrorAt = null;
+  openAiPulseAnalystState.lastErrorType = null;
+  openAiPulseAnalystState.lastError = null;
+  openAiPulseAnalystState.cooldownUntil = null;
+}
+
+function updateOpenAiPulseAnalystFailure(error) {
+  const type = error?.openAiErrorType || classifyOpenAiError(error?.message || "");
+  openAiPulseAnalystState.lastErrorAt = new Date().toISOString();
+  openAiPulseAnalystState.lastErrorType = type;
+  openAiPulseAnalystState.lastError = safeText(error?.message || "OpenAI analyst request failed", 280);
+  if (["quota", "rate_limit"].includes(type)) {
+    openAiPulseAnalystState.cooldownUntil = new Date(Date.now() + PULSE_ANALYST_QUOTA_COOLDOWN_MS).toISOString();
+  }
+}
+
+function classifyOpenAiError(message = "") {
+  const text = String(message || "").toLowerCase();
+  if (text.includes("insufficient_quota") || text.includes("exceeded your current quota") || text.includes("billing")) return "quota";
+  if (text.includes("rate limit") || text.includes("too many requests") || text.includes("429")) return "rate_limit";
+  if (text.includes("401") || text.includes("invalid api key") || text.includes("incorrect api key")) return "auth";
+  if (text.includes("403") || text.includes("permission")) return "permission";
+  if (text.includes("aborted") || text.includes("timed out")) return "timeout";
+  return "error";
+}
+
+function pulseAnalystFallbackWarning(error) {
+  const type = error?.openAiErrorType || classifyOpenAiError(error?.message || "");
+  if (type === "quota") return "AI analyst note is paused because the OpenAI project hit a quota or billing limit, so this is the machine read from the same live inputs.";
+  if (type === "rate_limit") return "AI analyst note is paused briefly because OpenAI rate-limited the request, so this is the machine read from the same live inputs.";
+  if (type === "auth") return "AI analyst note needs a valid OpenAI API key, so this is the machine read from the same live inputs.";
+  if (type === "permission") return "AI analyst note could not access the configured OpenAI project or model, so this is the machine read from the same live inputs.";
+  return "AI analyst note is taking longer than expected, so this is the machine read from the same live inputs.";
 }
 
 function normalizePulseAnalystPacket(body = {}) {
@@ -1293,18 +1389,31 @@ function watchReadText(ticker, packet) {
 
 async function fetchOpenAiPulseAnalystRead(packet, fallback) {
   if (typeof fetch !== "function") throw new Error("Node 18+ fetch is required");
+  const models = [...new Set([PULSE_ANALYST_MODEL, PULSE_ANALYST_FALLBACK_MODEL].filter(Boolean))];
+  let lastError = null;
+  for (const model of models) {
+    try {
+      return await fetchOpenAiPulseAnalystReadForModel(packet, fallback, model);
+    } catch (error) {
+      lastError = error;
+      const type = error?.openAiErrorType || classifyOpenAiError(error?.message || "");
+      if (["quota", "auth", "permission"].includes(type)) break;
+    }
+  }
+  throw lastError || new Error("OpenAI analyst request failed");
+}
+
+async function fetchOpenAiPulseAnalystReadForModel(packet, fallback, model) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PULSE_ANALYST_TIMEOUT_MS);
   try {
+    markOpenAiPulseAnalystAttempt(model);
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        authorization: `Bearer ${OPENAI_API_KEY}`,
-        "content-type": "application/json",
-      },
+      headers: openAiRequestHeaders(),
       body: JSON.stringify({
-        model: PULSE_ANALYST_MODEL,
+        model,
         input: [
           {
             role: "system",
@@ -1367,16 +1476,20 @@ async function fetchOpenAiPulseAnalystRead(packet, fallback) {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`OpenAI HTTP ${response.status}${text ? ` ${text.slice(0, 160)}` : ""}`);
+      const error = new Error(`OpenAI HTTP ${response.status}${text ? ` ${text.slice(0, 220)}` : ""}`);
+      error.openAiStatus = response.status;
+      error.openAiErrorType = classifyOpenAiError(`${response.status} ${text}`);
+      throw error;
     }
     const payload = await response.json();
     const parsed = parseOpenAiJsonOutput(payload);
     if (!parsed?.headline || !Array.isArray(parsed.points) || parsed.points.length < 3) {
       throw new Error("OpenAI analyst response was incomplete");
     }
+    markOpenAiPulseAnalystSuccess(model);
     return {
       source: "openai",
-      model: PULSE_ANALYST_MODEL,
+      model,
       headline: safeText(parsed.headline, 560),
       points: parsed.points.slice(0, 3).map((item, index) => ({
         label: safeText(item.label, 60) || fallback.points[index]?.label || `Point ${index + 1}`,
@@ -1386,6 +1499,16 @@ async function fetchOpenAiPulseAnalystRead(packet, fallback) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function openAiRequestHeaders() {
+  const headers = {
+    authorization: `Bearer ${OPENAI_API_KEY}`,
+    "content-type": "application/json",
+  };
+  if (OPENAI_ORGANIZATION) headers["OpenAI-Organization"] = OPENAI_ORGANIZATION;
+  if (OPENAI_PROJECT) headers["OpenAI-Project"] = OPENAI_PROJECT;
+  return headers;
 }
 
 function parseOpenAiJsonOutput(payload = {}) {

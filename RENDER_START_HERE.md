@@ -59,10 +59,21 @@ Optional Live Market Pulse analyst notes:
 ```text
 OPENAI_API_KEY=your-openai-api-key
 BUNDLE_BUILDER_PULSE_ANALYST_MODEL=gpt-4.1-mini
+BUNDLE_BUILDER_PULSE_ANALYST_FALLBACK_MODEL=gpt-4.1-nano
 BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS=600000
+BUNDLE_BUILDER_PULSE_ANALYST_QUOTA_COOLDOWN_MS=1800000
 ```
 
 The LLM is only used to explain the deterministic machine signals. It does not choose rankings or replace the scoring engine. If `OPENAI_API_KEY` is missing, Bundle Builder falls back to local rule-based explanations.
+
+If OpenAI returns a quota or billing error, fix it in the OpenAI platform account by checking project billing, usage limits, and whether the key belongs to the intended project. If the key is scoped to a specific OpenAI organization or project, also set:
+
+```text
+OPENAI_ORGANIZATION=your-openai-org-id
+OPENAI_PROJECT=your-openai-project-id
+```
+
+The `/health` endpoint reports `pulseAnalystOpenAiStatus` so Render logs can show whether LLM info is using OpenAI, cooling down after quota/rate limits, or falling back locally.
 
 Recommended reliability settings for Render Free:
 
@@ -100,7 +111,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.152",
+  "version": "0.1.153",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true
