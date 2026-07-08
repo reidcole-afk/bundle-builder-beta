@@ -26,6 +26,7 @@ const COINGECKO_CHART_STORE_PATH = path.resolve(
 );
 const COINGECKO_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_CACHE_MS || 1000 * 60 * 30);
 const COINGECKO_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_STALE_MS || 1000 * 60 * 60 * 12);
+const COINGECKO_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 72);
 const COINGECKO_CHART_RETRIES = Number(process.env.BUNDLE_BUILDER_COINGECKO_CHART_RETRIES || 2);
 const COINGECKO_CHART_PRELOAD_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_INTERVAL_MS || 1000 * 60 * 60 * 6);
 const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STARTUP_DELAY_MS || 1000 * 180);
@@ -34,7 +35,9 @@ const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRE
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
 const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 10);
 const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 60 * 2);
-const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 9000);
+const MARKET_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 72);
+const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 5000);
+const RECOMMENDATION_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS || 8500);
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 10);
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 150);
@@ -690,7 +693,7 @@ async function handleRequest(request, response) {
         ? await readJsonBody(request)
         : Object.fromEntries(url.searchParams.entries());
 
-      const result = await recommendBundle(params);
+      const result = await recommendBundleWithFastFallback(params);
       sendJson(response, statusForBundleResult(result), result);
       return;
     }
@@ -1698,6 +1701,70 @@ async function fetchJsonWithTimeout(targetUrl, timeoutMs) {
   }
 }
 
+function withTimeout(promise, timeoutMs, message = "Operation timed out") {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    Promise.resolve(promise)
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timer));
+  });
+}
+
+async function recommendBundleWithFastFallback(params) {
+  try {
+    return await withTimeout(
+      recommendBundle(params),
+      RECOMMENDATION_TIMEOUT_MS,
+      "Full recommendation timed out",
+    );
+  } catch (error) {
+    const firstWarning = error.message || "Full recommendation timed out";
+    const categoryLightParams = {
+      ...params,
+      includeCategoryIntelligence: false,
+    };
+    try {
+      const result = await withTimeout(
+        recommendBundle(categoryLightParams),
+        Math.max(4500, Math.round(RECOMMENDATION_TIMEOUT_MS * 0.7)),
+        "Category-light recommendation timed out",
+      );
+      return addRecommendationFallbackWarning(
+        result,
+        `Full recommendation was slow, so this response skipped optional CoinGecko category enrichment. ${firstWarning}`,
+      );
+    } catch (fallbackError) {
+      const minimalParams = {
+        ...params,
+        includeCategoryIntelligence: false,
+        includeMarketData: false,
+      };
+      const result = await withTimeout(
+        recommendBundle(minimalParams),
+        Math.max(5000, Math.round(RECOMMENDATION_TIMEOUT_MS * 0.7)),
+        "Minimal recommendation timed out",
+      );
+      return addRecommendationFallbackWarning(
+        result,
+        `Live market enrichment was slow, so this response used ViciSwap eligibility and liquidity depth first. ${fallbackError.message || firstWarning}`,
+      );
+    }
+  }
+}
+
+function addRecommendationFallbackWarning(result, warning) {
+  if (!result || typeof result !== "object") return result;
+  return {
+    ...result,
+    dataSources: {
+      ...(result.dataSources || {}),
+      responseMode: "cached-first-fast-fallback",
+      responseWarning: warning,
+    },
+    warnings: [...(Array.isArray(result.warnings) ? result.warnings : []), warning],
+  };
+}
+
 async function getNormalizedMarketChart(options = {}) {
   const window = normalizeMarketChartWindow(options.window);
   const id = safeText(options.id, 120).toLowerCase();
@@ -1730,17 +1797,42 @@ async function getNormalizedMarketChart(options = {}) {
     refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
     return { ...durableCached.value, cacheStatus: "stale-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString(), warning: "Serving durable cached chart while a background refresh runs" };
   }
+  if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
+    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
+    return {
+      ...cached.value,
+      cacheStatus: "last-good-cache",
+      cached: true,
+      cachedAt: new Date(cached.cachedAt).toISOString(),
+      warning: "Serving last good chart while a background refresh runs",
+    };
+  }
+  if (durableCached && now - durableCached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
+    marketChartCache.set(cacheKey, { value: durableCached.value, cachedAt: durableCached.cachedAt });
+    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
+    return {
+      ...durableCached.value,
+      cacheStatus: "last-good-durable-cache",
+      cached: true,
+      cachedAt: new Date(durableCached.cachedAt).toISOString(),
+      warning: "Serving last good durable chart while a background refresh runs",
+    };
+  }
 
   try {
-    const value = await fetchNormalizedMarketChart({ id, chainId, pairAddress, window, sourcePreference });
+    const value = await withTimeout(
+      fetchNormalizedMarketChart({ id, chainId, pairAddress, window, sourcePreference }),
+      MARKET_CHART_TIMEOUT_MS + 1000,
+      "Market chart refresh timed out",
+    );
     marketChartCache.set(cacheKey, { value, cachedAt: now });
     await chartCacheRepository.set(`market:${cacheKey}`, { value, cachedAt: now });
     return { ...value, cacheStatus: "refreshed", cached: false, cachedAt: new Date(now).toISOString() };
   } catch (error) {
-    if (cached && now - cached.cachedAt < MARKET_CHART_STALE_MS) {
+    if (cached && now - cached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
       return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: error.message || "Refresh failed; using last good chart" };
     }
-    if (durableCached && now - durableCached.cachedAt < MARKET_CHART_STALE_MS) {
+    if (durableCached && now - durableCached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
       return { ...durableCached.value, cacheStatus: "stale-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString(), warning: error.message || "Refresh failed; using durable cached chart" };
     }
     throw error;
@@ -1750,7 +1842,11 @@ async function getNormalizedMarketChart(options = {}) {
 function refreshNormalizedMarketChartInBackground(options) {
   const refreshKey = `market-chart:${options.cacheKey}`;
   if (pendingCoinGeckoChartRefreshes.has(refreshKey)) return;
-  const refresh = fetchNormalizedMarketChart(options)
+  const refresh = withTimeout(
+    fetchNormalizedMarketChart(options),
+    MARKET_CHART_TIMEOUT_MS + 1000,
+    "Market chart background refresh timed out",
+  )
     .then(async (value) => {
       const cachedAt = Date.now();
       marketChartCache.set(options.cacheKey, { value, cachedAt });
@@ -1977,9 +2073,17 @@ async function getCoinGeckoChartWorkflow(id, options = {}) {
     refreshCoinGeckoChartInBackground(id, days);
     return { ...existing, cacheStatus: "stale-durable-cache", warning: "Serving cached chart while a background refresh runs" };
   }
+  if (!options.force && existing && now - existing.cachedAt < COINGECKO_CHART_LAST_GOOD_MS) {
+    refreshCoinGeckoChartInBackground(id, days);
+    return { ...existing, cacheStatus: "last-good-durable-cache", warning: "Serving last good chart while a background refresh runs" };
+  }
 
   try {
-    const chart = await fetchCoinGeckoChartWithRetries(id, days);
+    const chart = await withTimeout(
+      fetchCoinGeckoChartWithRetries(id, days),
+      MARKET_CHART_TIMEOUT_MS + 1000,
+      "CoinGecko chart refresh timed out",
+    );
     const record = sanitizeStoredCoinGeckoChart({
       id,
       days,
@@ -1994,10 +2098,10 @@ async function getCoinGeckoChartWorkflow(id, options = {}) {
     if (days === "1") await chartCacheRepository.set(legacyDurableKey, record);
     return { ...record, cacheStatus: "refreshed" };
   } catch (error) {
-    if (existing && now - existing.cachedAt < COINGECKO_CHART_STALE_MS) {
+    if (existing && now - existing.cachedAt < COINGECKO_CHART_LAST_GOOD_MS) {
       return {
         ...existing,
-        cacheStatus: "stale-durable-cache",
+        cacheStatus: "last-good-durable-cache",
         warning: error.message || "CoinGecko refresh failed; using last good chart",
       };
     }
@@ -2011,7 +2115,11 @@ function refreshCoinGeckoChartInBackground(id, days = "1") {
   if (pendingCoinGeckoChartRefreshes.has(refreshKey)) return pendingCoinGeckoChartRefreshes.get(refreshKey);
   const refresh = (async () => {
     try {
-      const chart = await fetchCoinGeckoChartWithRetries(id, normalizedDays);
+      const chart = await withTimeout(
+        fetchCoinGeckoChartWithRetries(id, normalizedDays),
+        MARKET_CHART_TIMEOUT_MS + 1000,
+        "CoinGecko chart background refresh timed out",
+      );
       const record = sanitizeStoredCoinGeckoChart({
         id,
         days: normalizedDays,

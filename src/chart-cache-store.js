@@ -154,7 +154,7 @@ function readStore(filePath) {
     return parsed;
   } catch (error) {
     if (error.code === "ENOENT") return {};
-    throw error;
+    return {};
   }
 }
 
