@@ -37,11 +37,13 @@ const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CAC
 const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 60 * 2);
 const MARKET_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 72);
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 5000);
-const RECOMMENDATION_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS || 8500);
+const RECOMMENDATION_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS || 6500);
+const MARKET_HEALTH_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_HEALTH_CACHE_MS || 1000 * 60 * 2);
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
 const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 10);
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 150);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 8);
+const PULSE_COLLECTOR_MAX_RUN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_MAX_RUN_MS || Math.max(1000 * 60 * 8, Math.round(PULSE_COLLECTOR_INTERVAL_MS * 0.8)));
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION || process.env.OPENAI_ORG_ID || "";
 const OPENAI_PROJECT = process.env.OPENAI_PROJECT || process.env.OPENAI_PROJECT_ID || "";
@@ -110,11 +112,14 @@ const pulseCollectorState = {
   lastCoins: [],
   lastAttempted: 0,
   lastEligible: 0,
+  lastRecoveredAt: null,
+  maxRunMs: PULSE_COLLECTOR_MAX_RUN_MS,
   lastSkipped: [],
   lastWakeList: [],
 };
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
+const marketHealthCache = new Map();
 const catalystCache = new Map();
 const pulseAnalystCache = new Map();
 const openAiPulseAnalystState = {
@@ -598,16 +603,19 @@ async function handleRequest(request, response) {
 
     if (request.method === "GET" && url.pathname === "/api/v1/market-health") {
       const limit = clampInteger(url.searchParams.get("limit"), 24, 5000, 288);
-      const snapshots = await pulseSnapshotRepository.listSnapshots({ limit });
+      const health = await getCachedMarketHealth(limit);
       sendJson(response, 200, {
         ok: true,
         storage: pulseSnapshotRepository.descriptor(),
-        context: buildMarketHealthContext(snapshots),
+        context: health.context,
+        cacheStatus: health.cacheStatus,
+        cachedAt: health.cachedAt,
       });
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/api/v1/pulse-collector/status") {
+      recoverStalePulseCollectorLock();
       const includeAccuracy = isTruthy(url.searchParams.get("includeAccuracy"));
       sendJson(response, 200, {
         ok: true,
@@ -1849,7 +1857,7 @@ async function recommendBundleWithFastFallback(params) {
     try {
       const result = await withTimeout(
         recommendBundle(categoryLightParams),
-        Math.max(4500, Math.round(RECOMMENDATION_TIMEOUT_MS * 0.7)),
+        Math.max(3200, Math.round(RECOMMENDATION_TIMEOUT_MS * 0.55)),
         "Category-light recommendation timed out",
       );
       return addRecommendationFallbackWarning(
@@ -1864,7 +1872,7 @@ async function recommendBundleWithFastFallback(params) {
       };
       const result = await withTimeout(
         recommendBundle(minimalParams),
-        Math.max(5000, Math.round(RECOMMENDATION_TIMEOUT_MS * 0.7)),
+        Math.max(3200, Math.round(RECOMMENDATION_TIMEOUT_MS * 0.55)),
         "Minimal recommendation timed out",
       );
       return addRecommendationFallbackWarning(
@@ -2368,6 +2376,7 @@ function startPulseSnapshotCollector() {
 }
 
 async function runPulseSnapshotCollector(trigger = "manual") {
+  recoverStalePulseCollectorLock();
   if (pulseCollectorState.running) {
     pulseCollectorState.lastError = "Previous pulse collector cycle is still running";
     return null;
@@ -2446,6 +2455,18 @@ async function runPulseSnapshotCollector(trigger = "manual") {
   } finally {
     pulseCollectorState.running = false;
   }
+}
+
+function recoverStalePulseCollectorLock() {
+  if (!pulseCollectorState.running) return false;
+  const startedAt = Date.parse(pulseCollectorState.lastStartedAt || "");
+  if (!Number.isFinite(startedAt)) return false;
+  const runtimeMs = Date.now() - startedAt;
+  if (runtimeMs < PULSE_COLLECTOR_MAX_RUN_MS) return false;
+  pulseCollectorState.running = false;
+  pulseCollectorState.lastRecoveredAt = new Date().toISOString();
+  pulseCollectorState.lastError = `Recovered stale pulse collector lock after ${Math.round(runtimeMs / 1000)}s`;
+  return true;
 }
 
 async function fetchPulseCollectorMarket(meta) {
@@ -3429,6 +3450,28 @@ function statusForBundleResult(result) {
   if (result.code === "LIQUIDITY_SOURCE_UNAVAILABLE") return 503;
   if (result.code === "INSUFFICIENT_LIQUIDITY_FOR_RISK") return 422;
   return 500;
+}
+
+async function getCachedMarketHealth(limit = 288) {
+  const boundedLimit = clampInteger(limit, 24, 5000, 288);
+  const key = String(boundedLimit);
+  const cached = marketHealthCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.cachedAt < MARKET_HEALTH_CACHE_MS) {
+    return {
+      context: cached.context,
+      cacheStatus: "hit",
+      cachedAt: new Date(cached.cachedAt).toISOString(),
+    };
+  }
+  const snapshots = await pulseSnapshotRepository.listSnapshots({ limit: boundedLimit });
+  const context = buildMarketHealthContext(snapshots);
+  marketHealthCache.set(key, { context, cachedAt: now });
+  return {
+    context,
+    cacheStatus: cached ? "refresh" : "miss",
+    cachedAt: new Date(now).toISOString(),
+  };
 }
 
 function buildMarketHealthContext(snapshots = []) {

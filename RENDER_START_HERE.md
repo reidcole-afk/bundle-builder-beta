@@ -83,6 +83,9 @@ BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED=true
 BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS=600000
 BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS=150000
 BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE=8
+BUNDLE_BUILDER_PULSE_COLLECTOR_MAX_RUN_MS=480000
+BUNDLE_BUILDER_MARKET_HEALTH_CACHE_MS=120000
+BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS=6500
 ```
 
 This keeps snapshot collection on, but avoids the heavier background chart preload that can compete with health checks and live user requests.
@@ -111,7 +114,7 @@ https://bundlebuilder.vicicoin.io/api/v1/bundle?network=base&risk=moderate&focus
 In `/health`, confirm:
 
 ```json
-  "version": "0.1.153",
+  "version": "0.1.154",
 "pulseSnapshotStorage": {
   "mode": "postgres",
   "durable": true
