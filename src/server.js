@@ -48,6 +48,7 @@ const PULSE_COLLECTOR_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLE
 const PULSE_COLLECTOR_DEX_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS || 1000 * 60 * 12);
 const PULSE_COLLECTOR_DEX_STALE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS || 1000 * 60 * 60 * 6);
 const PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 3);
+const PULSE_COLLECTOR_REFRESH_BATCH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE, 1, 22, 7);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION || process.env.OPENAI_ORG_ID || "";
 const OPENAI_PROJECT = process.env.OPENAI_PROJECT || process.env.OPENAI_PROJECT_ID || "";
@@ -122,7 +123,10 @@ const pulseCollectorState = {
   dexCacheMs: PULSE_COLLECTOR_DEX_CACHE_MS,
   dexStaleMs: PULSE_COLLECTOR_DEX_STALE_MS,
   dexRateLimitCooldownMs: PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS,
+  refreshBatchSize: PULSE_COLLECTOR_REFRESH_BATCH_SIZE,
   dexRateLimitedUntil: null,
+  nextWatchlistOffset: 0,
+  lastRefreshTickers: [],
   lastSkipped: [],
   lastWakeList: [],
   lastRateLimitCount: 0,
@@ -2375,6 +2379,7 @@ pulseCollectorState.watchlistSize = pulseCollectorWatchlist.length;
 
 function startPulseSnapshotCollector() {
   if (!PULSE_COLLECTOR_ENABLED || pulseCollectorTimer) return;
+  hydratePulseCollectorStateFromLatestSnapshot().catch(() => {});
   setTimeout(() => {
     runPulseSnapshotCollector("startup").catch((error) => {
       pulseCollectorState.lastError = error.message || "Pulse collector startup failed";
@@ -2406,12 +2411,14 @@ async function runPulseSnapshotCollector(trigger = "manual") {
     let rateLimitCount = 0;
     let usedCachedMarkets = 0;
     const rankingContext = await buildPulseRankingContext();
+    const refreshTickers = pulseCollectorRefreshTickerSet();
+    pulseCollectorState.lastRefreshTickers = [...refreshTickers];
     for (const meta of pulseCollectorWatchlist) {
       try {
-        const market = await fetchPulseCollectorMarket(meta);
+        const market = await fetchPulseCollectorMarket(meta, { allowNetworkFetch: refreshTickers.has(meta.ticker) });
         if (market?.cacheStatus && market.cacheStatus !== "fresh") usedCachedMarkets += 1;
         if (!market || !Number.isFinite(market.priceUsd)) {
-          skipped.push({ ticker: meta.ticker, reason: "no Base DEX Screener market" });
+          skipped.push({ ticker: meta.ticker, reason: refreshTickers.has(meta.ticker) ? "no Base DEX Screener market" : "no cached DEX Screener market" });
           continue;
         }
         const scored = scorePulseCollectorCandidate(meta, market, rankingContext);
@@ -2435,7 +2442,7 @@ async function runPulseSnapshotCollector(trigger = "manual") {
         pulseCollectorState.lastError = `${meta.ticker}: ${error.message || "market lookup failed"}`;
         skipped.push({ ticker: meta.ticker, reason: error.message || "market lookup failed" });
       }
-      await wait(PULSE_COLLECTOR_STAGGER_MS);
+      if (refreshTickers.has(meta.ticker)) await wait(PULSE_COLLECTOR_STAGGER_MS);
     }
     const rankedWakeList = wakeList
       .sort((a, b) => b.watchScore - a.watchScore)
@@ -2453,8 +2460,8 @@ async function runPulseSnapshotCollector(trigger = "manual") {
       .map(pulseCollectorSnapshotCoin);
 
     if (!ranked.length) {
-      const onlyRateLimited = Boolean(rateLimitCount) && skipped.length && skipped.every((item) => isDexScreenerRateLimitText(item.reason));
-      if (onlyRateLimited) {
+      if (rateLimitCount) {
+        await hydratePulseCollectorStateFromLatestSnapshot();
         pulseCollectorState.lastCompletedAt = new Date().toISOString();
         pulseCollectorState.lastPartialSnapshot = false;
         pulseCollectorState.lastError = `DEX Screener rate-limited ${rateLimitCount} collector requests; keeping last good snapshot`;
@@ -2500,7 +2507,33 @@ function recoverStalePulseCollectorLock() {
   return true;
 }
 
-async function fetchPulseCollectorMarket(meta) {
+async function hydratePulseCollectorStateFromLatestSnapshot() {
+  if (pulseCollectorState.lastSnapshotAt && pulseCollectorState.lastCoins.length) return false;
+  const snapshots = await pulseSnapshotRepository.listSnapshots({ limit: 1 });
+  const latest = Array.isArray(snapshots) ? snapshots[0] : null;
+  if (!latest || !Array.isArray(latest.coins) || !latest.coins.length) return false;
+  pulseCollectorState.lastSnapshotAt = latest.createdAt || null;
+  pulseCollectorState.lastSnapshotId = latest.id || null;
+  pulseCollectorState.lastCoins = latest.coins.map((coin) => safeText(coin.ticker, 20).toUpperCase()).filter(Boolean);
+  pulseCollectorState.lastEligible = latest.coins.length;
+  pulseCollectorState.lastWakeList = Array.isArray(latest.watchlist) ? latest.watchlist.slice(0, 8) : [];
+  pulseCollectorState.lastCompletedAt = pulseCollectorState.lastCompletedAt || latest.createdAt || new Date().toISOString();
+  return true;
+}
+
+function pulseCollectorRefreshTickerSet() {
+  const tickers = pulseCollectorWatchlist.map((item) => item.ticker);
+  const batchSize = Math.max(1, Math.min(PULSE_COLLECTOR_REFRESH_BATCH_SIZE, tickers.length));
+  const offset = pulseCollectorState.nextWatchlistOffset % tickers.length;
+  const selected = new Set();
+  for (let index = 0; index < batchSize; index += 1) {
+    selected.add(tickers[(offset + index) % tickers.length]);
+  }
+  pulseCollectorState.nextWatchlistOffset = (offset + batchSize) % tickers.length;
+  return selected;
+}
+
+async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}) {
   const ticker = String(meta.ticker || "").toUpperCase();
   const cacheKey = ticker;
   const cached = pulseCollectorDexCache.get(cacheKey);
@@ -2508,9 +2541,28 @@ async function fetchPulseCollectorMarket(meta) {
   const freshCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_CACHE_MS;
   if (freshCached) return { ...cached.market, cacheStatus: "fresh-cache" };
 
+  const durableCached = await readPulseCollectorDexMarketCache(ticker);
+  if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_CACHE_MS) {
+    pulseCollectorDexCache.set(cacheKey, durableCached);
+    return { ...durableCached.market, cacheStatus: "fresh-durable-cache" };
+  }
+
+  if (!allowNetworkFetch) {
+    if (cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) return { ...cached.market, cacheStatus: "stale-cache" };
+    if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) {
+      pulseCollectorDexCache.set(cacheKey, durableCached);
+      return { ...durableCached.market, cacheStatus: "stale-durable-cache" };
+    }
+    return null;
+  }
+
   if (isPulseCollectorDexCoolingDown()) {
     const staleCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS;
     if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit" };
+    if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) {
+      pulseCollectorDexCache.set(cacheKey, durableCached);
+      return { ...durableCached.market, cacheStatus: "stale-durable-cache-rate-limit" };
+    }
     throw new Error("DEX Screener rate-limit cooldown");
   }
 
@@ -2523,6 +2575,10 @@ async function fetchPulseCollectorMarket(meta) {
       setPulseCollectorDexRateLimitCooldown();
       const staleCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS;
       if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit" };
+      if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) {
+        pulseCollectorDexCache.set(cacheKey, durableCached);
+        return { ...durableCached.market, cacheStatus: "stale-durable-cache-rate-limit" };
+      }
     }
     throw error;
   }
@@ -2545,8 +2601,51 @@ async function fetchPulseCollectorMarket(meta) {
     .filter((pair) => Number.isFinite(pair.priceUsd) && pair.priceUsd > 0)
     .sort((a, b) => (b.liquidityUsd + b.volume24h * 0.35) - (a.liquidityUsd + a.volume24h * 0.35));
   const market = matches[0] || null;
-  if (market) pulseCollectorDexCache.set(cacheKey, { market, cachedAt: now });
+  if (market) {
+    const record = { market, cachedAt: now };
+    pulseCollectorDexCache.set(cacheKey, record);
+    writePulseCollectorDexMarketCache(ticker, record).catch(() => {});
+  }
   return market ? { ...market, cacheStatus: "fresh" } : null;
+}
+
+async function readPulseCollectorDexMarketCache(ticker) {
+  const key = pulseCollectorDexMarketCacheKey(ticker);
+  const record = await chartCacheRepository.get(key);
+  if (!record || typeof record !== "object") return null;
+  const cachedAt = finiteNumber(record.cachedAt);
+  const market = sanitizePulseCollectorDexMarket(record.market);
+  if (!market || !Number.isFinite(cachedAt)) return null;
+  return { market, cachedAt };
+}
+
+async function writePulseCollectorDexMarketCache(ticker, record) {
+  const market = sanitizePulseCollectorDexMarket(record?.market);
+  const cachedAt = finiteNumber(record?.cachedAt) || Date.now();
+  if (!market) return null;
+  return chartCacheRepository.set(pulseCollectorDexMarketCacheKey(ticker), { market, cachedAt });
+}
+
+function pulseCollectorDexMarketCacheKey(ticker) {
+  return `dex-market:${safeText(ticker, 20).toUpperCase()}`;
+}
+
+function sanitizePulseCollectorDexMarket(input = {}) {
+  const ticker = safeText(input.ticker, 20).toUpperCase();
+  const priceUsd = finiteNumber(input.priceUsd);
+  if (!ticker || !Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+  return {
+    ticker,
+    name: safeText(input.name, 80),
+    priceUsd,
+    priceChange24h: finiteNumber(input.priceChange24h) || 0,
+    volume24h: finiteNumber(input.volume24h) || 0,
+    liquidityUsd: finiteNumber(input.liquidityUsd) || 0,
+    buys24h: finiteNumber(input.buys24h) || 0,
+    sells24h: finiteNumber(input.sells24h) || 0,
+    pairAddress: safeText(input.pairAddress, 80),
+    url: safeText(input.url, 240),
+  };
 }
 
 function isPulseCollectorDexCoolingDown() {
@@ -2634,6 +2733,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const opportunityScore = pulseOpportunityScore(meta, market, buyRatio);
   const qualityScore = meta.baseScore * 0.76;
   const defaultFavoritePenalty = ticker === "AERO" && market.priceChange24h < 7 && opportunityScore < 6 ? 5.5 : 0;
+  const aeroPerformancePenalty = pulseAeroPerformancePenalty(ticker, market, rankingContext, opportunityScore);
   const reversalWakeupBoost = pulseReversalWakeupBoost(meta, market, buyRatio, opportunityScore);
   const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
   const speculativeTrapPenalty = pulseSpeculativeTrapPenalty(meta, market, buyRatio, opportunityScore);
@@ -2678,7 +2778,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const wakeUpBoost = clamp((wakeUpSignal.score - 42) / 6, -3.5, 9.5);
   const confirmedWakeBoost = clamp((confirmedWakeUpSignal.score - 50) / 6, -4, 10);
   const graduationBoost = graduationSignal.boost;
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - aeroPerformancePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
   const signalLane = pulseSignalLane({
     pulseScore,
     wakeUpScore: wakeUpSignal.score,
@@ -2716,8 +2816,26 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     regime: rankingContext?.regime || "mixed",
     reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
+    aeroPerformancePenalty: Number(aeroPerformancePenalty.toFixed(2)),
     speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
   };
+}
+
+function pulseAeroPerformancePenalty(ticker, market, rankingContext = {}, opportunityScore = 0) {
+  if (ticker !== "AERO") return 0;
+  const change = finiteNumber(market.priceChange24h) || 0;
+  const volume = finiteNumber(market.volume24h) || 0;
+  const liquidity = finiteNumber(market.liquidityUsd) || 0;
+  const rows = rankingContext?.tickerHistory instanceof Map ? rankingContext.tickerHistory.get("AERO") : [];
+  const recent = (Array.isArray(rows) ? rows : []).slice(-6);
+  const recentAvgChange = averageValue(recent.map((row) => row.change24h).filter(Number.isFinite));
+  let penalty = 0;
+
+  if (change < 0 && opportunityScore < 7) penalty += 4;
+  if (change <= -2 && opportunityScore < 8) penalty += 3;
+  if (Number.isFinite(recentAvgChange) && recentAvgChange < 0 && opportunityScore < 7) penalty += 2.5;
+  if (volume >= 1_000_000 && liquidity >= 5_000_000 && change < 1 && opportunityScore < 6) penalty += 2;
+  return clamp(penalty, 0, 12);
 }
 
 function pulseGraduationSignal(ticker, rankingContext = {}) {

@@ -37,3 +37,5 @@ services:
         value: "21600000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS
         value: "180000"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE
+        value: "7"

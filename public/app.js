@@ -4535,6 +4535,8 @@ function qualityAdjustedPulseScore(candidate = {}) {
   score -= liveExtensionPenalty(candidate, setup, opportunityScore);
   score -= liveSpeculativeTrapPenalty(candidate, setup, direction, opportunityScore);
   if (ticker === "AERO" && Number.isFinite(change24h) && change24h < 7 && opportunityScore < 6) score -= 7;
+  if (ticker === "AERO" && Number.isFinite(change24h) && change24h < 0 && opportunityScore < 7) score -= 6;
+  if (ticker === "AERO" && Number.isFinite(change24h) && change24h <= -2 && opportunityScore < 8) score -= 4;
   if (liquidity >= 8_000_000 && Number.isFinite(change24h) && Math.abs(change24h) < 1 && direction.score < 62 && !setup?.boughtPullback && !setup?.baseForming) score -= 6;
   return roundTo(score, 2);
 }
@@ -4631,6 +4633,7 @@ function liveExtensionPenalty(candidate = {}, setup = {}, opportunityScore = 0) 
   if (Number.isFinite(change7d) && change7d >= 35 && !setup?.baseForming && !setup?.boughtPullback) penalty += 2.5;
   if (setup?.extended && setup?.fading) penalty += 4;
   if (ticker === "AERO" && change24h < 7 && opportunityScore < 6) penalty += 1.5;
+  if (ticker === "AERO" && change24h < 0 && opportunityScore < 7) penalty += 3;
 
   return clamp(penalty, 0, 13);
 }
@@ -7574,9 +7577,9 @@ async function renderMarketHealth({ force = false } = {}) {
     loadBenchmarkHealthCoin("ethereum", "ETH"),
     fetchMarketHealthContext(),
   ]);
-  const btc = results[0].status === "fulfilled" ? results[0].value : null;
-  const eth = results[1].status === "fulfilled" ? results[1].value : null;
-  const context = results[2].status === "fulfilled" ? results[2].value : null;
+  const btc = results[0].status === "fulfilled" ? results[0].value : marketHealthCache?.btc || null;
+  const eth = results[1].status === "fulfilled" ? results[1].value : marketHealthCache?.eth || null;
+  const context = results[2].status === "fulfilled" ? results[2].value : marketHealthCache?.context || null;
   const breadth = marketPulseBreadthRead(currentFavorites);
   const health = buildMarketHealthRead(btc, eth, breadth, context);
   marketHealthCache = { ...health, btc, eth, breadth, context, loadedAt: Date.now() };
@@ -8776,6 +8779,7 @@ function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
   const lifetime = allTimeContextScore({ ...meta, ...market, volume24h, liquidityUsd, prices, marketSetup: setup });
   const speculativePenalty = speculativePulsePenalty(meta, { volume24h, liquidityUsd });
   const edgeScore = finiteOrNull(edge?.score) || 0;
+  const aeroPenalty = normalizeTicker(meta.ticker || meta.symbol) === "AERO" && change24h < 0 ? 7 : normalizeTicker(meta.ticker || meta.symbol) === "AERO" && change24h < 1 ? 3 : 0;
   return meta.baseScore
     + clamp(change24h, -14, 20) * 1.25
     + multiTimeframe
@@ -8787,7 +8791,8 @@ function marketConvictionScore(meta, market = {}, prices = [], edge = null) {
     + theme
     + lifetime
     + edgeScore * 0.22
-    - speculativePenalty;
+    - speculativePenalty
+    - aeroPenalty;
 }
 
 function marketSetupSignal(meta, market = {}, prices = []) {

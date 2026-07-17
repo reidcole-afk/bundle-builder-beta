@@ -2,7 +2,7 @@ const VICI_COINS_API_BASE_URL = process.env.VICI_COINS_API_BASE_URL || "https://
 const VICI_COIN_DATA_API_BASE_URL = process.env.VICI_COIN_DATA_API_BASE_URL || "https://app.viciswap.io/api/coin_data";
 const DEX_SCREENER_BASE_URL = "https://api.dexscreener.com";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const API_VERSION = "0.1.155";
+const API_VERSION = "0.1.157";
 const REQUEST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_TIMEOUT_MS || 7000);
 const MARKET_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_MARKET_LOOKUP_LIMIT || 18);
 const CATEGORY_LOOKUP_LIMIT = Number(process.env.BUNDLE_BUILDER_CATEGORY_LOOKUP_LIMIT || 10);
@@ -1163,8 +1163,27 @@ function scoreCandidate(candidate, params) {
   const freshnessPenalty = freshnessDecayPenalty(candidate);
   const confirmationPenalty = highBetaConfirmationPenalty(candidate);
   const quietReversalBoost = quietReversalBoostForCandidate(candidate);
+  const aeroPerformancePenalty = aeroPerformancePenaltyForCandidate(candidate);
   const riskWeight = riskMomentumMultiplier(params.risk);
-  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore + confidenceBoost + quietReversalBoost - liquidityPenalty - speculativePenalty - freshnessPenalty - confirmationPenalty;
+  return candidate.baseScore + focusBoost + preferredBoost + momentum * riskWeight + volumeScore + liquidityScore + categoryScore + relativeStrengthScore + edgeScore + confidenceBoost + quietReversalBoost - liquidityPenalty - speculativePenalty - freshnessPenalty - confirmationPenalty - aeroPerformancePenalty;
+}
+
+function aeroPerformancePenaltyForCandidate(candidate = {}) {
+  if (candidate.ticker !== "AERO") return 0;
+  const market = candidate.market || {};
+  const change24h = finiteOrNull(market.change24h) || 0;
+  const change6h = finiteOrNull(market.change6h);
+  const trend = trendContinuationScore(market);
+  const volume = finiteOrNull(market.volume24h) || 0;
+  const liquidity = finiteOrNull(market.liquidityUsd) || 0;
+  let penalty = 0;
+
+  if (change24h < 0) penalty += 5;
+  if (change24h <= -2) penalty += 3;
+  if (Number.isFinite(change6h) && change6h < 0) penalty += 2;
+  if (trend < -1) penalty += 2.5;
+  if (volume >= 1_000_000 && liquidity >= 5_000_000 && change24h < 1 && trend < 1) penalty += 2;
+  return clamp(penalty, 0, 13);
 }
 
 function freshnessDecayPenalty(candidate = {}) {
