@@ -44,6 +44,10 @@ const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLL
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 150);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 8);
 const PULSE_COLLECTOR_MAX_RUN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_MAX_RUN_MS || Math.max(1000 * 60 * 8, Math.round(PULSE_COLLECTOR_INTERVAL_MS * 0.8)));
+const PULSE_COLLECTOR_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS || 1200);
+const PULSE_COLLECTOR_DEX_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS || 1000 * 60 * 12);
+const PULSE_COLLECTOR_DEX_STALE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS || 1000 * 60 * 60 * 6);
+const PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 3);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION || process.env.OPENAI_ORG_ID || "";
 const OPENAI_PROJECT = process.env.OPENAI_PROJECT || process.env.OPENAI_PROJECT_ID || "";
@@ -114,14 +118,23 @@ const pulseCollectorState = {
   lastEligible: 0,
   lastRecoveredAt: null,
   maxRunMs: PULSE_COLLECTOR_MAX_RUN_MS,
+  staggerMs: PULSE_COLLECTOR_STAGGER_MS,
+  dexCacheMs: PULSE_COLLECTOR_DEX_CACHE_MS,
+  dexStaleMs: PULSE_COLLECTOR_DEX_STALE_MS,
+  dexRateLimitCooldownMs: PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS,
+  dexRateLimitedUntil: null,
   lastSkipped: [],
   lastWakeList: [],
+  lastRateLimitCount: 0,
+  lastUsedCachedMarkets: 0,
+  lastPartialSnapshot: false,
 };
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
 const marketHealthCache = new Map();
 const catalystCache = new Map();
 const pulseAnalystCache = new Map();
+const pulseCollectorDexCache = new Map();
 const openAiPulseAnalystState = {
   configured: Boolean(OPENAI_API_KEY),
   primaryModel: PULSE_ANALYST_MODEL,
@@ -2390,10 +2403,13 @@ async function runPulseSnapshotCollector(trigger = "manual") {
     const candidates = [];
     const skipped = [];
     const wakeList = [];
+    let rateLimitCount = 0;
+    let usedCachedMarkets = 0;
     const rankingContext = await buildPulseRankingContext();
     for (const meta of pulseCollectorWatchlist) {
       try {
         const market = await fetchPulseCollectorMarket(meta);
+        if (market?.cacheStatus && market.cacheStatus !== "fresh") usedCachedMarkets += 1;
         if (!market || !Number.isFinite(market.priceUsd)) {
           skipped.push({ ticker: meta.ticker, reason: "no Base DEX Screener market" });
           continue;
@@ -2415,10 +2431,11 @@ async function runPulseSnapshotCollector(trigger = "manual") {
         }
         candidates.push(scored);
       } catch (error) {
+        if (isDexScreenerRateLimitError(error)) rateLimitCount += 1;
         pulseCollectorState.lastError = `${meta.ticker}: ${error.message || "market lookup failed"}`;
         skipped.push({ ticker: meta.ticker, reason: error.message || "market lookup failed" });
       }
-      await wait(175);
+      await wait(PULSE_COLLECTOR_STAGGER_MS);
     }
     const rankedWakeList = wakeList
       .sort((a, b) => b.watchScore - a.watchScore)
@@ -2427,16 +2444,27 @@ async function runPulseSnapshotCollector(trigger = "manual") {
     pulseCollectorState.lastEligible = candidates.length;
     pulseCollectorState.lastSkipped = skipped.slice(0, 12);
     pulseCollectorState.lastWakeList = rankedWakeList.slice(0, 8);
+    pulseCollectorState.lastRateLimitCount = rateLimitCount;
+    pulseCollectorState.lastUsedCachedMarkets = usedCachedMarkets;
 
     const ranked = candidates
       .sort((a, b) => b.pulseScore - a.pulseScore)
       .slice(0, PULSE_COLLECTOR_DECK_SIZE)
       .map(pulseCollectorSnapshotCoin);
 
-    if (!ranked.length) throw new Error("Pulse collector found no eligible Base candidates");
+    if (!ranked.length) {
+      const onlyRateLimited = Boolean(rateLimitCount) && skipped.length && skipped.every((item) => isDexScreenerRateLimitText(item.reason));
+      if (onlyRateLimited) {
+        pulseCollectorState.lastCompletedAt = new Date().toISOString();
+        pulseCollectorState.lastPartialSnapshot = false;
+        pulseCollectorState.lastError = `DEX Screener rate-limited ${rateLimitCount} collector requests; keeping last good snapshot`;
+        return { trigger, snapshotId: null, coins: pulseCollectorState.lastCoins, rateLimited: true };
+      }
+      throw new Error("Pulse collector found no eligible Base candidates");
+    }
 
     const snapshot = await pulseSnapshotRepository.saveSnapshot({
-      source: "server-background-pulse",
+      source: rateLimitCount || usedCachedMarkets ? "server-background-pulse-partial-cache" : "server-background-pulse",
       network: "Base",
       selectedWindow: "24h",
       selectedReadWindow: "7d",
@@ -2448,6 +2476,9 @@ async function runPulseSnapshotCollector(trigger = "manual") {
     pulseCollectorState.lastSnapshotId = snapshot.id;
     pulseCollectorState.lastCoins = snapshot.coins.map((coin) => coin.ticker);
     pulseCollectorState.lastCompletedAt = new Date().toISOString();
+    pulseCollectorState.lastPartialSnapshot = Boolean(rateLimitCount || usedCachedMarkets);
+    if (rateLimitCount) pulseCollectorState.lastError = `Saved partial pulse snapshot with ${rateLimitCount} DEX Screener rate-limit skips`;
+    warmMarketHealthCaches().catch(() => {});
     return { trigger, snapshotId: snapshot.id, coins: pulseCollectorState.lastCoins };
   } catch (error) {
     pulseCollectorState.lastError = error.message || "Pulse collector failed";
@@ -2470,9 +2501,31 @@ function recoverStalePulseCollectorLock() {
 }
 
 async function fetchPulseCollectorMarket(meta) {
-  const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(meta.ticker)}`;
-  const payload = await fetchJsonWithTimeout(url, MARKET_CHART_TIMEOUT_MS);
   const ticker = String(meta.ticker || "").toUpperCase();
+  const cacheKey = ticker;
+  const cached = pulseCollectorDexCache.get(cacheKey);
+  const now = Date.now();
+  const freshCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_CACHE_MS;
+  if (freshCached) return { ...cached.market, cacheStatus: "fresh-cache" };
+
+  if (isPulseCollectorDexCoolingDown()) {
+    const staleCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS;
+    if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit" };
+    throw new Error("DEX Screener rate-limit cooldown");
+  }
+
+  const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(meta.ticker)}`;
+  let payload;
+  try {
+    payload = await fetchJsonWithTimeout(url, MARKET_CHART_TIMEOUT_MS);
+  } catch (error) {
+    if (isDexScreenerRateLimitError(error)) {
+      setPulseCollectorDexRateLimitCooldown();
+      const staleCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS;
+      if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit" };
+    }
+    throw error;
+  }
   const pairs = Array.isArray(payload?.pairs) ? payload.pairs : [];
   const matches = pairs
     .filter((pair) => String(pair.chainId || "").toLowerCase() === "base")
@@ -2491,7 +2544,26 @@ async function fetchPulseCollectorMarket(meta) {
     }))
     .filter((pair) => Number.isFinite(pair.priceUsd) && pair.priceUsd > 0)
     .sort((a, b) => (b.liquidityUsd + b.volume24h * 0.35) - (a.liquidityUsd + a.volume24h * 0.35));
-  return matches[0] || null;
+  const market = matches[0] || null;
+  if (market) pulseCollectorDexCache.set(cacheKey, { market, cachedAt: now });
+  return market ? { ...market, cacheStatus: "fresh" } : null;
+}
+
+function isPulseCollectorDexCoolingDown() {
+  const until = Date.parse(pulseCollectorState.dexRateLimitedUntil || "");
+  return Number.isFinite(until) && until > Date.now();
+}
+
+function setPulseCollectorDexRateLimitCooldown() {
+  pulseCollectorState.dexRateLimitedUntil = new Date(Date.now() + PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS).toISOString();
+}
+
+function isDexScreenerRateLimitError(error) {
+  return isDexScreenerRateLimitText(error?.message || error);
+}
+
+function isDexScreenerRateLimitText(value) {
+  return /HTTP 429|rate-limit/i.test(String(value || ""));
 }
 
 async function buildPulseRankingContext() {
@@ -3472,6 +3544,16 @@ async function getCachedMarketHealth(limit = 288) {
     cacheStatus: cached ? "refresh" : "miss",
     cachedAt: new Date(now).toISOString(),
   };
+}
+
+async function warmMarketHealthCaches() {
+  for (const limit of [288, 2000]) {
+    const boundedLimit = clampInteger(limit, 24, 5000, 288);
+    const key = String(boundedLimit);
+    const snapshots = await pulseSnapshotRepository.listSnapshots({ limit: boundedLimit });
+    const context = buildMarketHealthContext(snapshots);
+    marketHealthCache.set(key, { context, cachedAt: Date.now() });
+  }
 }
 
 function buildMarketHealthContext(snapshots = []) {

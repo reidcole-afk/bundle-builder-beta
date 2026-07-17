@@ -29,3 +29,11 @@ services:
         value: "150000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE
         value: "8"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS
+        value: "1200"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS
+        value: "720000"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS
+        value: "21600000"
+      - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS
+        value: "180000"
