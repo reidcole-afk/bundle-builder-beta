@@ -24,18 +24,22 @@ services:
       - key: BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED
         value: "false"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS
-        value: "600000"
+        value: "900000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS
         value: "150000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE
         value: "8"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS
-        value: "1200"
+        value: "1800"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS
-        value: "720000"
+        value: "1800000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS
-        value: "21600000"
+        value: "172800000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS
-        value: "180000"
+        value: "600000"
       - key: BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE
-        value: "7"
+        value: "3"
+      - key: BUNDLE_BUILDER_PULSE_ANALYST_QUOTA_COOLDOWN_MS
+        value: "21600000"
+      - key: BUNDLE_BUILDER_PULSE_ANALYST_RATE_LIMIT_COOLDOWN_MS
+        value: "1800000"

@@ -40,15 +40,15 @@ const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_T
 const RECOMMENDATION_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS || 6500);
 const MARKET_HEALTH_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_HEALTH_CACHE_MS || 1000 * 60 * 2);
 const PULSE_COLLECTOR_ENABLED = process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_ENABLED !== "false";
-const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 10);
+const PULSE_COLLECTOR_INTERVAL_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_INTERVAL_MS || 1000 * 60 * 15);
 const PULSE_COLLECTOR_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STARTUP_DELAY_MS || 1000 * 150);
 const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DECK_SIZE, 1, 10, 8);
 const PULSE_COLLECTOR_MAX_RUN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_MAX_RUN_MS || Math.max(1000 * 60 * 8, Math.round(PULSE_COLLECTOR_INTERVAL_MS * 0.8)));
-const PULSE_COLLECTOR_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS || 1200);
-const PULSE_COLLECTOR_DEX_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS || 1000 * 60 * 12);
-const PULSE_COLLECTOR_DEX_STALE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS || 1000 * 60 * 60 * 6);
-const PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 3);
-const PULSE_COLLECTOR_REFRESH_BATCH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE, 1, 22, 7);
+const PULSE_COLLECTOR_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS || 1800);
+const PULSE_COLLECTOR_DEX_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS || 1000 * 60 * 30);
+const PULSE_COLLECTOR_DEX_STALE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS || 1000 * 60 * 60 * 48);
+const PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 10);
+const PULSE_COLLECTOR_REFRESH_BATCH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE, 1, 22, 3);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION || process.env.OPENAI_ORG_ID || "";
 const OPENAI_PROJECT = process.env.OPENAI_PROJECT || process.env.OPENAI_PROJECT_ID || "";
@@ -56,7 +56,8 @@ const PULSE_ANALYST_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_MODEL || "g
 const PULSE_ANALYST_FALLBACK_MODEL = process.env.BUNDLE_BUILDER_PULSE_ANALYST_FALLBACK_MODEL || "gpt-4.1-nano";
 const PULSE_ANALYST_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_CACHE_MS || 1000 * 60 * 10);
 const PULSE_ANALYST_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_TIMEOUT_MS || 12000);
-const PULSE_ANALYST_QUOTA_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_QUOTA_COOLDOWN_MS || 1000 * 60 * 30);
+const PULSE_ANALYST_QUOTA_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_QUOTA_COOLDOWN_MS || 1000 * 60 * 60 * 6);
+const PULSE_ANALYST_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_ANALYST_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 30);
 const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || Boolean(process.env.RENDER);
 const ADMIN_SECRET = process.env.BUNDLE_BUILDER_ADMIN_SECRET || "";
 const AUTH_SECRET_CONFIGURED = Boolean(process.env.BUNDLE_BUILDER_AUTH_SECRET);
@@ -1195,9 +1196,8 @@ function updateOpenAiPulseAnalystFailure(error) {
   openAiPulseAnalystState.lastErrorAt = new Date().toISOString();
   openAiPulseAnalystState.lastErrorType = type;
   openAiPulseAnalystState.lastError = safeText(error?.message || "OpenAI analyst request failed", 280);
-  if (["quota", "rate_limit"].includes(type)) {
-    openAiPulseAnalystState.cooldownUntil = new Date(Date.now() + PULSE_ANALYST_QUOTA_COOLDOWN_MS).toISOString();
-  }
+  if (type === "quota") openAiPulseAnalystState.cooldownUntil = new Date(Date.now() + PULSE_ANALYST_QUOTA_COOLDOWN_MS).toISOString();
+  if (type === "rate_limit") openAiPulseAnalystState.cooldownUntil = new Date(Date.now() + PULSE_ANALYST_RATE_LIMIT_COOLDOWN_MS).toISOString();
 }
 
 function classifyOpenAiError(message = "") {
@@ -2539,29 +2539,29 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
   const cached = pulseCollectorDexCache.get(cacheKey);
   const now = Date.now();
   const freshCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_CACHE_MS;
-  if (freshCached) return { ...cached.market, cacheStatus: "fresh-cache" };
+  if (freshCached) return { ...cached.market, cacheStatus: "fresh-cache", cacheAgeMs: now - cached.cachedAt };
 
   const durableCached = await readPulseCollectorDexMarketCache(ticker);
   if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_CACHE_MS) {
     pulseCollectorDexCache.set(cacheKey, durableCached);
-    return { ...durableCached.market, cacheStatus: "fresh-durable-cache" };
+    return { ...durableCached.market, cacheStatus: "fresh-durable-cache", cacheAgeMs: now - durableCached.cachedAt };
   }
 
   if (!allowNetworkFetch) {
-    if (cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) return { ...cached.market, cacheStatus: "stale-cache" };
+    if (cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) return { ...cached.market, cacheStatus: "stale-cache", cacheAgeMs: now - cached.cachedAt };
     if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) {
       pulseCollectorDexCache.set(cacheKey, durableCached);
-      return { ...durableCached.market, cacheStatus: "stale-durable-cache" };
+      return { ...durableCached.market, cacheStatus: "stale-durable-cache", cacheAgeMs: now - durableCached.cachedAt };
     }
     return null;
   }
 
   if (isPulseCollectorDexCoolingDown()) {
     const staleCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS;
-    if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit" };
+    if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit", cacheAgeMs: now - cached.cachedAt };
     if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) {
       pulseCollectorDexCache.set(cacheKey, durableCached);
-      return { ...durableCached.market, cacheStatus: "stale-durable-cache-rate-limit" };
+      return { ...durableCached.market, cacheStatus: "stale-durable-cache-rate-limit", cacheAgeMs: now - durableCached.cachedAt };
     }
     throw new Error("DEX Screener rate-limit cooldown");
   }
@@ -2574,10 +2574,10 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
     if (isDexScreenerRateLimitError(error)) {
       setPulseCollectorDexRateLimitCooldown();
       const staleCached = cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS;
-      if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit" };
+      if (staleCached) return { ...cached.market, cacheStatus: "stale-cache-rate-limit", cacheAgeMs: now - cached.cachedAt };
       if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_STALE_MS) {
         pulseCollectorDexCache.set(cacheKey, durableCached);
-        return { ...durableCached.market, cacheStatus: "stale-durable-cache-rate-limit" };
+        return { ...durableCached.market, cacheStatus: "stale-durable-cache-rate-limit", cacheAgeMs: now - durableCached.cachedAt };
       }
     }
     throw error;
@@ -2606,7 +2606,7 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
     pulseCollectorDexCache.set(cacheKey, record);
     writePulseCollectorDexMarketCache(ticker, record).catch(() => {});
   }
-  return market ? { ...market, cacheStatus: "fresh" } : null;
+  return market ? { ...market, cacheStatus: "fresh", cacheAgeMs: 0 } : null;
 }
 
 async function readPulseCollectorDexMarketCache(ticker) {
@@ -2645,6 +2645,7 @@ function sanitizePulseCollectorDexMarket(input = {}) {
     sells24h: finiteNumber(input.sells24h) || 0,
     pairAddress: safeText(input.pairAddress, 80),
     url: safeText(input.url, 240),
+    cacheAgeMs: finiteNumber(input.cacheAgeMs) || 0,
   };
 }
 
@@ -2753,6 +2754,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     speculativeTrapPenalty,
   });
   const regimeFit = pulseRegimeFit(meta, market, buyRatio, rankingContext, opportunityScore);
+  const dataFreshnessPenalty = pulseDataFreshnessPenalty(market, rankingContext);
   const confidenceScore = pulseConfidenceScore(meta, market, {
     buyRatio,
     opportunityScore,
@@ -2778,7 +2780,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const wakeUpBoost = clamp((wakeUpSignal.score - 42) / 6, -3.5, 9.5);
   const confirmedWakeBoost = clamp((confirmedWakeUpSignal.score - 50) / 6, -4, 10);
   const graduationBoost = graduationSignal.boost;
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - aeroPerformancePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty).toFixed(2));
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - aeroPerformancePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty - dataFreshnessPenalty).toFixed(2));
   const signalLane = pulseSignalLane({
     pulseScore,
     wakeUpScore: wakeUpSignal.score,
@@ -2818,7 +2820,21 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
     aeroPerformancePenalty: Number(aeroPerformancePenalty.toFixed(2)),
     speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
+    dataFreshnessPenalty: Number(dataFreshnessPenalty.toFixed(2)),
   };
+}
+
+function pulseDataFreshnessPenalty(market = {}, rankingContext = {}) {
+  const cacheAgeMs = finiteNumber(market.cacheAgeMs) || 0;
+  const cacheStatus = String(market.cacheStatus || "");
+  const thinDeck = (finiteNumber(rankingContext?.marketContext?.latest?.count) || 0) > 0
+    && (finiteNumber(rankingContext.marketContext.latest.count) || 0) < 8;
+  let penalty = 0;
+  if (/stale/i.test(cacheStatus) || cacheAgeMs > PULSE_COLLECTOR_DEX_CACHE_MS) penalty += 2.5;
+  if (cacheAgeMs > 1000 * 60 * 60 * 12) penalty += 2;
+  if (cacheAgeMs > 1000 * 60 * 60 * 24) penalty += 2.5;
+  if (thinDeck && /stale|cache/i.test(cacheStatus)) penalty += 1.5;
+  return clamp(penalty, 0, 8);
 }
 
 function pulseAeroPerformancePenalty(ticker, market, rankingContext = {}, opportunityScore = 0) {
@@ -2831,11 +2847,11 @@ function pulseAeroPerformancePenalty(ticker, market, rankingContext = {}, opport
   const recentAvgChange = averageValue(recent.map((row) => row.change24h).filter(Number.isFinite));
   let penalty = 0;
 
-  if (change < 0 && opportunityScore < 7) penalty += 4;
-  if (change <= -2 && opportunityScore < 8) penalty += 3;
-  if (Number.isFinite(recentAvgChange) && recentAvgChange < 0 && opportunityScore < 7) penalty += 2.5;
+  if (change < 0 && opportunityScore < 7) penalty += 5.5;
+  if (change <= -2 && opportunityScore < 8) penalty += 4;
+  if (Number.isFinite(recentAvgChange) && recentAvgChange < 0 && opportunityScore < 7) penalty += 3.5;
   if (volume >= 1_000_000 && liquidity >= 5_000_000 && change < 1 && opportunityScore < 6) penalty += 2;
-  return clamp(penalty, 0, 12);
+  return clamp(penalty, 0, 15);
 }
 
 function pulseGraduationSignal(ticker, rankingContext = {}) {
@@ -3718,12 +3734,16 @@ function buildMarketHealthContext(snapshots = []) {
   if (extensionPercentile >= 0.75) flags.push("late-runner pressure");
   if (topRankPercentile >= 0.75) flags.push("top-heavy deck");
   if (breadthPercentile <= 0.35 && avgChangePercentile <= 0.35) flags.push("weak breadth");
+  if (latest.count < 8) flags.push("thin live deck");
 
   const regime = regimeLabel({ breadthPercentile, avgChangePercentile, extensionPercentile, reversalPercentile, latest });
-  const confidence = Math.round(clamp((ordered.length / 2000) * 100, ordered.length >= 24 ? 18 : 8, 100));
+  const liveCoverage = clamp(latest.count / 8, 0.35, 1);
+  const historyConfidence = clamp((ordered.length / 2000) * 100, ordered.length >= 24 ? 18 : 8, 100);
+  const confidence = Math.round(clamp(historyConfidence * liveCoverage, ordered.length >= 24 ? 10 : 5, 100));
+  const adjustedScoreDelta = scoreDelta * clamp(0.7 + liveCoverage * 0.3, 0.7, 1);
   return {
     available: ordered.length >= 3,
-    scoreDelta: roundTo(clamp(scoreDelta, -28, 28), 1),
+    scoreDelta: roundTo(clamp(adjustedScoreDelta, -28, 28), 1),
     regime,
     confidence,
     sampleSize: ordered.length,
@@ -3794,6 +3814,7 @@ function snapshotMarketRead(snapshot = {}) {
     topRankPressure,
     watchlistCount: watchlist.length,
     wakeListPressure,
+    thinDeck: coins.length < 8,
     wakeListLeaders: watchlist
       .slice()
       .sort((a, b) => (finiteNumber(b.watchScore) || 0) - (finiteNumber(a.watchScore) || 0))
@@ -3814,6 +3835,7 @@ function publicMarketRead(read = {}) {
     topRankPressure: roundTo(read.topRankPressure, 2),
     watchlistCount: read.watchlistCount,
     wakeListPressure: roundTo(read.wakeListPressure, 2),
+    thinDeck: Boolean(read.thinDeck),
     wakeListLeaders: Array.isArray(read.wakeListLeaders) ? read.wakeListLeaders : [],
   };
 }
