@@ -581,10 +581,11 @@ const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
 const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
 const LIVE_BACKEND_BASE_URL = "https://bundlebuilder.vicicoin.io";
-const MARKET_CHART_CACHE_MS = 1000 * 60 * 15;
+const MARKET_CHART_CACHE_MS = 1000 * 60 * 30;
 const MARKET_HEALTH_CACHE_MS = 1000 * 60 * 5;
 const MARKET_HEALTH_LIVE_DRIFT = 1;
-const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 6;
+const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 12;
+const MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS = 1000 * 60 * 30;
 const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 30;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
 const MARKET_PULSE_TIMEOUT_MS = 18000;
@@ -1003,6 +1004,7 @@ let activeProfileFavoritesTab = "coins";
 let editingBundleNameId = "";
 let pulseChartCache = readStoredPulseChartCache();
 let pendingPulseChartLoads = new Map();
+let pulseChartBackgroundRefreshAttempts = new Map();
 let pendingPulseWindowLoads = new Map();
 let pendingBackendChartRequests = new Map();
 let unavailablePulseWindows = new Map();
@@ -9702,29 +9704,26 @@ async function loadPulseChart(candidate) {
   const cached = pulseChartCache.get(candidate.id);
   if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
     const isStale = cached.stale || Date.now() - cached.cachedAt >= MARKET_CHART_CACHE_MS;
-    if (isStale) refreshPulseChartInBackground(candidate);
+    if (isStale) maybeRefreshPulseChartInBackground(candidate);
     return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, isStale);
   }
 
   if (candidate.source === "DEX Screener" && candidate.pairAddress) {
     try {
-      const { prices, updatedAt } = await getGeckoTerminalPulseChartData(candidate, "24h");
-      return {
-        ...candidate,
-        prices,
-        chartSource: "GeckoTerminal pool chart",
-        updatedAt,
-      };
-    } catch (poolError) {
-      if (cached && Date.now() - cached.cachedAt < MARKET_CHART_STALE_MS) {
-        return withCoinGeckoChart(candidate, cached.prices, cached.updatedAt, true);
-      }
-      try {
-        const { prices, updatedAt, stale } = await getPulseChartData(candidate.id);
-        return withCoinGeckoChart(candidate, prices, updatedAt, stale);
-      } catch {
-        return { ...candidate, chartSource: poolError?.message ? `Pool chart unavailable: ${poolError.message}` : candidate.chartSource };
-      }
+      const chartData = await fetchBackendCoinGeckoChart(candidate.id, { force: false, days: 1 });
+      const prices = normalizePriceSeries(chartData.prices);
+      if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
+      const updatedAt = chartData.updatedAt || candidate.updatedAt || new Date().toISOString();
+      setPulseChartCache(candidate.id, { prices, cachedAt: Date.now(), updatedAt, stale: Boolean(chartData.stale) });
+      return withCoinGeckoChart(candidate, prices, updatedAt, Boolean(chartData.stale));
+    } catch (backendError) {
+      return loadGeckoTerminalPulseChart(candidate).then((poolCandidate) => {
+        if (normalizePriceSeries(poolCandidate.prices).length >= 2) return poolCandidate;
+        return {
+          ...candidate,
+          chartSource: backendError?.message ? `Backend chart unavailable: ${backendError.message}` : candidate.chartSource,
+        };
+      });
     }
   }
 
@@ -9740,6 +9739,16 @@ async function loadPulseChart(candidate) {
     if (normalizePriceSeries(geckoTerminalCandidate.prices).length >= 2) return geckoTerminalCandidate;
     return candidate;
   }
+}
+
+function maybeRefreshPulseChartInBackground(candidate) {
+  if (!candidate?.id || pendingPulseChartLoads.has(candidate.id)) return false;
+  const lastAttemptAt = pulseChartBackgroundRefreshAttempts.get(candidate.id) || 0;
+  const now = Date.now();
+  if (now - lastAttemptAt < MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS) return false;
+  pulseChartBackgroundRefreshAttempts.set(candidate.id, now);
+  refreshPulseChartInBackground(candidate);
+  return true;
 }
 
 function refreshPulseChartInBackground(candidate) {

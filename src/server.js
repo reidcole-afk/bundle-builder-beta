@@ -33,9 +33,10 @@ const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILD
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 3000);
 const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED === "true";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 10);
-const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 60 * 2);
-const MARKET_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 72);
+const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 20);
+const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 60 * 12);
+const MARKET_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 24 * 7);
+const MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS || 1000 * 60 * 30);
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 5000);
 const RECOMMENDATION_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS || 6500);
 const MARKET_HEALTH_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_HEALTH_CACHE_MS || 1000 * 60 * 2);
@@ -46,6 +47,7 @@ const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_
 const PULSE_COLLECTOR_MAX_RUN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_MAX_RUN_MS || Math.max(1000 * 60 * 8, Math.round(PULSE_COLLECTOR_INTERVAL_MS * 0.8)));
 const PULSE_COLLECTOR_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS || 2500);
 const PULSE_COLLECTOR_DEX_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS || 1000 * 60 * 60);
+const PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS || 1000 * 60 * 60 * 6);
 const PULSE_COLLECTOR_DEX_STALE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS || 1000 * 60 * 60 * 48);
 const PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 15);
 const PULSE_COLLECTOR_REFRESH_BATCH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE, 1, 22, 2);
@@ -122,6 +124,7 @@ const pulseCollectorState = {
   maxRunMs: PULSE_COLLECTOR_MAX_RUN_MS,
   staggerMs: PULSE_COLLECTOR_STAGGER_MS,
   dexCacheMs: PULSE_COLLECTOR_DEX_CACHE_MS,
+  dexMinNetworkRefreshMs: PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS,
   dexStaleMs: PULSE_COLLECTOR_DEX_STALE_MS,
   dexRateLimitCooldownMs: PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS,
   refreshBatchSize: PULSE_COLLECTOR_REFRESH_BATCH_SIZE,
@@ -136,6 +139,7 @@ const pulseCollectorState = {
 };
 const pendingCoinGeckoChartRefreshes = new Map();
 const marketChartCache = new Map();
+const marketChartBackgroundRefreshAttempts = new Map();
 const marketHealthCache = new Map();
 const catalystCache = new Map();
 const pulseAnalystCache = new Map();
@@ -1932,8 +1936,8 @@ async function getNormalizedMarketChart(options = {}) {
     return { ...cached.value, cacheStatus: "fresh-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString() };
   }
   if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_STALE_MS) {
-    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
-    return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: "Serving cached chart while a background refresh runs" };
+    const refreshing = maybeRefreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey, now });
+    return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: refreshing ? "Serving cached chart while a background refresh runs" : "Serving cached chart; refresh is being throttled to protect API limits" };
   }
   const durableCached = !options.force ? sanitizeStoredMarketChart(await chartCacheRepository.get(`market:${cacheKey}`)) : null;
   if (durableCached && now - durableCached.cachedAt < MARKET_CHART_CACHE_MS) {
@@ -1942,28 +1946,28 @@ async function getNormalizedMarketChart(options = {}) {
   }
   if (durableCached && now - durableCached.cachedAt < MARKET_CHART_STALE_MS) {
     marketChartCache.set(cacheKey, { value: durableCached.value, cachedAt: durableCached.cachedAt });
-    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
-    return { ...durableCached.value, cacheStatus: "stale-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString(), warning: "Serving durable cached chart while a background refresh runs" };
+    const refreshing = maybeRefreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey, now });
+    return { ...durableCached.value, cacheStatus: "stale-durable-cache", cached: true, cachedAt: new Date(durableCached.cachedAt).toISOString(), warning: refreshing ? "Serving durable cached chart while a background refresh runs" : "Serving durable cached chart; refresh is being throttled to protect API limits" };
   }
   if (!options.force && cached && now - cached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
-    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
+    const refreshing = maybeRefreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey, now });
     return {
       ...cached.value,
       cacheStatus: "last-good-cache",
       cached: true,
       cachedAt: new Date(cached.cachedAt).toISOString(),
-      warning: "Serving last good chart while a background refresh runs",
+      warning: refreshing ? "Serving last good chart while a background refresh runs" : "Serving last good chart; refresh is being throttled to protect API limits",
     };
   }
   if (durableCached && now - durableCached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
     marketChartCache.set(cacheKey, { value: durableCached.value, cachedAt: durableCached.cachedAt });
-    refreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey });
+    const refreshing = maybeRefreshNormalizedMarketChartInBackground({ id, chainId, pairAddress, window, sourcePreference, cacheKey, now });
     return {
       ...durableCached.value,
       cacheStatus: "last-good-durable-cache",
       cached: true,
       cachedAt: new Date(durableCached.cachedAt).toISOString(),
-      warning: "Serving last good durable chart while a background refresh runs",
+      warning: refreshing ? "Serving last good durable chart while a background refresh runs" : "Serving last good durable chart; refresh is being throttled to protect API limits",
     };
   }
 
@@ -1985,6 +1989,17 @@ async function getNormalizedMarketChart(options = {}) {
     }
     throw error;
   }
+}
+
+function maybeRefreshNormalizedMarketChartInBackground(options) {
+  const now = Number.isFinite(options.now) ? options.now : Date.now();
+  const refreshKey = `market-chart:${options.cacheKey}`;
+  const lastAttemptAt = marketChartBackgroundRefreshAttempts.get(refreshKey) || 0;
+  if (pendingCoinGeckoChartRefreshes.has(refreshKey)) return true;
+  if (now - lastAttemptAt < MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS) return false;
+  marketChartBackgroundRefreshAttempts.set(refreshKey, now);
+  refreshNormalizedMarketChartInBackground(options);
+  return true;
 }
 
 function refreshNormalizedMarketChartInBackground(options) {
@@ -2545,6 +2560,16 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
   if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_CACHE_MS) {
     pulseCollectorDexCache.set(cacheKey, durableCached);
     return { ...durableCached.market, cacheStatus: "fresh-durable-cache", cacheAgeMs: now - durableCached.cachedAt };
+  }
+
+  if (allowNetworkFetch) {
+    if (cached && now - cached.cachedAt <= PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS) {
+      return { ...cached.market, cacheStatus: "warm-cache-network-throttled", cacheAgeMs: now - cached.cachedAt };
+    }
+    if (durableCached && now - durableCached.cachedAt <= PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS) {
+      pulseCollectorDexCache.set(cacheKey, durableCached);
+      return { ...durableCached.market, cacheStatus: "warm-durable-cache-network-throttled", cacheAgeMs: now - durableCached.cachedAt };
+    }
   }
 
   if (!allowNetworkFetch) {
