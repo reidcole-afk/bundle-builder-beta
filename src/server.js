@@ -47,10 +47,11 @@ const PULSE_COLLECTOR_DECK_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_
 const PULSE_COLLECTOR_MAX_RUN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_MAX_RUN_MS || Math.max(1000 * 60 * 8, Math.round(PULSE_COLLECTOR_INTERVAL_MS * 0.8)));
 const PULSE_COLLECTOR_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_STAGGER_MS || 2500);
 const PULSE_COLLECTOR_DEX_CACHE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_CACHE_MS || 1000 * 60 * 60);
-const PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS || 1000 * 60 * 60 * 6);
+const PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_MIN_NETWORK_REFRESH_MS || 1000 * 60 * 30);
 const PULSE_COLLECTOR_DEX_STALE_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_STALE_MS || 1000 * 60 * 60 * 48);
 const PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS || 1000 * 60 * 15);
-const PULSE_COLLECTOR_REFRESH_BATCH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE, 1, 22, 2);
+const PULSE_COLLECTOR_REFRESH_BATCH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_REFRESH_BATCH_SIZE, 1, 22, 4);
+const PULSE_COLLECTOR_PRIORITY_REFRESH_SIZE = clampInteger(process.env.BUNDLE_BUILDER_PULSE_COLLECTOR_PRIORITY_REFRESH_SIZE, 0, 10, 6);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || process.env.BUNDLE_BUILDER_OPENAI_API_KEY || "";
 const OPENAI_ORGANIZATION = process.env.OPENAI_ORGANIZATION || process.env.OPENAI_ORG_ID || "";
 const OPENAI_PROJECT = process.env.OPENAI_PROJECT || process.env.OPENAI_PROJECT_ID || "";
@@ -128,6 +129,7 @@ const pulseCollectorState = {
   dexStaleMs: PULSE_COLLECTOR_DEX_STALE_MS,
   dexRateLimitCooldownMs: PULSE_COLLECTOR_DEX_RATE_LIMIT_COOLDOWN_MS,
   refreshBatchSize: PULSE_COLLECTOR_REFRESH_BATCH_SIZE,
+  priorityRefreshSize: PULSE_COLLECTOR_PRIORITY_REFRESH_SIZE,
   dexRateLimitedUntil: null,
   nextWatchlistOffset: 0,
   lastRefreshTickers: [],
@@ -144,6 +146,7 @@ const marketHealthCache = new Map();
 const catalystCache = new Map();
 const pulseAnalystCache = new Map();
 const pulseCollectorDexCache = new Map();
+let pulseCollectorSupportCache = null;
 const openAiPulseAnalystState = {
   configured: Boolean(OPENAI_API_KEY),
   primaryModel: PULSE_ANALYST_MODEL,
@@ -2485,14 +2488,27 @@ async function runPulseSnapshotCollector(trigger = "manual") {
       throw new Error("Pulse collector found no eligible Base candidates");
     }
 
-    const snapshot = await pulseSnapshotRepository.saveSnapshot({
+    const snapshotPayload = {
       source: rateLimitCount || usedCachedMarkets ? "server-background-pulse-partial-cache" : "server-background-pulse",
       network: "Base",
       selectedWindow: "24h",
-      selectedReadWindow: "7d",
+      selectedReadWindow: "1d",
       coins: ranked,
       watchlist: rankedWakeList,
-    });
+    };
+
+    if (await shouldSkipPulseCollectorSnapshot(snapshotPayload)) {
+      pulseCollectorState.lastCompletedAt = new Date().toISOString();
+      pulseCollectorState.lastPartialSnapshot = Boolean(rateLimitCount || usedCachedMarkets);
+      pulseCollectorState.lastCoins = ranked.map((coin) => coin.ticker);
+      pulseCollectorState.lastError = rateLimitCount
+        ? `Skipped duplicate pulse snapshot after ${rateLimitCount} DEX Screener rate-limit skips`
+        : null;
+      warmMarketHealthCaches().catch(() => {});
+      return { trigger, snapshotId: null, coins: pulseCollectorState.lastCoins, skippedDuplicate: true };
+    }
+
+    const snapshot = await pulseSnapshotRepository.saveSnapshot(snapshotPayload);
 
     pulseCollectorState.lastSnapshotAt = snapshot.createdAt;
     pulseCollectorState.lastSnapshotId = snapshot.id;
@@ -2536,11 +2552,40 @@ async function hydratePulseCollectorStateFromLatestSnapshot() {
   return true;
 }
 
+async function shouldSkipPulseCollectorSnapshot(snapshot = {}) {
+  const latestList = await pulseSnapshotRepository.listSnapshots({ limit: 1 });
+  const latest = Array.isArray(latestList) ? latestList[0] : null;
+  if (!latest?.createdAt || !Array.isArray(latest.coins) || !latest.coins.length) return false;
+  const latestTime = Date.parse(latest.createdAt);
+  const duplicateWindowMs = Math.max(1000 * 60 * 45, PULSE_COLLECTOR_INTERVAL_MS * 2.5);
+  if (!Number.isFinite(latestTime) || Date.now() - latestTime > duplicateWindowMs) return false;
+
+  const currentCoins = Array.isArray(snapshot.coins) ? snapshot.coins : [];
+  if (!currentCoins.length) return false;
+  const topLimit = Math.min(PULSE_COLLECTOR_DECK_SIZE, currentCoins.length, latest.coins.length);
+  const latestTickers = latest.coins.slice(0, topLimit).map((coin) => safeText(coin.ticker, 20).toUpperCase()).join("|");
+  const currentTickers = currentCoins.slice(0, topLimit).map((coin) => safeText(coin.ticker, 20).toUpperCase()).join("|");
+  if (latestTickers !== currentTickers) return false;
+
+  const priorByTicker = new Map(latest.coins.map((coin) => [safeText(coin.ticker, 20).toUpperCase(), coin]));
+  const deltas = currentCoins.slice(0, topLimit).map((coin) => {
+    const prior = priorByTicker.get(safeText(coin.ticker, 20).toUpperCase()) || {};
+    const changeDelta = Math.abs((finiteNumber(coin.change24h) || 0) - (finiteNumber(prior.change24h) || 0));
+    const scoreDelta = Math.abs((finiteNumber(coin.bullishScore) || 0) - (finiteNumber(prior.bullishScore) || 0)) / 35;
+    return changeDelta + scoreDelta;
+  });
+  const averageDelta = averageValue(deltas);
+  return Number.isFinite(averageDelta) && averageDelta < 0.35;
+}
+
 function pulseCollectorRefreshTickerSet() {
   const tickers = pulseCollectorWatchlist.map((item) => item.ticker);
   const batchSize = Math.max(1, Math.min(PULSE_COLLECTOR_REFRESH_BATCH_SIZE, tickers.length));
   const offset = pulseCollectorState.nextWatchlistOffset % tickers.length;
   const selected = new Set();
+  for (const ticker of pulseCollectorState.lastCoins.slice(0, PULSE_COLLECTOR_PRIORITY_REFRESH_SIZE)) {
+    if (tickers.includes(ticker)) selected.add(ticker);
+  }
   for (let index = 0; index < batchSize; index += 1) {
     selected.add(tickers[(offset + index) % tickers.length]);
   }
@@ -2591,7 +2636,10 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
     throw new Error("DEX Screener rate-limit cooldown");
   }
 
-  const url = `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(meta.ticker)}`;
+  const tokenAddress = await pulseCollectorTokenAddressForTicker(ticker);
+  const url = tokenAddress
+    ? `https://api.dexscreener.com/token-pairs/v1/base/${encodeURIComponent(tokenAddress)}`
+    : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(meta.ticker)}`;
   let payload;
   try {
     payload = await fetchJsonWithTimeout(url, MARKET_CHART_TIMEOUT_MS);
@@ -2607,10 +2655,15 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
     }
     throw error;
   }
-  const pairs = Array.isArray(payload?.pairs) ? payload.pairs : [];
+  const pairs = Array.isArray(payload) ? payload : Array.isArray(payload?.pairs) ? payload.pairs : [];
+  const normalizedTokenAddress = normalizeContractAddress(tokenAddress);
   const matches = pairs
     .filter((pair) => String(pair.chainId || "").toLowerCase() === "base")
-    .filter((pair) => String(pair.baseToken?.symbol || "").toUpperCase() === ticker)
+    .filter((pair) => {
+      const baseAddress = normalizeContractAddress(pair.baseToken?.address);
+      if (normalizedTokenAddress) return baseAddress === normalizedTokenAddress;
+      return String(pair.baseToken?.symbol || "").toUpperCase() === ticker;
+    })
     .map((pair) => ({
       ticker,
       name: safeText(pair.baseToken?.name || meta.name, 80),
@@ -2622,6 +2675,7 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
       sells24h: finiteNumber(pair.txns?.h24?.sells) || 0,
       pairAddress: safeText(pair.pairAddress, 80),
       url: safeText(pair.url, 240),
+      tokenAddress: normalizeContractAddress(pair.baseToken?.address),
     }))
     .filter((pair) => Number.isFinite(pair.priceUsd) && pair.priceUsd > 0)
     .sort((a, b) => (b.liquidityUsd + b.volume24h * 0.35) - (a.liquidityUsd + a.volume24h * 0.35));
@@ -2632,6 +2686,31 @@ async function fetchPulseCollectorMarket(meta, { allowNetworkFetch = true } = {}
     writePulseCollectorDexMarketCache(ticker, record).catch(() => {});
   }
   return market ? { ...market, cacheStatus: "fresh", cacheAgeMs: 0 } : null;
+}
+
+async function pulseCollectorTokenAddressForTicker(ticker) {
+  const normalizedTicker = safeText(ticker, 20).toUpperCase();
+  if (!normalizedTicker) return "";
+  const now = Date.now();
+  if (!pulseCollectorSupportCache || now - pulseCollectorSupportCache.cachedAt > 1000 * 60 * 60) {
+    try {
+      const support = await getSupportedTokens(normalizeNetwork("base"));
+      const tokens = Array.isArray(support?.tokens) ? support.tokens : [];
+      pulseCollectorSupportCache = {
+        cachedAt: now,
+        addressByTicker: new Map(tokens.map((token) => [
+          safeText(token.ticker || token.symbol, 20).toUpperCase(),
+          normalizeContractAddress(token.address || token.contractAddress),
+        ]).filter(([symbol, address]) => symbol && address)),
+      };
+    } catch {
+      pulseCollectorSupportCache = {
+        cachedAt: now,
+        addressByTicker: new Map(),
+      };
+    }
+  }
+  return pulseCollectorSupportCache.addressByTicker.get(normalizedTicker) || "";
 }
 
 async function readPulseCollectorDexMarketCache(ticker) {

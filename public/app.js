@@ -1050,12 +1050,6 @@ const tourSeenStorageKey = "viciBundleBuilderTourSeenV1";
 const pulseSnapshotHistoryLimit = 6000;
 const marketPulseBackgroundRefreshMs = 1000 * 60 * 5;
 const pulseReadWindows = [
-  { key: "5m", label: "5m" },
-  { key: "15m", label: "15m" },
-  { key: "30m", label: "30m" },
-  { key: "1h", label: "1h" },
-  { key: "3h", label: "3h" },
-  { key: "6h", label: "6h" },
   { key: "1d", label: "1d" },
   { key: "3d", label: "3d" },
   { key: "7d", label: "7d" },
@@ -5883,7 +5877,7 @@ document.body.addEventListener("click", (event) => {
   }
   const pulseReadWindow = event.target.closest("[data-pulse-read-window]");
   if (pulseReadWindow) {
-    const key = pulseReadWindow.dataset.pulseReadWindow || "7d";
+    const key = pulseReadWindow.dataset.pulseReadWindow || "1d";
     setPulseReadWindow(key, { projected: key === selectedPulseReadWindow && !isProjectedPulseWindow(selectedPulseWindow) });
     return;
   }
@@ -6509,7 +6503,6 @@ function renderLookupMeter(candidate = lookupSelectedCoin, { scrollLeft = null }
             </button>
           `).join("")}
         </div>
-        <div class="pulse-read-scroll-cue" aria-hidden="true"><span></span></div>
       </div>
     </div>
     <div class="pulse-read-motion" key="${escapeAttribute(selectedLookupReadWindow)}">${renderSevenDayMeter(forwardScenarioCoinRead(candidate, selectedLookupReadWindow))}</div>
@@ -10108,7 +10101,6 @@ function renderPulseSevenDayMeter(favorite = currentFavorite, { scrollLeft = nul
             </button>
           `).join("")}
         </div>
-        <div class="pulse-read-scroll-cue" aria-hidden="true"><span></span></div>
       </div>
     </div>
     <div class="pulse-read-motion" key="${escapeAttribute(selectedPulseReadWindow)}">${renderSevenDayMeter(read)}</div>
@@ -10119,13 +10111,13 @@ function renderPulseSevenDayMeter(favorite = currentFavorite, { scrollLeft = nul
 function renderPulseChange(favorite = currentFavorite) {
   if (!favoriteCoinChange) return;
   if (favoriteCoinWindow) favoriteCoinWindow.value = selectedPulseWindow;
-  const change = pulseChangeForWindow(favorite, selectedPulseWindow);
+  const change = finiteOrNull(favorite.change24h) ?? pulseChangeForWindow(favorite, "24h");
   favoriteCoinChange.classList.remove("positive", "negative", "neutral");
   favoriteCoinChange.classList.add(changeClass(change));
   favoriteCoinChange.textContent = Number.isFinite(change) ? formatAbsPercent(change) : "--";
   favoriteCoinChange.title = Number.isFinite(change)
-    ? `${pulseWindowLabel(selectedPulseWindow)} change: ${formatPercent(change)}`
-    : `${pulseWindowLabel(selectedPulseWindow)} change unavailable`;
+    ? `DEX 24h move: ${formatPercent(change)}`
+    : "DEX 24h move unavailable";
 }
 
 function setPulseWindow(key = "24h") {

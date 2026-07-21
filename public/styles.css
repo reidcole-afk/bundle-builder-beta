@@ -2140,37 +2140,18 @@ body.pulse-ai-modal-open {
   width: min(100%, 360px);
   max-width: 100%;
   min-width: 0;
-  padding-bottom: 8px;
+  padding-bottom: 0;
   --read-scroll-progress: 0;
   --read-scroll-thumb-width: 0.45;
   --read-scroll-left: 0%;
 }
 
 .pulse-read-track::before {
-  content: "";
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  bottom: 5px;
-  z-index: 1;
-  width: 50px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(248, 250, 252, 0), var(--panel-soft) 72%);
-  pointer-events: none;
+  display: none;
 }
 
 .pulse-read-track::after {
-  content: "";
-  position: absolute;
-  top: 5px;
-  left: 5px;
-  bottom: 5px;
-  z-index: 1;
-  width: 50px;
-  border-radius: 999px;
-  background: linear-gradient(270deg, rgba(248, 250, 252, 0), var(--panel-soft) 72%);
-  opacity: 0;
-  pointer-events: none;
+  display: none;
 }
 
 .pulse-read-track.can-scroll-left::after {
@@ -2182,7 +2163,8 @@ body.pulse-ai-modal-open {
 }
 
 .pulse-read-carousel {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   width: 100%;
   max-width: none;
   min-width: 0;
@@ -2192,7 +2174,7 @@ body.pulse-ai-modal-open {
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--panel-soft);
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   overscroll-behavior-inline: contain;
   scrollbar-width: none;
@@ -2205,7 +2187,6 @@ body.pulse-ai-modal-open {
 }
 
 .pulse-read-carousel button {
-  flex: 0 0 25%;
   min-width: 66px;
   min-height: 32px;
   margin: 0;
