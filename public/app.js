@@ -579,13 +579,13 @@ const THEME_STORAGE_KEY = "bundleBuilderTheme";
 const BUILDER_TOKEN_UNIVERSE_MESSAGE = "VICI_TOKEN_UNIVERSE";
 const MARKET_REQUEST_MESSAGE = "VICI_MARKET_REQUEST";
 const MARKET_RESPONSE_MESSAGE = "VICI_MARKET_RESPONSE";
-const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCache";
+const PULSE_CHART_CACHE_LOCAL_STORAGE_KEY = "viciBundleBuilderPulseChartCacheV2";
 const LIVE_BACKEND_BASE_URL = "https://bundlebuilder.vicicoin.io";
-const MARKET_CHART_CACHE_MS = 1000 * 60 * 30;
+const MARKET_CHART_CACHE_MS = 1000 * 60 * 5;
 const MARKET_HEALTH_CACHE_MS = 1000 * 60 * 5;
 const MARKET_HEALTH_LIVE_DRIFT = 1;
-const MARKET_CHART_STALE_MS = 1000 * 60 * 60 * 12;
-const MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS = 1000 * 60 * 30;
+const MARKET_CHART_STALE_MS = 1000 * 60 * 30;
+const MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS = 1000 * 60 * 5;
 const MARKET_CHART_FAILURE_COOLDOWN_MS = 1000 * 30;
 const MARKET_BRIDGE_TIMEOUT_MS = 8000;
 const MARKET_PULSE_TIMEOUT_MS = 18000;
@@ -9556,7 +9556,6 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
   const change24h = finiteOrNull(market.price_change_percentage_24h_in_currency ?? market.price_change_percentage_24h) ?? 0;
   const change7d = finiteOrNull(market.price_change_percentage_7d_in_currency ?? market.change7d);
   const change30d = finiteOrNull(market.price_change_percentage_30d_in_currency ?? market.change30d);
-  const prices = normalizePriceSeries(market.sparkline_in_7d?.price);
   return {
     id: meta.id,
     rank,
@@ -9576,10 +9575,10 @@ function buildDexScreenerPulseCandidate(meta, market, network, rank = 1) {
     atlChangePercentage: finiteOrNull(market.atl_change_percentage),
     atlDate: market.atl_date || null,
     changeWindows: market.changeWindows || {},
-    prices,
+    prices: [],
     reason: buildDexScreenerFavoriteReason(meta, market, network, rank),
     source: "DEX Screener",
-    chartSource: "DEX Screener signal line",
+    chartSource: "GeckoTerminal pool chart loading",
     updatedAt: market.last_updated || null,
     currentPrice: finiteOrNull(market.current_price),
     volume24h: finiteOrNull(market.total_volume),
@@ -9703,20 +9702,10 @@ async function loadPulseChart(candidate) {
 
   if (candidate.source === "DEX Screener" && candidate.pairAddress) {
     try {
-      const chartData = await fetchBackendCoinGeckoChart(candidate.id, { force: false, days: 1 });
-      const prices = normalizePriceSeries(chartData.prices);
-      if (prices.length < 2) throw new Error("Backend CoinGecko chart empty");
-      const updatedAt = chartData.updatedAt || candidate.updatedAt || new Date().toISOString();
-      setPulseChartCache(candidate.id, { prices, cachedAt: Date.now(), updatedAt, stale: Boolean(chartData.stale) });
-      return withCoinGeckoChart(candidate, prices, updatedAt, Boolean(chartData.stale));
-    } catch (backendError) {
-      return loadGeckoTerminalPulseChart(candidate).then((poolCandidate) => {
-        if (normalizePriceSeries(poolCandidate.prices).length >= 2) return poolCandidate;
-        return {
-          ...candidate,
-          chartSource: backendError?.message ? `Backend chart unavailable: ${backendError.message}` : candidate.chartSource,
-        };
-      });
+      const poolCandidate = await loadGeckoTerminalPulseChart(candidate, { force: true });
+      if (normalizePriceSeries(poolCandidate.prices).length >= 2) return poolCandidate;
+    } catch {
+      // Fall back below if the exact pool chart is temporarily unavailable.
     }
   }
 
@@ -9763,12 +9752,14 @@ function refreshPulseChartInBackground(candidate) {
   pendingPulseChartLoads.set(candidate.id, refresh);
 }
 
-async function loadGeckoTerminalPulseChart(candidate) {
+async function loadGeckoTerminalPulseChart(candidate, { force = false } = {}) {
   try {
-    const { prices, updatedAt } = await getGeckoTerminalPulseChartData(candidate);
+    const { prices, updatedAt } = await getGeckoTerminalPulseChartData(candidate, "24h", { force });
     return {
       ...candidate,
       prices,
+      windowPrices: { ...(candidate.windowPrices || {}), "24h": prices },
+      changeWindows: { ...(candidate.changeWindows || {}), "24h": priceSeriesChange(prices) },
       chartSource: "GeckoTerminal pool chart",
       updatedAt,
     };
@@ -9777,7 +9768,7 @@ async function loadGeckoTerminalPulseChart(candidate) {
   }
 }
 
-async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
+async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h", { force = false } = {}) {
   const chainId = normalizeDexChainId(candidate.chainId || dexScreenerChainIds[normalizeNetwork(candidate.network)]);
   const pairAddress = normalizeContractAddress(candidate.pairAddress);
   if (!chainId || !pairAddress) throw new Error("Missing GeckoTerminal pool address");
@@ -9788,6 +9779,7 @@ async function getGeckoTerminalPulseChartData(candidate, windowKey = "24h") {
       pairAddress,
       windowKey,
       source: "geckoterminal",
+      force,
     });
     return {
       prices: normalizePriceSeries(payload.prices),
@@ -10233,6 +10225,10 @@ function ensurePulseWindowChart(favorite = currentFavorite, key = selectedPulseW
 }
 
 async function getPulseWindowChartData(favorite = {}, key = "7d") {
+  if (key === "24h" && favorite.pairAddress) {
+    const result = await getGeckoTerminalPulseChartData(favorite, key, { force: true });
+    if (normalizePriceSeries(result?.prices).length >= 2) return result;
+  }
   const attempts = chartSourcePlanForWindow(key)
     .map((source) => {
       if (source === "coingecko" && favorite.id) return () => getCoinGeckoWindowChartData(favorite.id, key);

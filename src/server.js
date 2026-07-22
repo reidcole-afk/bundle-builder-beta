@@ -33,9 +33,9 @@ const COINGECKO_CHART_PRELOAD_STARTUP_DELAY_MS = Number(process.env.BUNDLE_BUILD
 const COINGECKO_CHART_PRELOAD_STAGGER_MS = Number(process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_STAGGER_MS || 3000);
 const COINGECKO_CHART_PRELOAD_ENABLED = process.env.BUNDLE_BUILDER_COINGECKO_PRELOAD_ENABLED === "true";
 const COINGECKO_API_BASE_URL = process.env.COINGECKO_API_BASE_URL || "https://api.coingecko.com/api/v3";
-const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 20);
-const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 60 * 12);
-const MARKET_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 24 * 7);
+const MARKET_CHART_CACHE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_CACHE_MS || 1000 * 60 * 5);
+const MARKET_CHART_STALE_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_STALE_MS || 1000 * 60 * 30);
+const MARKET_CHART_LAST_GOOD_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_LAST_GOOD_MS || 1000 * 60 * 60 * 6);
 const MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_BACKGROUND_REFRESH_COOLDOWN_MS || 1000 * 60 * 30);
 const MARKET_CHART_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_MARKET_CHART_TIMEOUT_MS || 5000);
 const RECOMMENDATION_TIMEOUT_MS = Number(process.env.BUNDLE_BUILDER_RECOMMENDATION_TIMEOUT_MS || 6500);
@@ -568,7 +568,7 @@ async function handleRequest(request, response) {
             snapshot,
             accuracy: isTruthy(url.searchParams.get("includeAccuracy"))
               ? await pulseSnapshotRepository.accuracySummary({
-                limit: clampInteger(url.searchParams.get("accuracyLimit"), 24, 6000, 600),
+                limit: clampInteger(url.searchParams.get("accuracyLimit"), 24, 6000, 120),
               })
               : null,
           });
@@ -1984,6 +1984,7 @@ async function getNormalizedMarketChart(options = {}) {
     await chartCacheRepository.set(`market:${cacheKey}`, { value, cachedAt: now });
     return { ...value, cacheStatus: "refreshed", cached: false, cachedAt: new Date(now).toISOString() };
   } catch (error) {
+    if (options.force) throw error;
     if (cached && now - cached.cachedAt < MARKET_CHART_LAST_GOOD_MS) {
       return { ...cached.value, cacheStatus: "stale-cache", cached: true, cachedAt: new Date(cached.cachedAt).toISOString(), warning: error.message || "Refresh failed; using last good chart" };
     }

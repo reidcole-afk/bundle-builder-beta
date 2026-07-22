@@ -4,6 +4,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 process.env.BUNDLE_BUILDER_CHART_CACHE_FILE = path.join(os.tmpdir(), `bundle-builder-test-charts-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+process.env.BUNDLE_BUILDER_PULSE_SNAPSHOT_FILE = path.join(os.tmpdir(), `bundle-builder-test-snapshots-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+process.env.BUNDLE_BUILDER_SUBMISSION_FILE = path.join(os.tmpdir(), `bundle-builder-test-submissions-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+process.env.BUNDLE_BUILDER_PROFILE_FILE = path.join(os.tmpdir(), `bundle-builder-test-profiles-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
 process.env.BUNDLE_BUILDER_ADMIN_SECRET = "test-admin-secret";
 
 const { handleRequest, handleServerError } = require("../src/server");
@@ -18,7 +21,7 @@ global.fetch = async (url) => {
 (async () => {
   const health = await getJson("/health");
   assert.equal(health.statusCode, 200);
-  assert.equal(health.body.version, "0.1.163");
+  assert.equal(health.body.version, "0.1.164");
   assert.equal(health.body.strictEligibilityDefault, true);
   assert.equal(health.body.liquidityEndpointFailsClosed, true);
   assert.equal(health.body.tokensEndpointFailsClosed, true);
@@ -369,7 +372,9 @@ function getRaw(path, options = {}) {
     };
 
     handleRequest(request, response).catch(reject);
-    if (options.body) request.emit("data", Buffer.from(options.body));
-    request.emit("end");
+    setImmediate(() => {
+      if (options.body) request.emit("data", Buffer.from(options.body));
+      request.emit("end");
+    });
   });
 }
