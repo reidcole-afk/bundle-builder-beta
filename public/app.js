@@ -10103,13 +10103,14 @@ function renderPulseSevenDayMeter(favorite = currentFavorite, { scrollLeft = nul
 function renderPulseChange(favorite = currentFavorite) {
   if (!favoriteCoinChange) return;
   if (favoriteCoinWindow) favoriteCoinWindow.value = selectedPulseWindow;
-  const change = finiteOrNull(favorite.change24h) ?? pulseChangeForWindow(favorite, "24h");
+  const change = pulseChangeForWindow(favorite, selectedPulseWindow);
+  const label = pulseWindowLabel(selectedPulseWindow);
   favoriteCoinChange.classList.remove("positive", "negative", "neutral");
   favoriteCoinChange.classList.add(changeClass(change));
   favoriteCoinChange.textContent = Number.isFinite(change) ? formatAbsPercent(change) : "--";
   favoriteCoinChange.title = Number.isFinite(change)
-    ? `DEX 24h move: ${formatPercent(change)}`
-    : "DEX 24h move unavailable";
+    ? `${label} chart return: ${formatPercent(change)}`
+    : `${label} chart return unavailable`;
 }
 
 function setPulseWindow(key = "24h") {
