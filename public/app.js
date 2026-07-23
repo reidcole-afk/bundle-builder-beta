@@ -10300,9 +10300,13 @@ function renderPulseWindowChart(favorite = currentFavorite) {
     refreshPulseChartMotion();
     return;
   }
-  const prices = pulsePricesForWindow(favorite, selectedPulseWindow);
-  const change = pulseChangeForWindow(favorite, selectedPulseWindow);
+  let prices = pulsePricesForWindow(favorite, selectedPulseWindow);
+  let change = pulseChangeForWindow(favorite, selectedPulseWindow);
   const requestKey = pulseWindowLoadKey(favorite, selectedPulseWindow);
+  if (shouldRejectVisiblePulseChart(favorite, selectedPulseWindow, prices, change)) {
+    prices = [];
+    change = null;
+  }
   if (prices.length < 2) {
     const unavailable = isPulseWindowTemporarilyUnavailable(requestKey) || (!favorite.pairAddress && !favorite.id);
     pulseChart.innerHTML = `${entryCautionFlag(favorite)}<div class="pulse-window-message">${unavailable ? `${pulseWindowLabel(selectedPulseWindow)} chart unavailable` : `Loading ${escapeHtml(favorite.ticker || "coin")} ${pulseWindowLabel(selectedPulseWindow)} chart...`}</div>`;
@@ -10316,6 +10320,20 @@ function renderPulseWindowChart(favorite = currentFavorite) {
 
 function refreshPulseChartMotion() {
   // The chart sweep is intentionally CSS-only to match the mobile preview behavior.
+}
+
+function shouldRejectVisiblePulseChart(favorite = {}, key = "24h", prices = [], chartChange = null) {
+  const sourceName = String(favorite.source || "").trim().toLowerCase();
+  if (key !== "24h" || sourceName !== "dex screener") return false;
+  const dexChange = finiteOrNull(favorite.change24h);
+  const chartMove = finiteOrNull(chartChange);
+  if (dexChange === null || chartMove === null || normalizePriceSeries(prices).length < 2) return false;
+  const dexMoved = Math.abs(dexChange) >= 1.25;
+  const chartMoved = Math.abs(chartMove) >= 1.25;
+  if (!dexMoved || !chartMoved) return false;
+  const directionConflict = (dexChange > 0 && chartMove < 0) || (dexChange < 0 && chartMove > 0);
+  const magnitudeMismatch = Math.abs(dexChange - chartMove) >= 6;
+  return directionConflict || magnitudeMismatch;
 }
 
 function pulseChangeForWindow(favorite = {}, key = "24h") {
