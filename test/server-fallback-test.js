@@ -121,20 +121,54 @@ global.fetch = async (url) => {
   assert.equal(preferredPoolChart.body.source, "GeckoTerminal");
   assert.deepEqual(preferredPoolChart.body.prices, [1, 1.1]);
 
-  const submittedBundle = await postJson("/api/v1/submitted-bundles", {
-    bundleName: "Test Bundle",
-    network: "Base",
-    startValueUsd: 100,
-    coins: [
-      { ticker: "AERO", allocationPercent: 50, amountUsd: 50, quantity: 100, startPriceUsd: 0.5, network: "Base" },
-      { ticker: "MORPHO", allocationPercent: 50, amountUsd: 50, quantity: 25, startPriceUsd: 2, network: "Base" },
-    ],
-  });
-  assert.equal(submittedBundle.statusCode, 201);
-  assert.equal(submittedBundle.body.ok, true);
-  assert.equal(submittedBundle.body.bundle.coins.length, 2);
+	  const submittedBundle = await postJson("/api/v1/submitted-bundles", {
+	    bundleName: "Test Bundle",
+	    network: "Base",
+	    startValueUsd: 100,
+	    executionStatus: "executed",
+	    executionId: "swap-test-123",
+	    executedAt: "2026-07-24T10:00:00.000Z",
+	    performanceBasis: "executed-swap",
+	    confidenceScore: 72,
+	    benchmarkEdge: 8.5,
+	    topSignal: "Liquidity",
+	    evaluation: {
+	      confidence: { score: 72, label: "Medium confidence" },
+	      benchmark: { selectedScore: 68, benchmarkScore: 59.5, edge: 8.5 },
+	      signalAttribution: {
+	        summary: "Liquidity is the largest current driver.",
+	        signals: [{ id: "liquidity", label: "Liquidity", contribution: 12, detail: "Good route depth." }],
+	      },
+	      topSignal: "Liquidity",
+	      createdAt: "2026-07-24T10:00:00.000Z",
+	    },
+	    coins: [
+	      { ticker: "AERO", allocationPercent: 50, amountUsd: 50, quantity: 100, startPriceUsd: 0.5, network: "Base" },
+	      { ticker: "MORPHO", allocationPercent: 50, amountUsd: 50, quantity: 25, startPriceUsd: 2, network: "Base" },
+	    ],
+	  });
+	  assert.equal(submittedBundle.statusCode, 201);
+	  assert.equal(submittedBundle.body.ok, true);
+	  assert.equal(submittedBundle.body.bundle.coins.length, 2);
+	  assert.equal(submittedBundle.body.bundle.executionStatus, "executed");
+	  assert.equal(submittedBundle.body.bundle.executionId, "swap-test-123");
+	  assert.equal(submittedBundle.body.bundle.performanceBasis, "executed-swap");
+	  assert.equal(submittedBundle.body.bundle.evaluation.confidence.score, 72);
+	  assert.equal(submittedBundle.body.bundle.evaluation.signalAttribution.signals[0].label, "Liquidity");
 
-  const submittedFeedBlocked = await getJson("/api/v1/submitted-bundles?limit=5");
+	  const estimatedBundle = await postJson("/api/v1/submitted-bundles", {
+	    bundleName: "Estimated Bundle",
+	    network: "Base",
+	    startValueUsd: 50,
+	    executionStatus: "not-a-real-status",
+	    performanceBasis: "unknown",
+	    coins: [{ ticker: "AERO", allocationPercent: 100, amountUsd: 50, quantity: 100, startPriceUsd: 0.5, network: "Base" }],
+	  });
+	  assert.equal(estimatedBundle.statusCode, 201);
+	  assert.equal(estimatedBundle.body.bundle.executionStatus, "handoff");
+	  assert.equal(estimatedBundle.body.bundle.performanceBasis, "handoff-estimate");
+
+	  const submittedFeedBlocked = await getJson("/api/v1/submitted-bundles?limit=5");
   assert.equal(submittedFeedBlocked.statusCode, 401);
 
   const submittedFeed = await getJson("/api/v1/submitted-bundles?limit=5", adminHeaders());

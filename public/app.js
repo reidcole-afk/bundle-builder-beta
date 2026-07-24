@@ -920,6 +920,13 @@ const coinCountValue = document.getElementById("coinCountValue");
 const allocationMode = document.getElementById("allocationMode");
 const strategyUniverse = document.getElementById("strategyUniverse");
 const recommendation = document.getElementById("recommendation");
+const accuracySummary = document.getElementById("accuracySummary");
+const accuracyChart = document.getElementById("accuracyChart");
+const signalBoard = document.getElementById("signalBoard");
+const accuracyRefresh = document.getElementById("accuracyRefresh");
+const machinePerformanceButton = document.getElementById("machinePerformanceButton");
+const machinePerformanceDialog = document.getElementById("machinePerformanceDialog");
+const machinePerformanceClose = document.getElementById("machinePerformanceClose");
 const contextRefreshed = document.getElementById("contextRefreshed");
 const builderTitle = document.getElementById("builder-title");
 const favoriteCoinName = document.getElementById("favoriteCoinName");
@@ -2222,6 +2229,9 @@ function renderPrimary(bundle) {
   topFit.textContent = `Fit ${fitBreakdown.score}`;
   allocationRisk.textContent = bundle.risk;
   allocationTotal.textContent = `${formatCurrency(preferences.bundleAmount)} total`;
+  const bundleSignals = bundleSignalAttribution(adjustedAllocation, preferences, bundle);
+  const bundleConfidence = bundleConfidenceSummary(adjustedAllocation, preferences, bundle);
+  const bundleBenchmark = bundleBenchmarkComparison(bundle, adjustedAllocation, preferences);
   const passedCount = latestMatches.length || (bundle.id === "same-network-fallback" ? 0 : 1);
   strategyUniverse.textContent = `Screened ${bundleData.length} models; ${passedCount} passed strict ${bundleNetwork} support from ${supportSourceForNetwork(bundleNetwork)}`;
   allocationMode.textContent = `${bundleNetwork} network - ${adjustedAllocation.length} confirmed Receive coins - target ${horizonLabel(preferences.targetHorizon)}`;
@@ -2232,6 +2242,8 @@ function renderPrimary(bundle) {
       <p>${bundle.thesis}</p>
       <div class="metric-row" aria-label="Bundle metrics">
         <div class="metric"><span>Fit</span><strong>${fitBreakdown.score}</strong></div>
+        <div class="metric"><span>Confidence</span><strong>${bundleConfidence.score}</strong></div>
+        <div class="metric"><span>Baseline edge</span><strong>${formatSignedPoints(bundleBenchmark.edge)}</strong></div>
         <div class="metric"><span>Upside score</span><strong>${bundle.score}</strong></div>
         <div class="metric"><span>Risk index</span><strong>${bundle.riskIndex}</strong></div>
         <div class="metric"><span>Coins</span><strong>${adjustedAllocation.length}</strong></div>
@@ -2270,12 +2282,14 @@ function renderPrimary(bundle) {
     <div class="fit-panel">
       ${renderFitDonut(fitBreakdown)}
       <p>${bundle.action}</p>
+      ${renderResultSignalAttribution(bundleSignals)}
       <p class="fit-role-note"><strong>Signal roles:</strong> ${escapeHtml(allocationRoleSummary(adjustedAllocation))}</p>
     </div>
   `;
   const resultReviewDelay = document.getElementById("resultReviewDelay");
   if (resultReviewDelay) resultReviewDelay.value = String(bundleReviewDelay(preferences));
   renderAllocation(bundle, allocationPlan);
+  renderAccuracyDashboard();
 }
 
 function makeFallbackFitBreakdown(score) {
@@ -2332,6 +2346,147 @@ function renderFitDonut(breakdown) {
       </details>
     </div>
   `;
+}
+
+function renderResultSignalAttribution(attribution) {
+  const signals = (attribution?.signals || []).slice(0, 5);
+  if (!signals.length) return "";
+  return `
+    <div class="result-signal-panel">
+      <div class="result-signal-head">
+        <strong>Signal attribution</strong>
+        <span>${escapeHtml(attribution.summary)}</span>
+      </div>
+      <div class="signal-bars">
+        ${signals.map((signal) => `
+          <div class="signal-bar-row ${signal.contribution < 0 ? "negative" : ""}">
+            <span>${escapeHtml(signal.label)}</span>
+            <div><i style="width:${Math.min(100, Math.abs(signal.contribution))}%"></i></div>
+            <b>${formatSignedPoints(signal.contribution)}</b>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function bundleSignalAttribution(allocation, preferences, bundle = {}) {
+  const plan = getAllocationPlan(allocation, preferences.bundleAmount);
+  const totals = new Map();
+  let totalWeight = 0;
+  plan.forEach((coin) => {
+    const weight = finiteOrNull(coin.recommendedWeight || coin.weight) || 0;
+    totalWeight += weight;
+    tokenSignalAttribution(coin.ticker, preferences, coin, bundle).forEach((signal) => {
+      const existing = totals.get(signal.id) || { ...signal, contribution: 0 };
+      existing.contribution += signal.contribution * weight;
+      totals.set(signal.id, existing);
+    });
+  });
+  const divisor = Math.max(1, totalWeight);
+  const signals = [...totals.values()]
+    .map((signal) => ({ ...signal, contribution: roundTo(signal.contribution / divisor, 1) }))
+    .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  return {
+    summary: signals[0]
+      ? `${signals[0].label} is the biggest driver in this recommendation.`
+      : "No strong signal driver is available yet.",
+    signals,
+  };
+}
+
+function tokenSignalAttribution(ticker, preferences = safePreferences(), coin = {}, bundle = {}) {
+  const normalized = normalizeTicker(ticker);
+  const signal = marketSignalForTicker(normalized) || {};
+  const thesis = tokenThesisForTicker(normalized);
+  const score = scoreForTicker(normalized, preferences);
+  const change = finiteOrNull(signal.change24h ?? signal.price_change_percentage_24h) || 0;
+  const volume = finiteOrNull(signal.volume24h ?? signal.total_volume) || 0;
+  const volatility = finiteOrNull(signal.volatility) || Math.abs(change) / 100;
+  const role = String(thesis?.role || coin.role || "").toLowerCase();
+  const themeMatch = (bundle.themes || []).some((theme) => role.includes(String(theme).toLowerCase()));
+  const confidence = tokenConfidenceScore(normalized, preferences, coin);
+  return [
+    {
+      id: "confidence",
+      label: "Confidence",
+      contribution: roundTo((confidence - 50) * 0.35, 1),
+      detail: "Blend of data quality, liquidity, price availability, and token risk.",
+    },
+    {
+      id: "momentum",
+      label: "Momentum",
+      contribution: roundTo(clamp(change, -20, 25) * (preferences.risk === "lower" ? 0.2 : preferences.risk === "very-high" ? 0.55 : 0.38), 1),
+      detail: signal.change24h !== undefined ? `Latest 24h move is ${formatPercent(change)}.` : "No fresh 24h move is available.",
+    },
+    {
+      id: "liquidity",
+      label: "Liquidity",
+      contribution: roundTo(volume ? clamp(Math.log10(Math.max(10, volume)) - 5, -2, 3) * 4 : -5, 1),
+      detail: volume ? `Latest readable volume is ${formatCompactUsd(volume)}.` : "No fresh volume signal is available.",
+    },
+    {
+      id: "userFit",
+      label: "User fit",
+      contribution: roundTo((score - 60) * 0.16 + (themeMatch ? 3 : 0), 1),
+      detail: "How well the token fits the selected risk, focus, and preference settings.",
+    },
+    {
+      id: "riskDrag",
+      label: "Risk drag",
+      contribution: roundTo(-Math.max(0, volatility * 100 - 5) * 0.28, 1),
+      detail: "Penalizes sharp moves and higher speculative profile.",
+    },
+  ];
+}
+
+function bundleConfidenceSummary(allocation, preferences, bundle = {}) {
+  const plan = getAllocationPlan(allocation, preferences.bundleAmount);
+  const totalWeight = plan.reduce((sum, coin) => sum + (finiteOrNull(coin.recommendedWeight || coin.weight) || 0), 0);
+  const score = totalWeight
+    ? plan.reduce((sum, coin) => sum + tokenConfidenceScore(coin.ticker, preferences, coin) * (finiteOrNull(coin.recommendedWeight || coin.weight) || 0), 0) / totalWeight
+    : 0;
+  return {
+    score: Math.round(clamp(score, 0, 100)),
+    label: score >= 75 ? "High" : score >= 55 ? "Medium" : "Low",
+    bundle: bundle.name,
+  };
+}
+
+function tokenConfidenceScore(ticker, preferences = safePreferences(), coin = {}) {
+  const normalized = normalizeTicker(ticker);
+  const signal = marketSignalForTicker(normalized) || {};
+  const price = finiteOrNull(coin.price) || getCoinPriceInfo(normalized)?.price;
+  const volume = finiteOrNull(signal.volume24h ?? signal.total_volume) || 0;
+  const change = Math.abs(finiteOrNull(signal.change24h ?? signal.price_change_percentage_24h) || 0);
+  let score = 48;
+  if (price) score += 12;
+  if (volume >= 10_000_000) score += 18;
+  else if (volume >= 1_000_000) score += 12;
+  else if (volume > 0) score += 6;
+  if (coin.safetyProfile?.level === "pass") score += 10;
+  if (isStableOrCashTicker(normalized) || isCoreWrappedTicker(normalized)) score += 8;
+  if (["BRETT", "DEGEN", "TOSHI", "ZORA", "AIXBT", "KAITO", "VIRTUAL"].includes(normalized)) score -= preferences.risk === "lower" ? 16 : 6;
+  if (change > 18) score -= 8;
+  return clamp(score, 0, 100);
+}
+
+function bundleBenchmarkComparison(bundle, allocation, preferences) {
+  const totalWeight = allocation.reduce((sum, [, weight]) => sum + (finiteOrNull(weight) || 0), 0);
+  const selectedScore = totalWeight
+    ? allocation.reduce((sum, [ticker, weight]) => sum + scoreForTicker(ticker, preferences) * (finiteOrNull(weight) || 0), 0) / totalWeight
+    : 0;
+  const networkTickers = confirmedViciNetworkTokens[preferences.network] || confirmedViciNetworkTokens.Base || [];
+  const benchmarkTickers = networkTickers.slice(0, 24);
+  const benchmarkScore = benchmarkTickers.length
+    ? benchmarkTickers.reduce((sum, ticker) => sum + scoreForTicker(ticker, preferences), 0) / benchmarkTickers.length
+    : selectedScore;
+  return {
+    selectedScore: roundTo(selectedScore, 1),
+    benchmarkScore: roundTo(benchmarkScore, 1),
+    edge: roundTo(selectedScore - benchmarkScore, 1),
+    bundle: bundle.name,
+  };
 }
 
 function fitDonutSlices(breakdown) {
@@ -3926,6 +4081,7 @@ function summarizePulseSnapshotCoins(snapshots = []) {
 function renderMachineAccuracy() {
   if (!profileMachineAccuracy) return;
   const summary = machineAccuracySummary || computeMachineAccuracySummary(readPulseSnapshots());
+  renderAccuracyDashboard();
   const storage = machineAccuracyStorage || {};
   const horizons = Array.isArray(summary.horizons) ? summary.horizons : [];
   const latestCoins = Array.isArray(summary.latestRunCoins) ? summary.latestRunCoins : [];
@@ -5660,6 +5816,14 @@ openSubmittedBundles?.addEventListener("click", openSubmittedBundlesFeed);
 submittedBundlesRefresh?.addEventListener("click", () => loadSubmittedBundlesFeed({ showLoading: true }));
 submittedBundlesClose?.addEventListener("click", closeSubmittedBundlesFeed);
 submittedBundlesDialog?.addEventListener("cancel", closeSubmittedBundlesFeed);
+machinePerformanceButton?.addEventListener("click", openMachinePerformance);
+machinePerformanceClose?.addEventListener("click", closeMachinePerformance);
+machinePerformanceDialog?.addEventListener("cancel", closeMachinePerformance);
+accuracyRefresh?.addEventListener("click", () => {
+  renderAccuracyDashboard();
+  loadMachineAccuracySummary();
+  showToast("Accuracy dashboard refreshed.");
+});
 termsDialog?.addEventListener("cancel", (event) => {
   if (!hasAcceptedTerms()) event.preventDefault();
 });
@@ -6095,6 +6259,7 @@ renderCoinLookupOptions();
 syncCoinPreferenceFilterToFocus(safePreferences().theme, { clearSearch: false });
 updateCoinPreferenceAvailability();
 renderCoinRows();
+renderAccuracyDashboard();
 showTermsGate();
 renderProfile();
 if (isProfileSignedIn()) loadProfileSnapshot({ silent: true });
@@ -11059,10 +11224,17 @@ function makeSubmittedBundleSnapshot(bundleId) {
   const allocation = getNetworkSafeAllocation(getAdjustedAllocation(bundle, bundleNetwork, preferences), bundleNetwork);
   const allocationPlan = getAllocationPlan(allocation, preferences.bundleAmount);
   const startValueUsd = allocationPlan.reduce((sum, item) => sum + item.amount, 0);
+  const confidence = bundleConfidenceSummary(allocation, preferences, bundle);
+  const attribution = bundleSignalAttribution(allocation, preferences, bundle);
+  const benchmark = bundleBenchmarkComparison(bundle, allocation, preferences);
   return {
     bundleId: bundle.id,
     bundleName: bundle.name,
     network: bundleNetwork,
+    executionStatus: "handoff",
+    executionId: "",
+    executedAt: "",
+    performanceBasis: "handoff-estimate",
     amountUsd: Number(preferences.bundleAmount.toFixed(2)),
     startValueUsd: Number(startValueUsd.toFixed(2)),
     preferences: {
@@ -11073,6 +11245,16 @@ function makeSubmittedBundleSnapshot(bundleId) {
       coinCount: allocationPlan.length,
     },
     fitScore: bundle.fitBreakdown?.score || bundle.fit || null,
+    confidenceScore: confidence.score,
+    benchmarkEdge: benchmark.edge,
+    topSignal: attribution.signals[0]?.label || "",
+    evaluation: {
+      confidence,
+      benchmark,
+      signalAttribution: attribution,
+      topSignal: attribution.signals[0]?.label || "",
+      createdAt: new Date().toISOString(),
+    },
     riskIndex: bundle.riskIndex || null,
     thesis: bundle.thesis,
     coins: allocationPlan.map(({ ticker, weight, role, amount, quantity, price, priceSource, safetyProfile, thesisProfile }) => ({
@@ -11156,6 +11338,26 @@ function closeSubmittedBundlesFeed() {
   }
 }
 
+function openMachinePerformance() {
+  if (!machinePerformanceDialog) return;
+  renderAccuracyDashboard();
+  loadMachineAccuracySummary();
+  if (typeof machinePerformanceDialog.showModal === "function") {
+    if (!machinePerformanceDialog.open) machinePerformanceDialog.showModal();
+  } else {
+    machinePerformanceDialog.setAttribute("open", "");
+  }
+}
+
+function closeMachinePerformance() {
+  if (!machinePerformanceDialog) return;
+  if (typeof machinePerformanceDialog.close === "function" && machinePerformanceDialog.open) {
+    machinePerformanceDialog.close();
+  } else {
+    machinePerformanceDialog.removeAttribute("open");
+  }
+}
+
 async function loadSubmittedBundlesFeed({ showLoading = false } = {}) {
   if (!submittedBundlesList) return;
   if (showLoading) {
@@ -11184,6 +11386,7 @@ function mergeSubmittedBundles(primary, secondary) {
 
 function renderSubmittedBundles(records, { localOnly = false } = {}) {
   if (!submittedBundlesList) return;
+  renderAccuracyDashboard(records);
   if (!records.length) {
     submittedBundlesList.innerHTML = `
       <div class="submitted-empty">
@@ -11197,31 +11400,65 @@ function renderSubmittedBundles(records, { localOnly = false } = {}) {
 
 function renderSubmittedBundle(record, { localOnly = false } = {}) {
   const performance = submittedBundlePerformance(record);
+  const benchmark = submittedBenchmarkPerformance(record);
+  const alpha = performance.percent - benchmark.percent;
   const direction = performance.percent > 0.01 ? "up" : performance.percent < -0.01 ? "down" : "flat";
   const className = direction === "up" ? "gain" : direction === "down" ? "loss" : "neutral";
   const submittedAt = record.submittedAt ? new Date(record.submittedAt) : null;
   const submittedLabel = submittedAt && !Number.isNaN(submittedAt.getTime())
     ? submittedAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
     : "time unknown";
-  const storageNote = localOnly ? "local backup" : "tracked handoff";
+  const execution = submittedBundleExecutionState(record, localOnly);
   const coins = Array.isArray(record.coins) ? record.coins : [];
   return `
     <article class="submitted-bundle ${className}">
       <div class="submitted-bundle-head">
         <div class="submitted-bundle-title">
           <strong>Bundle #${escapeHtml(record.bundleNumber || record.id || "pending")}</strong>
-          <span>${escapeHtml(record.bundleName || "Bundle Builder allocation")} - ${escapeHtml(record.network || "Base")} - ${formatCurrency(record.startValueUsd || record.amountUsd || 0)} - ${escapeHtml(submittedLabel)} - ${escapeHtml(storageNote)}</span>
+          <span>${escapeHtml(record.bundleName || "Bundle Builder allocation")} - ${escapeHtml(record.network || "Base")} - ${formatCurrency(record.startValueUsd || record.amountUsd || 0)} - ${escapeHtml(submittedLabel)} - ${escapeHtml(execution.label)}</span>
         </div>
-        <div class="submitted-performance ${direction === "up" ? "up" : direction === "down" ? "down" : ""}" aria-label="Estimated bundle performance">
+        <div class="submitted-performance ${direction === "up" ? "up" : direction === "down" ? "down" : ""}" aria-label="${escapeAttribute(execution.performanceLabel)}">
           ${performanceIcon(direction)}
           <span>${formatPercent(performance.percent)}</span>
+          <small>${escapeHtml(execution.shortLabel)}</small>
         </div>
+      </div>
+      <div class="submitted-evaluation-grid">
+        <span><b>Baseline</b>${formatPercent(benchmark.percent)}</span>
+        <span><b>Alpha</b>${formatPercent(alpha)}</span>
+        <span><b>Confidence</b>${record.evaluation?.confidence?.score || record.confidenceScore || "--"}</span>
+        <span><b>Best signal</b>${escapeHtml(record.evaluation?.topSignal || record.topSignal || "Tracking")}</span>
       </div>
       <div class="submitted-token-grid">
         ${coins.map((coin) => renderSubmittedToken(coin)).join("")}
       </div>
     </article>
   `;
+}
+
+function submittedBundleExecutionState(record = {}, localOnly = false) {
+  const status = String(record.executionStatus || "").toLowerCase();
+  const basis = String(record.performanceBasis || "").toLowerCase();
+  const executed = status === "executed" || status === "confirmed" || status === "filled" || basis === "executed-swap";
+  if (executed) {
+    return {
+      label: record.executionId ? `executed swap ${record.executionId}` : "executed swap",
+      shortLabel: "Executed",
+      performanceLabel: "Executed swap performance",
+    };
+  }
+  if (status === "quoted" || basis === "confirmed-quote") {
+    return {
+      label: "confirmed quote estimate",
+      shortLabel: "Quote est.",
+      performanceLabel: "Confirmed quote performance estimate",
+    };
+  }
+  return {
+    label: localOnly ? "local handoff estimate" : "handoff estimate",
+    shortLabel: "Estimate",
+    performanceLabel: "Estimated handoff performance",
+  };
 }
 
 function renderSubmittedToken(coin) {
@@ -11251,6 +11488,157 @@ function submittedBundlePerformance(record) {
     percent: ((currentValue - startValue) / startValue) * 100,
     currentValue,
     startValue,
+  };
+}
+
+function submittedBenchmarkPerformance(record) {
+  const coins = Array.isArray(record.coins) ? record.coins : [];
+  const startValue = Number(record.startValueUsd) || Number(record.amountUsd) || coins.reduce((sum, coin) => sum + (Number(coin.amountUsd) || 0), 0);
+  if (!startValue) return { percent: 0, currentValue: 0, startValue };
+  const benchmarkTickers = benchmarkTickersForRecord(record, coins.length || 6);
+  if (!benchmarkTickers.length) return { percent: 0, currentValue: startValue, startValue };
+  const perCoin = startValue / benchmarkTickers.length;
+  const currentValue = benchmarkTickers.reduce((sum, ticker) => {
+    const startPrice = fallbackPriceForTicker(ticker);
+    const currentPrice = currentPriceForSubmittedToken({ ticker, startPriceUsd: startPrice });
+    if (startPrice && currentPrice) return sum + (perCoin / startPrice) * currentPrice;
+    return sum + perCoin;
+  }, 0);
+  return {
+    percent: ((currentValue - startValue) / startValue) * 100,
+    currentValue,
+    startValue,
+  };
+}
+
+function benchmarkTickersForRecord(record, count = 6) {
+  const network = normalizeNetwork(record.network || record.preferences?.network || "Base");
+  const tickers = confirmedViciNetworkTokens[network] || confirmedViciNetworkTokens.Base || [];
+  const stable = tickers.filter((ticker) => isStableOrCashTicker(ticker)).slice(0, 1);
+  const core = tickers.filter((ticker) => isCoreWrappedTicker(ticker)).slice(0, 2);
+  const growth = tickers.filter((ticker) => !stable.includes(ticker) && !core.includes(ticker)).slice(0, Math.max(0, count - stable.length - core.length));
+  return [...stable, ...core, ...growth].slice(0, Math.max(1, count));
+}
+
+function fallbackPriceForTicker(ticker) {
+  return getCoinPriceInfo(ticker)?.price || fallbackPrices[normalizeTicker(ticker)] || null;
+}
+
+function renderAccuracyDashboard(records = null) {
+  if (!accuracySummary || !accuracyChart || !signalBoard) return;
+  const tracked = Array.isArray(records) ? records : readSubmittedBundlesLocal();
+  const metrics = accuracyMetrics(tracked);
+  const pulse = machineAccuracySummary || computeMachineAccuracySummary(readPulseSnapshots());
+  const horizons = Array.isArray(pulse.horizons) ? pulse.horizons : [];
+  const primaryHorizon = horizons.find((item) => item.label === "24h") || horizons[0] || {};
+  accuracySummary.innerHTML = `
+    <div class="accuracy-metric ${metrics.trackedCount ? "" : "muted"}"><span>Tracked bundles</span><strong>${metrics.trackedCount}</strong></div>
+    <div class="accuracy-metric"><span>Avg return</span><strong>${formatPercent(metrics.averageReturn)}</strong></div>
+    <div class="accuracy-metric"><span>Baseline</span><strong>${formatPercent(metrics.averageBenchmark)}</strong></div>
+    <div class="accuracy-metric ${metrics.alpha >= 0 ? "positive" : "negative"}"><span>Alpha</span><strong>${formatPercent(metrics.alpha)}</strong></div>
+    <div class="accuracy-metric"><span>Win rate</span><strong>${metrics.trackedCount ? `${Math.round(metrics.winRate)}%` : "--"}</strong></div>
+    <div class="accuracy-metric"><span>Pulse 24h</span><strong>${primaryHorizon.directionAccuracy === null || primaryHorizon.directionAccuracy === undefined ? "Collecting" : `${primaryHorizon.directionAccuracy}%`}</strong></div>
+  `;
+  accuracyChart.innerHTML = metrics.trackedCount
+    ? renderAccuracyBars(metrics.rows)
+    : `<div class="accuracy-empty">No tracked handoffs yet. Build a bundle and confirm the ViciSwap handoff to start measuring estimated performance against a simple confirmed-token baseline.</div>`;
+  signalBoard.innerHTML = renderSignalBoard(metrics, pulse);
+}
+
+function accuracyMetrics(records = []) {
+  const rows = records
+    .filter((record) => Array.isArray(record.coins) && record.coins.length)
+    .map((record) => {
+      const performance = submittedBundlePerformance(record);
+      const benchmark = submittedBenchmarkPerformance(record);
+      return {
+        id: record.id || record.bundleNumber,
+        name: record.bundleName || "Bundle",
+        submittedAt: record.submittedAt || record.createdAt || "",
+        execution: submittedBundleExecutionState(record),
+        returnPercent: performance.percent,
+        benchmarkPercent: benchmark.percent,
+        alpha: performance.percent - benchmark.percent,
+        confidence: finiteOrNull(record.evaluation?.confidence?.score) || finiteOrNull(record.confidenceScore),
+        topSignal: record.evaluation?.topSignal || record.topSignal || "",
+      };
+    });
+  const trackedCount = rows.length;
+  const averageReturn = averageValue(rows, (row) => row.returnPercent);
+  const averageBenchmark = averageValue(rows, (row) => row.benchmarkPercent);
+  return {
+    trackedCount,
+    averageReturn,
+    averageBenchmark,
+    alpha: averageReturn - averageBenchmark,
+    winRate: trackedCount ? rows.filter((row) => row.alpha > 0).length / trackedCount * 100 : 0,
+    rows: rows.slice(0, 8),
+    signals: signalSummaryFromRows(rows),
+  };
+}
+
+function renderAccuracyBars(rows) {
+  return `
+    <div class="accuracy-bars">
+      ${rows.map((row) => {
+        const width = Math.min(100, Math.max(4, Math.abs(row.returnPercent) * 3 + 6));
+        const benchmarkWidth = Math.min(100, Math.max(4, Math.abs(row.benchmarkPercent) * 3 + 6));
+        return `
+          <div class="accuracy-row">
+            <div><strong>${escapeHtml(row.name)}</strong><span>${row.submittedAt ? escapeHtml(formatDateTime(row.submittedAt)) : "Tracked handoff"} - ${escapeHtml(row.execution.shortLabel)}</span></div>
+            <div class="accuracy-bar-stack">
+              <span class="${row.returnPercent >= 0 ? "up" : "down"}" style="width:${width}%"><b>Builder ${formatPercent(row.returnPercent)}</b></span>
+              <span class="benchmark" style="width:${benchmarkWidth}%"><b>Baseline ${formatPercent(row.benchmarkPercent)}</b></span>
+            </div>
+            <em class="${row.alpha >= 0 ? "positive" : "negative"}">${formatPercent(row.alpha)} alpha</em>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderSignalBoard(metrics, pulse = {}) {
+  const activeSignals = currentBundle
+    ? bundleSignalAttribution(getAdjustedAllocation(currentBundle, safePreferences().network, safePreferences()), safePreferences(), currentBundle).signals
+    : [];
+  const best = metrics.signals.best || activeSignals[0];
+  const worst = metrics.signals.worst || activeSignals.filter((signal) => signal.contribution < 0).at(-1);
+  const deepDive = pulse.deepDive24h || {};
+  const lessons = Array.isArray(deepDive.lessons) ? deepDive.lessons : [];
+  return `
+    <article>
+      <span>Best signal</span>
+      <strong>${escapeHtml(best?.label || "Waiting for data")}</strong>
+      <p>${best ? `${formatSignedPoints(best.contribution)} contribution` : "Build or track bundles to rank signals."}</p>
+    </article>
+    <article>
+      <span>Weakest signal</span>
+      <strong>${escapeHtml(worst?.label || "No drag yet")}</strong>
+      <p>${worst ? `${formatSignedPoints(worst.contribution)} contribution` : "No negative driver is visible yet."}</p>
+    </article>
+    <article>
+      <span>Learning loop</span>
+      <strong>${Number(pulse.totalSnapshots || 0)} pulse runs</strong>
+      <p>${lessons[0] ? escapeHtml(lessons[0]) : "Pulse snapshots and submitted bundles feed the evaluation loop as new market data arrives."}</p>
+    </article>
+  `;
+}
+
+function signalSummaryFromRows(rows) {
+  const totals = new Map();
+  rows.forEach((row) => {
+    if (!row.topSignal) return;
+    const current = totals.get(row.topSignal) || { label: row.topSignal, contribution: 0, count: 0 };
+    current.contribution += row.alpha;
+    current.count += 1;
+    totals.set(row.topSignal, current);
+  });
+  const ranked = [...totals.values()].map((item) => ({ ...item, contribution: roundTo(item.contribution / Math.max(1, item.count), 1) }));
+  ranked.sort((a, b) => b.contribution - a.contribution);
+  return {
+    best: ranked[0] || null,
+    worst: ranked.length > 1 ? ranked.at(-1) : null,
   };
 }
 
@@ -12041,6 +12429,13 @@ function formatPercent(value) {
   if (!Number.isFinite(numeric)) return "--";
   const sign = numeric > 0 ? "+" : "";
   return `${sign}${numeric.toFixed(2)}%`;
+}
+
+function formatSignedPoints(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "--";
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${numeric.toFixed(1)}`;
 }
 
 function formatCurrency(value) {

@@ -73,6 +73,10 @@ function sanitizeSubmittedBundle(input = {}) {
     bundleNumber: id,
     source: "bundle-builder-beta",
     submittedAt: now,
+    executionStatus: sanitizeExecutionStatus(input.executionStatus),
+    executionId: safeText(input.executionId || input.swapId || input.quoteId, 120),
+    executedAt: validIsoText(input.executedAt),
+    performanceBasis: sanitizePerformanceBasis(input.performanceBasis),
     bundleId: safeText(input.bundleId, 80),
     bundleName: safeText(input.bundleName, 120) || "Bundle Builder allocation",
     network: safeText(input.network, 30) || "Base",
@@ -80,6 +84,10 @@ function sanitizeSubmittedBundle(input = {}) {
     startValueUsd,
     preferences: sanitizeObject(input.preferences, 12),
     fitScore: finiteNumber(input.fitScore),
+    confidenceScore: finiteNumber(input.confidenceScore),
+    benchmarkEdge: finiteNumber(input.benchmarkEdge),
+    topSignal: safeText(input.topSignal, 80),
+    evaluation: sanitizeEvaluation(input.evaluation),
     riskIndex: finiteNumber(input.riskIndex),
     thesis: safeText(input.thesis, 500),
     coins,
@@ -95,6 +103,10 @@ function sanitizeStoredBundle(input = {}) {
     bundleNumber: safeText(input.bundleNumber || input.id, 32) || makeSubmissionId(),
     source: safeText(input.source, 60) || "bundle-builder-beta",
     submittedAt: safeText(input.submittedAt, 40) || new Date().toISOString(),
+    executionStatus: sanitizeExecutionStatus(input.executionStatus),
+    executionId: safeText(input.executionId || input.swapId || input.quoteId, 120),
+    executedAt: validIsoText(input.executedAt),
+    performanceBasis: sanitizePerformanceBasis(input.performanceBasis),
     bundleId: safeText(input.bundleId, 80),
     bundleName: safeText(input.bundleName, 120) || "Bundle Builder allocation",
     network: safeText(input.network, 30) || "Base",
@@ -102,6 +114,10 @@ function sanitizeStoredBundle(input = {}) {
     startValueUsd: finiteNumber(input.startValueUsd) || coins.reduce((sum, coin) => sum + (finiteNumber(coin.amountUsd) || 0), 0),
     preferences: sanitizeObject(input.preferences, 12),
     fitScore: finiteNumber(input.fitScore),
+    confidenceScore: finiteNumber(input.confidenceScore),
+    benchmarkEdge: finiteNumber(input.benchmarkEdge),
+    topSignal: safeText(input.topSignal, 80),
+    evaluation: sanitizeEvaluation(input.evaluation),
     riskIndex: finiteNumber(input.riskIndex),
     thesis: safeText(input.thesis, 500),
     coins,
@@ -123,6 +139,59 @@ function sanitizeSubmittedCoin(input = {}) {
     role: safeText(input.role, 140),
     safetyLabel: safeText(input.safetyLabel, 120),
   };
+}
+
+function sanitizeEvaluation(input = {}) {
+  if (!input || typeof input !== "object") return {};
+  const confidence = input.confidence && typeof input.confidence === "object" ? input.confidence : {};
+  const benchmark = input.benchmark && typeof input.benchmark === "object" ? input.benchmark : {};
+  const attribution = input.signalAttribution && typeof input.signalAttribution === "object" ? input.signalAttribution : {};
+  const signals = Array.isArray(attribution.signals)
+    ? attribution.signals.slice(0, 8).map((signal) => ({
+      id: safeText(signal.id, 40),
+      label: safeText(signal.label, 80),
+      contribution: finiteNumber(signal.contribution),
+      detail: safeText(signal.detail, 180),
+    })).filter((signal) => signal.label)
+    : [];
+  return {
+    confidence: {
+      score: finiteNumber(confidence.score),
+      label: safeText(confidence.label, 40),
+    },
+    benchmark: {
+      selectedScore: finiteNumber(benchmark.selectedScore),
+      benchmarkScore: finiteNumber(benchmark.benchmarkScore),
+      edge: finiteNumber(benchmark.edge),
+    },
+    signalAttribution: {
+      summary: safeText(attribution.summary, 180),
+      signals,
+    },
+    topSignal: safeText(input.topSignal, 80),
+    createdAt: safeText(input.createdAt, 40),
+  };
+}
+
+function sanitizeExecutionStatus(value) {
+  const status = safeText(value, 32).toLowerCase();
+  if (["executed", "confirmed", "filled"].includes(status)) return "executed";
+  if (["quoted", "quote"].includes(status)) return "quoted";
+  return "handoff";
+}
+
+function sanitizePerformanceBasis(value) {
+  const basis = safeText(value, 40).toLowerCase();
+  if (basis === "executed-swap") return "executed-swap";
+  if (basis === "confirmed-quote") return "confirmed-quote";
+  return "handoff-estimate";
+}
+
+function validIsoText(value) {
+  const text = safeText(value, 40);
+  if (!text) return "";
+  const time = new Date(text).getTime();
+  return Number.isFinite(time) ? text : "";
 }
 
 function makeSubmissionId(value) {

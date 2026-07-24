@@ -427,6 +427,7 @@ async function recommendBundle(rawParams = {}, options = {}) {
 
   const model = selectStrategyModel(params, network, supportedTickers, scoredCandidates);
   const allocation = buildAllocation(model, scoredCandidates, support.tokenMap, params);
+  const bundleEvaluation = bundleEvaluationSummary(model, allocation, scoredCandidates, params);
 
   return {
     ok: true,
@@ -476,6 +477,11 @@ async function recommendBundle(rawParams = {}, options = {}) {
       chainId: network.chainId,
       thesis: model.thesis,
       fitScore: fitScore(model, allocation, params),
+      confidence: bundleEvaluation.confidence,
+      expectedVolatility: bundleEvaluation.expectedVolatility,
+      signalAttribution: bundleEvaluation.signalAttribution,
+      benchmarkComparison: bundleEvaluation.benchmarkComparison,
+      evaluation: bundleEvaluation,
       coins: allocation,
     },
     coins: allocation,
@@ -868,6 +874,7 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
       riskNote: candidate.riskNote,
       confidence: confidenceSignalForCandidate(candidate, params),
       conviction: convictionSignalForCandidate(candidate, params),
+      signalAttribution: signalAttributionForCandidate(candidate, params),
       support: {
         source: token.address ? "vici-api-with-address" : "vici-eligible",
         receiveToken: true,
@@ -907,6 +914,129 @@ function buildAllocation(model, scoredCandidates, tokenMap, params) {
       },
     };
   });
+}
+
+function bundleEvaluationSummary(model, allocation, scoredCandidates, params = {}) {
+  const selected = allocation || [];
+  const totalWeight = selected.reduce((sum, coin) => sum + (finiteOrNull(coin.allocationPercent) || 0), 0);
+  const confidenceScore = totalWeight
+    ? selected.reduce((sum, coin) => sum + (finiteOrNull(coin.confidence?.score) || 0) * (finiteOrNull(coin.allocationPercent) || 0), 0) / totalWeight
+    : 0;
+  const volatilityScore = totalWeight
+    ? selected.reduce((sum, coin) => sum + volatilityEstimateForCoin(coin) * (finiteOrNull(coin.allocationPercent) || 0), 0) / totalWeight
+    : 0;
+  const attribution = aggregateSignalAttribution(selected);
+  const candidates = Array.isArray(scoredCandidates) ? scoredCandidates : [];
+  const recommendedAverage = selected.length
+    ? selected.reduce((sum, coin) => sum + (finiteOrNull(coin.signalAttribution?.totalScore) || 0), 0) / selected.length
+    : 0;
+  const universeAverage = candidates.length
+    ? candidates.slice(0, 24).reduce((sum, candidate) => sum + scoreCandidate(candidate, params), 0) / Math.min(candidates.length, 24)
+    : recommendedAverage;
+  const edgeVsUniverse = roundPercent(recommendedAverage - universeAverage);
+  return {
+    confidence: {
+      score: roundPercent(clamp(confidenceScore, 0, 100)),
+      label: confidenceScore >= 75 ? "High confidence" : confidenceScore >= 55 ? "Medium confidence" : "Low confidence",
+      basis: "Weighted average of selected-token liquidity, market, category, and trend confirmation.",
+    },
+    expectedVolatility: {
+      score: roundPercent(clamp(volatilityScore, 0, 100)),
+      label: volatilityScore >= 70 ? "High" : volatilityScore >= 45 ? "Medium" : "Lower",
+      basis: "Estimated from token role, recent movement, speculative exposure, and confidence.",
+    },
+    signalAttribution: attribution,
+    benchmarkComparison: {
+      benchmark: "Top eligible universe average",
+      recommendedAverageScore: roundPercent(recommendedAverage),
+      benchmarkAverageScore: roundPercent(universeAverage),
+      edgeVsBenchmark: edgeVsUniverse,
+      label: edgeVsUniverse >= 5 ? "Above benchmark" : edgeVsUniverse <= -5 ? "Below benchmark" : "Near benchmark",
+      note: "This is a ranking-quality benchmark, not realized return. Submitted-bundle tracking is needed for realized return comparisons.",
+    },
+    modelRiskIndex: model.riskIndex,
+    targetRiskIndex: riskTarget(params.risk),
+  };
+}
+
+function aggregateSignalAttribution(coins = []) {
+  const totals = new Map();
+  let totalWeight = 0;
+  coins.forEach((coin) => {
+    const weight = finiteOrNull(coin.allocationPercent) || 0;
+    totalWeight += weight;
+    (coin.signalAttribution?.signals || []).forEach((signal) => {
+      const current = totals.get(signal.id) || { ...signal, contribution: 0 };
+      current.contribution += (finiteOrNull(signal.contribution) || 0) * weight;
+      totals.set(signal.id, current);
+    });
+  });
+  const divisor = Math.max(1, totalWeight);
+  const signals = [...totals.values()]
+    .map((signal) => ({ ...signal, contribution: roundPercent(signal.contribution / divisor) }))
+    .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  return {
+    summary: signals[0] ? `${signals[0].label} is the largest current driver.` : "No strong signal attribution was available.",
+    signals,
+  };
+}
+
+function signalAttributionForCandidate(candidate, params = {}) {
+  const market = candidate.market || {};
+  const category = candidate.categorySignal || {};
+  const liquidity = candidate.viciLiquidity || null;
+  const confidence = confidenceSignalForCandidate(candidate, params);
+  const riskWeight = riskMomentumMultiplier(params.risk);
+  const signals = [
+    {
+      id: "liquidity",
+      label: "Liquidity",
+      contribution: roundPercent(viciLiquidityScore(liquidity)),
+      detail: liquidity ? `ViciSwap simulated $1k round-trip loss is about $${roundMoney(liquidity.diffThousandUsd)}.` : "No ViciSwap simulated-liquidity row was available.",
+    },
+    {
+      id: "momentum",
+      label: "Momentum",
+      contribution: roundPercent(timeframeMomentumScore(market, params.timeframe) * riskWeight),
+      detail: `Uses 1h, 6h, and 24h movement for the selected ${timeframeLabel(params.timeframe)} horizon.`,
+    },
+    {
+      id: "volume",
+      label: "Volume",
+      contribution: roundPercent(logScore(market.volume24h, 1_000_000)),
+      detail: market.volume24h ? `24h DEX volume is $${Math.round(market.volume24h).toLocaleString()}.` : "Fresh DEX volume was unavailable.",
+    },
+    {
+      id: "category",
+      label: "Category",
+      contribution: roundPercent((category.score ? (category.score - 50) * 0.2 : 0) + (category.relativeStrength24h ? clamp(category.relativeStrength24h, -20, 25) * 0.2 : 0)),
+      detail: category.interpretation || "Live category intelligence was unavailable.",
+    },
+    {
+      id: "confidence",
+      label: "Confidence",
+      contribution: roundPercent((confidence.score - 50) * 0.08),
+      detail: `${confidence.label}: ${confidence.reasons[0] || confidence.watchouts[0] || "limited supporting evidence"}.`,
+    },
+  ];
+  return {
+    totalScore: roundPercent(candidate.baseScore + signals.reduce((sum, signal) => sum + signal.contribution, 0)),
+    signals: signals.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)),
+  };
+}
+
+function volatilityEstimateForCoin(coin = {}) {
+  const ticker = normalizeTicker(coin.ticker);
+  const change = Math.abs(finiteOrNull(coin.market?.change24h) || 0);
+  const role = String(coin.thesisProfile?.role || coin.role || "").toLowerCase();
+  let score = 35 + clamp(change * 1.6, 0, 30);
+  if (isStableOrCashTicker(ticker)) score -= 28;
+  if (isCoreWrappedTicker(ticker)) score -= 8;
+  if (/community|social|meme|ai|data narrative/.test(role)) score += 18;
+  if (/defi|yield/.test(role)) score += 8;
+  if (coin.confidence?.score >= 75) score -= 8;
+  if (coin.confidence?.score < 45) score += 12;
+  return clamp(score, 0, 100);
 }
 
 async function getMarketSignals(candidates, network, options = {}) {
