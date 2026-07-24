@@ -2815,6 +2815,7 @@ function buildTickerRankHistory(snapshots = []) {
         rank: finiteNumber(coin.rank),
         change24h: finiteNumber(coin.change24h),
         projected24hChange: finiteNumber(coin.projected24hChange),
+        priceUsd: finiteNumber(coin.priceUsd),
         pulseScore: finiteNumber(coin.pulseScore),
         volume24h: finiteNumber(coin.volume24h),
         liquidityUsd: finiteNumber(coin.liquidityUsd),
@@ -2840,6 +2841,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const qualityScore = meta.baseScore * 0.76;
   const defaultFavoritePenalty = ticker === "AERO" && market.priceChange24h < 7 && opportunityScore < 6 ? 5.5 : 0;
   const aeroPerformancePenalty = pulseAeroPerformancePenalty(ticker, market, rankingContext, opportunityScore);
+  const mediumTermTrendPenalty = pulseMediumTermTrendPenalty(ticker, market, rankingContext, opportunityScore);
   const reversalWakeupBoost = pulseReversalWakeupBoost(meta, market, buyRatio, opportunityScore);
   const extensionPenalty = pulseExtensionPenalty(meta, market, opportunityScore);
   const speculativeTrapPenalty = pulseSpeculativeTrapPenalty(meta, market, buyRatio, opportunityScore);
@@ -2885,7 +2887,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
   const wakeUpBoost = clamp((wakeUpSignal.score - 42) / 6, -3.5, 9.5);
   const confirmedWakeBoost = clamp((confirmedWakeUpSignal.score - 50) / 6, -4, 10);
   const graduationBoost = graduationSignal.boost;
-  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - aeroPerformancePenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty - dataFreshnessPenalty).toFixed(2));
+  const pulseScore = Number((qualityScore + volumeScore + liquidityScore + momentumScore + flowScore + opportunityScore + reversalWakeupBoost + wakeUpBoost + confirmedWakeBoost + rankMomentum + regimeFit + confidenceBoost + graduationBoost - defaultFavoritePenalty - aeroPerformancePenalty - mediumTermTrendPenalty - extensionPenalty - speculativeTrapPenalty - fragilityPenalty - dataFreshnessPenalty).toFixed(2));
   const signalLane = pulseSignalLane({
     pulseScore,
     wakeUpScore: wakeUpSignal.score,
@@ -2924,6 +2926,7 @@ function scorePulseCollectorCandidate(meta, market, rankingContext = {}) {
     reversalWakeupBoost: Number(reversalWakeupBoost.toFixed(2)),
     extensionPenalty: Number(extensionPenalty.toFixed(2)),
     aeroPerformancePenalty: Number(aeroPerformancePenalty.toFixed(2)),
+    mediumTermTrendPenalty: Number(mediumTermTrendPenalty.toFixed(2)),
     speculativeTrapPenalty: Number(speculativeTrapPenalty.toFixed(2)),
     dataFreshnessPenalty: Number(dataFreshnessPenalty.toFixed(2)),
   };
@@ -2957,6 +2960,48 @@ function pulseAeroPerformancePenalty(ticker, market, rankingContext = {}, opport
   if (Number.isFinite(recentAvgChange) && recentAvgChange < 0 && opportunityScore < 7) penalty += 3.5;
   if (volume >= 1_000_000 && liquidity >= 5_000_000 && change < 1 && opportunityScore < 6) penalty += 2;
   return clamp(penalty, 0, 15);
+}
+
+function pulseMediumTermTrendPenalty(ticker, market, rankingContext = {}, opportunityScore = 0) {
+  const rows = rankingContext?.tickerHistory instanceof Map ? rankingContext.tickerHistory.get(ticker) : [];
+  const clean = (Array.isArray(rows) ? rows : []).filter((row) => Number.isFinite(row.priceUsd) && row.priceUsd > 0);
+  const recent = clean.slice(-2016);
+  const currentChange = finiteNumber(market.priceChange24h) || 0;
+  const rankMomentum = pulseRankMomentum(ticker, rankingContext);
+  const hasStrongShortTermConfirmation = currentChange >= 4 && opportunityScore >= 7 && rankMomentum >= 1.5;
+  let penalty = 0;
+
+  if (recent.length >= 24) {
+    const startPrice = recent[0].priceUsd;
+    const endPrice = recent[recent.length - 1].priceUsd;
+    const highPrice = Math.max(...recent.map((row) => row.priceUsd));
+    const mediumTermChange = ((endPrice - startPrice) / startPrice) * 100;
+    const drawdownFromHigh = ((endPrice - highPrice) / highPrice) * 100;
+    const negativeShare = recent.filter((row) => Number.isFinite(row.change24h) && row.change24h < 0).length
+      / Math.max(1, recent.filter((row) => Number.isFinite(row.change24h)).length);
+    const firstHalfHigh = Math.max(...recent.slice(0, Math.max(1, Math.floor(recent.length / 2))).map((row) => row.priceUsd));
+    const secondHalfHigh = Math.max(...recent.slice(Math.floor(recent.length / 2)).map((row) => row.priceUsd));
+    const lowerHighStructure = Number.isFinite(firstHalfHigh) && Number.isFinite(secondHalfHigh)
+      && secondHalfHigh < firstHalfHigh * 0.97;
+
+    if (mediumTermChange <= -8) penalty += ticker === "AERO" ? 4 : 2.5;
+    if (mediumTermChange <= -15) penalty += ticker === "AERO" ? 4 : 2.5;
+    if (drawdownFromHigh <= -18) penalty += ticker === "AERO" ? 4 : 2.5;
+    if (lowerHighStructure) penalty += ticker === "AERO" ? 2.5 : 1.5;
+    if (negativeShare >= 0.58) penalty += 2;
+    if (currentChange < 1 && mediumTermChange <= -8) penalty += 2;
+  } else {
+    const fallbackRecent = (Array.isArray(rows) ? rows : []).slice(-24);
+    const recentAvgChange = averageValue(fallbackRecent.map((row) => row.change24h).filter(Number.isFinite));
+    const recentNegativeShare = fallbackRecent.filter((row) => Number.isFinite(row.change24h) && row.change24h < 0).length
+      / Math.max(1, fallbackRecent.filter((row) => Number.isFinite(row.change24h)).length);
+    if (Number.isFinite(recentAvgChange) && recentAvgChange < -2) penalty += ticker === "AERO" ? 4 : 2;
+    if (recentNegativeShare >= 0.65) penalty += ticker === "AERO" ? 3 : 1.5;
+  }
+
+  if (hasStrongShortTermConfirmation) penalty *= 0.45;
+  if (currentChange >= 7 && opportunityScore >= 8) penalty *= 0.3;
+  return clamp(penalty, 0, ticker === "AERO" ? 16 : 10);
 }
 
 function pulseGraduationSignal(ticker, rankingContext = {}) {
